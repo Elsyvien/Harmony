@@ -30,7 +30,9 @@ export async function buildApp() {
   });
 
   await app.register(cors, {
-    origin: env.CLIENT_ORIGIN,
+    origin: env.CLIENT_ORIGIN.includes(',') 
+      ? env.CLIENT_ORIGIN.split(',').map(o => o.trim())
+      : env.CLIENT_ORIGIN,
     credentials: true,
   });
 
