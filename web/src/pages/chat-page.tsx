@@ -653,6 +653,11 @@ export function ChatPage() {
           <SettingsPanel
             user={auth.user}
             wsConnected={ws.connected}
+            onLogout={logout}
+            activeView={activeView}
+            onToggleAdmin={
+              auth.user.isAdmin ? () => setActiveView((c) => (c === 'admin' ? 'settings' : 'admin')) : undefined
+            }
             preferences={preferences}
             onUpdatePreferences={updatePreferences}
             onResetPreferences={resetPreferences}
