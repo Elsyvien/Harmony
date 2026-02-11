@@ -1,0 +1,101 @@
+/* ... (previous styles) ... */
+
+/* User Sidebar - Refined Discord Style */
+.user-sidebar {
+  background-color: var(--bg-darker);
+  border-left: 1px solid var(--panel-border);
+  padding: 24px 16px;
+  overflow-y: auto;
+}
+
+.user-sidebar header h2 {
+  color: var(--text-muted);
+  font-size: 12px;
+  font-weight: 700;
+  text-transform: uppercase;
+  margin: 0 0 16px 8px;
+  letter-spacing: 0.02em;
+}
+
+.user-item {
+  display: flex;
+  align-items: center;
+  padding: 10px 8px;
+  border-radius: 4px;
+  cursor: pointer;
+  margin-bottom: 2px;
+  opacity: 0.9;
+  transition: all 0.1s;
+}
+
+.user-item:hover {
+  background-color: var(--bg-hover);
+  opacity: 1;
+}
+
+.user-item:active {
+  color: var(--text-header);
+}
+
+.user-item-avatar-wrapper {
+  position: relative;
+  margin-right: 12px;
+  flex-shrink: 0;
+}
+
+.user-item .avatar {
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: white;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.status-dot-large {
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  border: 3px solid var(--bg-darker); /* Matches background to create cutout look */
+  position: absolute;
+  bottom: -2px;
+  right: -2px;
+}
+.status-dot-large.online { background-color: var(--positive); }
+.status-dot-large.idle { background-color: var(--warning); }
+.status-dot-large.dnd { background-color: var(--danger); }
+
+.user-item:hover .status-dot-large {
+  border-color: var(--bg-hover); /* Match hover background */
+}
+
+.user-item-info {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.user-item .username {
+  color: var(--text-normal);
+  font-weight: 500;
+  font-size: 15px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.user-item:hover .username {
+  color: var(--text-header);
+}
+
+.user-item .activity-text {
+  font-size: 11px;
+  color: var(--text-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-height: 0; /* allows it to collapse if empty */
+}

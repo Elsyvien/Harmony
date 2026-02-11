@@ -17,6 +17,7 @@ interface ChannelSidebarProps {
 export function ChannelSidebar(props: ChannelSidebarProps) {
   const [channelName, setChannelName] = useState('');
   const [creating, setCreating] = useState(false);
+  const [showCreateChannel, setShowCreateChannel] = useState(false);
   const [channelFilter, setChannelFilter] = useState('');
   const userTag = `${props.username.length}${props.username
     .split('')
@@ -29,17 +30,78 @@ export function ChannelSidebar(props: ChannelSidebarProps) {
   return (
     <aside className="channel-sidebar">
       <header>
-        <h2>Channels</h2>
+        <div className="channel-header-row">
+          <h2>Channels</h2>
+          {props.isAdmin ? (
+            <button
+              className={showCreateChannel ? 'channel-add-btn active' : 'channel-add-btn'}
+              aria-label="Create channel"
+              title="Create channel"
+              onClick={() => setShowCreateChannel((open) => !open)}
+            >
+              <svg width="16" height="16" viewBox="0 0 24 24" aria-hidden="true">
+                <path
+                  fill="currentColor"
+                  d="M19 11h-6V5h-2v6H5v2h6v6h2v-6h6z"
+                />
+              </svg>
+            </button>
+          ) : null}
+        </div>
       </header>
 
       <nav>
+        {props.isAdmin && showCreateChannel ? (
+          <form
+            className="channel-create-form"
+            onSubmit={async (event) => {
+              event.preventDefault();
+              if (creating) {
+                return;
+              }
+              const trimmed = channelName.trim();
+              if (!trimmed) {
+                return;
+              }
+              setCreating(true);
+              try {
+                await props.onCreateChannel(trimmed);
+                setChannelName('');
+                setShowCreateChannel(false);
+              } finally {
+                setCreating(false);
+              }
+            }}
+          >
+            <input
+              value={channelName}
+              onChange={(event) => setChannelName(event.target.value)}
+              placeholder="new-channel"
+              minLength={2}
+              maxLength={64}
+              disabled={creating}
+            />
+            <button className="ghost-btn" type="submit" disabled={creating}>
+              {creating ? 'Adding...' : 'Add'}
+            </button>
+          </form>
+        ) : null}
+
         <div className="channel-filter-wrap">
-          <input
-            className="channel-filter-input"
-            value={channelFilter}
-            onChange={(event) => setChannelFilter(event.target.value)}
-            placeholder="Search channels"
-          />
+          <div className="channel-search-box">
+            <svg width="14" height="14" viewBox="0 0 24 24" aria-hidden="true">
+              <path
+                fill="currentColor"
+                d="M15.5 14h-.79l-.28-.27A6.5 6.5 0 1 0 14 15.5l.27.28v.79L20 21.49 21.49 20zM10 15a5 5 0 1 1 0-10 5 5 0 0 1 0 10"
+              />
+            </svg>
+            <input
+              className="channel-filter-input"
+              value={channelFilter}
+              onChange={(event) => setChannelFilter(event.target.value)}
+              placeholder="Search or jump to channel"
+            />
+          </div>
           <small className="channel-count">
             {filteredChannels.length} / {props.channels.length}
           </small>
@@ -81,43 +143,6 @@ export function ChannelSidebar(props: ChannelSidebarProps) {
           Settings
         </button>
       </section>
-
-      {props.isAdmin ? (
-        <section className="admin-menu">
-          <h3>Admin Menu</h3>
-          <form
-            onSubmit={async (event) => {
-              event.preventDefault();
-              if (creating) {
-                return;
-              }
-              const trimmed = channelName.trim();
-              if (!trimmed) {
-                return;
-              }
-              setCreating(true);
-              try {
-                await props.onCreateChannel(trimmed);
-                setChannelName('');
-              } finally {
-                setCreating(false);
-              }
-            }}
-          >
-            <input
-              value={channelName}
-              onChange={(event) => setChannelName(event.target.value)}
-              placeholder="new-channel"
-              minLength={2}
-              maxLength={64}
-              disabled={creating}
-            />
-            <button className="ghost-btn" type="submit" disabled={creating}>
-              Add channel
-            </button>
-          </form>
-        </section>
-      ) : null}
 
       <footer>
         <div className="user-panel">

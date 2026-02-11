@@ -28,6 +28,11 @@ export async function apiRequest<T>(
   });
 
   if (!response.ok) {
+    if (response.status === 401 && token) {
+      localStorage.removeItem('discordclone_token');
+      localStorage.removeItem('discordclone_user');
+      window.location.href = '/login';
+    }
     throw await parseError(response);
   }
 
