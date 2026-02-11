@@ -1,0 +1,262 @@
+:root {
+  --bg-top: #f2eadf;
+  --bg-bottom: #d8e1ef;
+  --panel: #ffffffde;
+  --panel-strong: #f4f6ff;
+  --text-main: #1d2433;
+  --text-muted: #556077;
+  --accent: #006d77;
+  --accent-strong: #00545b;
+  --border: #c9cfde;
+  --danger: #b4233a;
+  --shadow: 0 18px 50px -30px rgba(22, 28, 45, 0.38);
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  min-height: 100vh;
+  color: var(--text-main);
+  font-family: "Space Grotesk", "Segoe UI", sans-serif;
+  background:
+    radial-gradient(circle at 15% 20%, #f9f0b7aa 0%, transparent 42%),
+    radial-gradient(circle at 84% 22%, #bae7d8aa 0%, transparent 38%),
+    linear-gradient(170deg, var(--bg-top), var(--bg-bottom));
+}
+
+a {
+  color: var(--accent);
+}
+
+.auth-page {
+  min-height: 100vh;
+  display: grid;
+  place-items: center;
+  padding: 2rem;
+  gap: 1rem;
+}
+
+.auth-card {
+  width: min(440px, 100%);
+  padding: 2rem;
+  border-radius: 1.2rem;
+  border: 1px solid var(--border);
+  background: var(--panel);
+  box-shadow: var(--shadow);
+}
+
+.auth-card h1 {
+  margin: 0;
+  font-size: 1.8rem;
+}
+
+.auth-subtitle {
+  margin: 0.35rem 0 1.4rem;
+  color: var(--text-muted);
+}
+
+.field {
+  display: grid;
+  gap: 0.45rem;
+  margin-bottom: 1rem;
+}
+
+.field span {
+  font-size: 0.92rem;
+  color: var(--text-muted);
+}
+
+input {
+  border: 1px solid var(--border);
+  border-radius: 0.75rem;
+  padding: 0.78rem 0.95rem;
+  font: inherit;
+  color: inherit;
+  background: #fff;
+}
+
+input:focus {
+  outline: 2px solid #8bbfc3;
+  border-color: transparent;
+}
+
+button {
+  font: inherit;
+  border: 0;
+  border-radius: 0.8rem;
+  cursor: pointer;
+}
+
+.primary-btn {
+  padding: 0.8rem 1rem;
+  background: var(--accent);
+  color: #fff;
+  transition: background 0.2s ease;
+}
+
+.primary-btn:hover {
+  background: var(--accent-strong);
+}
+
+.primary-btn:disabled {
+  opacity: 0.65;
+  cursor: not-allowed;
+}
+
+.ghost-btn {
+  padding: 0.65rem 0.9rem;
+  background: transparent;
+  color: var(--text-main);
+  border: 1px solid var(--border);
+}
+
+.error-banner {
+  margin: 0 0 0.8rem;
+  color: var(--danger);
+}
+
+.switch-copy {
+  margin: 0;
+  color: var(--text-muted);
+}
+
+.chat-layout {
+  min-height: 100vh;
+  display: grid;
+  grid-template-columns: 270px 1fr;
+}
+
+.channel-sidebar {
+  border-right: 1px solid var(--border);
+  background: linear-gradient(165deg, #fffef8, #f0f4ff);
+  padding: 1rem;
+  display: grid;
+  grid-template-rows: auto 1fr auto;
+  gap: 1rem;
+}
+
+.channel-sidebar h2 {
+  margin: 0;
+}
+
+.channel-sidebar nav {
+  display: flex;
+  flex-direction: column;
+  gap: 0.45rem;
+  overflow-y: auto;
+}
+
+.channel-item {
+  text-align: left;
+  padding: 0.6rem 0.7rem;
+  background: transparent;
+  color: inherit;
+  border: 1px solid transparent;
+}
+
+.channel-item.active {
+  background: #eaf7f8;
+  border-color: #9dc7cb;
+}
+
+.username-pill {
+  margin: 0 0 0.55rem;
+  font-weight: 600;
+}
+
+.chat-panel {
+  display: grid;
+  grid-template-rows: auto 1fr auto;
+  gap: 0.8rem;
+  padding: 1rem;
+}
+
+.panel-header h1 {
+  margin: 0;
+}
+
+.chat-view {
+  border: 1px solid var(--border);
+  border-radius: 1rem;
+  background: var(--panel-strong);
+  display: grid;
+  grid-template-rows: auto 1fr;
+  min-height: 0;
+}
+
+.chat-header {
+  padding: 0.9rem 1rem;
+  border-bottom: 1px solid var(--border);
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 0.8rem;
+}
+
+.chat-header h2 {
+  margin: 0;
+}
+
+.chat-header p {
+  margin: 0.2rem 0 0;
+  color: var(--text-muted);
+  font-size: 0.9rem;
+}
+
+.message-list {
+  padding: 1rem;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 0.8rem;
+}
+
+.message-item {
+  background: #fff;
+  border: 1px solid var(--border);
+  border-radius: 0.85rem;
+  padding: 0.75rem;
+}
+
+.message-item header {
+  display: flex;
+  justify-content: space-between;
+  gap: 1rem;
+  margin-bottom: 0.3rem;
+}
+
+.message-item time {
+  color: var(--text-muted);
+  font-size: 0.82rem;
+}
+
+.message-item p {
+  margin: 0;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.muted {
+  margin: 0;
+  color: var(--text-muted);
+}
+
+.composer {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 0.7rem;
+}
+
+@media (max-width: 900px) {
+  .chat-layout {
+    grid-template-columns: 1fr;
+  }
+
+  .channel-sidebar {
+    border-right: 0;
+    border-bottom: 1px solid var(--border);
+  }
+}

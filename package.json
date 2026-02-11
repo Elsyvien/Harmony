@@ -1,0 +1,24 @@
+{
+  "name": "discordclone-mvp",
+  "private": true,
+  "version": "0.1.0",
+  "workspaces": [
+    "backend",
+    "web"
+  ],
+  "scripts": {
+    "dev": "npm-run-all --parallel dev:backend dev:web",
+    "dev:backend": "npm --workspace backend run dev",
+    "dev:web": "npm --workspace web run dev",
+    "build": "npm-run-all build:backend build:web",
+    "build:backend": "npm --workspace backend run build",
+    "build:web": "npm --workspace web run build",
+    "lint": "npm-run-all lint:backend lint:web",
+    "lint:backend": "npm --workspace backend run lint",
+    "lint:web": "npm --workspace web run lint",
+    "test": "npm --workspace backend run test"
+  },
+  "devDependencies": {
+    "npm-run-all": "^4.1.5"
+  }
+}
