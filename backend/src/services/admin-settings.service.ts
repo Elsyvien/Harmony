@@ -1,46 +1,72 @@
+import { prisma } from '../repositories/prisma.js';
+
 export interface AdminSettings {
   allowRegistrations: boolean;
   readOnlyMode: boolean;
   slowModeSeconds: number;
 }
 
-const DEFAULT_SETTINGS: AdminSettings = {
-  allowRegistrations: true,
-  readOnlyMode: false,
-  slowModeSeconds: 0,
-};
+const SETTINGS_ID = 'global';
 
 function keyForUserChannel(userId: string, channelId: string) {
   return `${userId}:${channelId}`;
 }
 
 export class AdminSettingsService {
-  private settings: AdminSettings = { ...DEFAULT_SETTINGS };
   private lastMessageAtMs = new Map<string, number>();
 
-  getSettings(): AdminSettings {
-    return { ...this.settings };
+  private async ensureSettingsRow() {
+    return prisma.appSettings.upsert({
+      where: { id: SETTINGS_ID },
+      update: {},
+      create: {
+        id: SETTINGS_ID,
+      },
+    });
   }
 
-  updateSettings(next: Partial<AdminSettings>): AdminSettings {
-    if (typeof next.allowRegistrations === 'boolean') {
-      this.settings.allowRegistrations = next.allowRegistrations;
-    }
-    if (typeof next.readOnlyMode === 'boolean') {
-      this.settings.readOnlyMode = next.readOnlyMode;
-    }
-    if (typeof next.slowModeSeconds === 'number') {
-      this.settings.slowModeSeconds = next.slowModeSeconds;
-      if (next.slowModeSeconds <= 0) {
-        this.lastMessageAtMs.clear();
-      }
-    }
-
-    return this.getSettings();
+  private toSettings(row: {
+    allowRegistrations: boolean;
+    readOnlyMode: boolean;
+    slowModeSeconds: number;
+  }): AdminSettings {
+    return {
+      allowRegistrations: row.allowRegistrations,
+      readOnlyMode: row.readOnlyMode,
+      slowModeSeconds: row.slowModeSeconds,
+    };
   }
 
-  getSlowModeRetrySeconds(userId: string, channelId: string): number {
-    if (this.settings.slowModeSeconds <= 0) {
+  async getSettings(): Promise<AdminSettings> {
+    const row = await this.ensureSettingsRow();
+    return this.toSettings(row);
+  }
+
+  async updateSettings(next: Partial<AdminSettings>): Promise<AdminSettings> {
+    await this.ensureSettingsRow();
+
+    const updated = await prisma.appSettings.update({
+      where: { id: SETTINGS_ID },
+      data: {
+        ...(typeof next.allowRegistrations === 'boolean'
+          ? { allowRegistrations: next.allowRegistrations }
+          : {}),
+        ...(typeof next.readOnlyMode === 'boolean' ? { readOnlyMode: next.readOnlyMode } : {}),
+        ...(typeof next.slowModeSeconds === 'number'
+          ? { slowModeSeconds: next.slowModeSeconds }
+          : {}),
+      },
+    });
+
+    if (typeof next.slowModeSeconds === 'number' && next.slowModeSeconds <= 0) {
+      this.lastMessageAtMs.clear();
+    }
+
+    return this.toSettings(updated);
+  }
+
+  getSlowModeRetrySeconds(userId: string, channelId: string, slowModeSeconds: number): number {
+    if (slowModeSeconds <= 0) {
       return 0;
     }
     const key = keyForUserChannel(userId, channelId);
@@ -50,7 +76,7 @@ export class AdminSettingsService {
     }
 
     const elapsedMs = Date.now() - lastSent;
-    const remainingMs = this.settings.slowModeSeconds * 1000 - elapsedMs;
+    const remainingMs = slowModeSeconds * 1000 - elapsedMs;
     if (remainingMs <= 0) {
       return 0;
     }

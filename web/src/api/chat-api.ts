@@ -1,5 +1,13 @@
 import { apiRequest } from './client';
-import type { AdminSettings, AdminStats, Channel, Message, User } from '../types/api';
+import type {
+  AdminSettings,
+  AdminStats,
+  AdminUserSummary,
+  Channel,
+  Message,
+  User,
+  UserRole,
+} from '../types/api';
 
 export interface AuthResponse {
   token: string;
@@ -66,6 +74,25 @@ export const chatApi = {
       '/admin/settings',
       {
         method: 'PUT',
+        body: JSON.stringify(input),
+      },
+      token,
+    );
+  },
+
+  adminUsers(token: string) {
+    return apiRequest<{ users: AdminUserSummary[] }>('/admin/users', {}, token);
+  },
+
+  updateAdminUser(
+    token: string,
+    userId: string,
+    input: Partial<{ role: UserRole; isSuspended: boolean; suspendedUntil: string | null }>,
+  ) {
+    return apiRequest<{ user: AdminUserSummary }>(
+      `/admin/users/${userId}`,
+      {
+        method: 'PATCH',
         body: JSON.stringify(input),
       },
       token,

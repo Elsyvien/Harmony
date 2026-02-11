@@ -19,7 +19,7 @@ export function SettingsPanel(props: SettingsPanelProps) {
             <strong>Email:</strong> {props.user.email}
           </p>
           <p>
-            <strong>Role:</strong> {props.user.isAdmin ? 'Admin' : 'User'}
+            <strong>Role:</strong> {props.user.role}
           </p>
         </article>
 

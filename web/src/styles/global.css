@@ -423,6 +423,31 @@ button {
   color: var(--text-header);
 }
 
+.ghost-btn {
+  border: 1px solid var(--panel-border);
+  background-color: var(--bg-hover);
+  color: var(--text-normal);
+  border-radius: var(--radius-sharp);
+  padding: 8px 12px;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.ghost-btn:hover:not(:disabled) {
+  border-color: var(--accent);
+  color: var(--text-header);
+}
+
+.ghost-btn:disabled {
+  opacity: 0.65;
+  cursor: not-allowed;
+}
+
+.ghost-btn.small {
+  padding: 6px 10px;
+  font-size: 11px;
+}
+
 .admin-stats-grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
@@ -508,6 +533,74 @@ button {
   color: var(--text-header);
 }
 
+.admin-user-table-wrap {
+  overflow-x: auto;
+}
+
+.admin-user-table {
+  width: 100%;
+  border-collapse: collapse;
+  min-width: 720px;
+}
+
+.admin-user-table th,
+.admin-user-table td {
+  border-bottom: 1px solid var(--panel-border);
+  padding: 10px 8px;
+  text-align: left;
+  vertical-align: middle;
+  font-size: 13px;
+}
+
+.admin-user-table th {
+  color: var(--text-muted);
+  text-transform: uppercase;
+  font-size: 11px;
+  letter-spacing: 0.04em;
+}
+
+.admin-user-table td small {
+  display: block;
+  color: var(--text-muted);
+  font-size: 11px;
+  margin-top: 3px;
+}
+
+.admin-user-table select {
+  width: 150px;
+  background-color: var(--bg-darkest);
+  border: 1px solid var(--panel-border);
+  color: var(--text-header);
+  border-radius: var(--radius-sharp);
+  padding: 6px 8px;
+}
+
+.admin-user-actions {
+  width: 130px;
+}
+
+.status-chip {
+  display: inline-flex;
+  align-items: center;
+  border-radius: 999px;
+  padding: 4px 10px;
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+
+.status-chip.ok {
+  background-color: rgba(35, 165, 89, 0.14);
+  color: #6fd89b;
+  border: 1px solid rgba(35, 165, 89, 0.35);
+}
+
+.status-chip.danger {
+  background-color: rgba(242, 63, 67, 0.14);
+  color: #ff8f91;
+  border: 1px solid rgba(242, 63, 67, 0.35);
+}
+
 /* Chat View */
 .chat-view {
   flex: 1;
@@ -516,6 +609,25 @@ button {
   overflow: hidden;
   position: relative;
   min-height: 0;
+}
+
+.jump-latest-btn {
+  position: absolute;
+  right: 16px;
+  bottom: 14px;
+  z-index: 7;
+  border: 1px solid var(--accent);
+  background-color: rgba(88, 101, 242, 0.95);
+  color: #fff;
+  border-radius: 999px;
+  padding: 8px 12px;
+  font-size: 12px;
+  font-weight: 700;
+  box-shadow: 0 8px 20px rgba(0, 0, 0, 0.35);
+}
+
+.jump-latest-btn:hover {
+  background-color: var(--accent-hover);
 }
 
 .chat-header {

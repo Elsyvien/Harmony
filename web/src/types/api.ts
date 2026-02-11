@@ -3,10 +3,13 @@ export interface ApiError {
   message: string;
 }
 
+export type UserRole = 'OWNER' | 'ADMIN' | 'MODERATOR' | 'MEMBER';
+
 export interface User {
   id: string;
   username: string;
   email: string;
+  role: UserRole;
   isAdmin: boolean;
   createdAt: string;
 }
@@ -68,4 +71,15 @@ export interface AdminSettings {
   allowRegistrations: boolean;
   readOnlyMode: boolean;
   slowModeSeconds: number;
+}
+
+export interface AdminUserSummary {
+  id: string;
+  username: string;
+  email: string;
+  role: UserRole;
+  isAdmin: boolean;
+  isSuspended: boolean;
+  suspendedUntil: string | null;
+  createdAt: string;
 }

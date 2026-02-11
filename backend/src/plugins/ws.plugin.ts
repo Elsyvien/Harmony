@@ -4,6 +4,8 @@ import type { ChannelService } from '../services/channel.service.js';
 import type { MessageService } from '../services/message.service.js';
 import { prisma } from '../repositories/prisma.js';
 import { AppError } from '../utils/app-error.js';
+import { isAdminRole } from '../utils/roles.js';
+import { isSuspensionActive } from '../utils/suspension.js';
 
 interface WsPluginOptions {
   channelService: ChannelService;
@@ -12,7 +14,7 @@ interface WsPluginOptions {
 
 interface ClientContext {
   userId: string | null;
-  isAdmin: boolean;
+  role: 'OWNER' | 'ADMIN' | 'MODERATOR' | 'MEMBER' | null;
   joinedChannels: Set<string>;
   socket: {
     send: (data: string) => void;
@@ -66,10 +68,10 @@ export const wsPlugin: FastifyPluginAsync<WsPluginOptions> = async (fastify, opt
     },
   });
 
-  fastify.get('/ws', { websocket: true }, (socket, request) => {
+  fastify.get('/ws', { websocket: true }, (socket) => {
     const ctx: ClientContext = {
       userId: null,
-      isAdmin: false,
+      role: null,
       joinedChannels: new Set<string>(),
       socket: socket,
     };
@@ -91,17 +93,20 @@ export const wsPlugin: FastifyPluginAsync<WsPluginOptions> = async (fastify, opt
             userId: string;
             username: string;
             email: string;
-            isAdmin: boolean;
+            role: 'OWNER' | 'ADMIN' | 'MODERATOR' | 'MEMBER';
           }>(payload.token);
           const dbUser = await prisma.user.findUnique({
             where: { id: user.userId },
-            select: { id: true },
+            select: { id: true, role: true, isSuspended: true, suspendedUntil: true },
           });
           if (!dbUser) {
             throw new AppError('INVALID_SESSION', 401, 'Session is no longer valid. Please log in again.');
           }
+          if (isSuspensionActive(dbUser.isSuspended, dbUser.suspendedUntil)) {
+            throw new AppError('ACCOUNT_SUSPENDED', 403, 'Your account is currently suspended');
+          }
           ctx.userId = user.userId;
-          ctx.isAdmin = Boolean(user.isAdmin);
+          ctx.role = dbUser.role;
           send(ctx, 'auth:ok', { userId: user.userId });
           return;
         }
@@ -149,7 +154,7 @@ export const wsPlugin: FastifyPluginAsync<WsPluginOptions> = async (fastify, opt
             channelId: payload.channelId,
             content: payload.content,
             userId: ctx.userId,
-            userIsAdmin: ctx.isAdmin,
+            userIsAdmin: isAdminRole(ctx.role),
           });
 
           fastify.wsGateway.broadcastMessage(payload.channelId, message);

@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it } from 'vitest';
 import { randomUUID } from 'node:crypto';
+import type { UserRole } from '@prisma/client';
 import type { UserRepository } from '../src/repositories/user.repository.js';
 import { AuthService } from '../src/services/auth.service.js';
 import { AppError } from '../src/utils/app-error.js';
@@ -13,6 +14,9 @@ class InMemoryUserRepo implements UserRepository {
     email: string;
     passwordHash: string;
     isAdmin: boolean;
+    role: UserRole;
+    isSuspended: boolean;
+    suspendedUntil: Date | null;
     createdAt: Date;
   }> = [];
 
@@ -28,13 +32,22 @@ class InMemoryUserRepo implements UserRepository {
     return this.users.find((user) => user.username === username) ?? null;
   }
 
-  async create(params: { username: string; email: string; passwordHash: string }) {
+  async create(params: {
+    username: string;
+    email: string;
+    passwordHash: string;
+    role?: UserRole;
+    isAdmin?: boolean;
+  }) {
     const user = {
       id: randomUUID(),
       username: params.username,
       email: params.email,
       passwordHash: params.passwordHash,
-      isAdmin: false,
+      role: params.role ?? 'MEMBER',
+      isAdmin: Boolean(params.isAdmin),
+      isSuspended: false,
+      suspendedUntil: null,
       createdAt: now,
     };
     this.users.push(user);
@@ -59,6 +72,8 @@ describe('AuthService', () => {
     });
 
     expect(user.username).toBe('alice_1');
+    expect(user.role).toBe('MEMBER');
+    expect(user.isAdmin).toBe(false);
 
     const stored = await repo.findByEmail('alice@example.com');
     expect(stored).not.toBeNull();
@@ -94,5 +109,16 @@ describe('AuthService', () => {
         password: 'WrongPassword',
       }),
     ).rejects.toMatchObject({ code: 'INVALID_CREDENTIALS' } satisfies Partial<AppError>);
+  });
+
+  it('assigns owner role to Max', async () => {
+    const user = await service.register({
+      username: 'Max',
+      email: 'max@example.com',
+      password: 'Password123',
+    });
+
+    expect(user.role).toBe('OWNER');
+    expect(user.isAdmin).toBe(true);
   });
 });

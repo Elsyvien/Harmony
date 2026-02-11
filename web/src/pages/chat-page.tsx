@@ -10,7 +10,7 @@ import { UserSidebar } from '../components/user-sidebar';
 import { UserProfile } from '../components/user-profile';
 import { useChatSocket } from '../hooks/use-chat-socket';
 import { useAuth } from '../store/auth-store';
-import type { AdminSettings, AdminStats, Channel, Message } from '../types/api';
+import type { AdminSettings, AdminStats, AdminUserSummary, Channel, Message, UserRole } from '../types/api';
 import { getErrorMessage } from '../utils/error-message';
 
 function mergeMessages(existing: Message[], incoming: Message[]) {
@@ -104,6 +104,10 @@ export function ChatPage() {
   const [loadingAdminSettings, setLoadingAdminSettings] = useState(false);
   const [adminSettingsError, setAdminSettingsError] = useState<string | null>(null);
   const [savingAdminSettings, setSavingAdminSettings] = useState(false);
+  const [adminUsers, setAdminUsers] = useState<AdminUserSummary[]>([]);
+  const [loadingAdminUsers, setLoadingAdminUsers] = useState(false);
+  const [adminUsersError, setAdminUsersError] = useState<string | null>(null);
+  const [updatingAdminUserId, setUpdatingAdminUserId] = useState<string | null>(null);
   const [selectedUser, setSelectedUser] = useState<{ id: string; username: string } | null>(null);
   const pendingSignaturesRef = useRef(new Set<string>());
   const pendingTimeoutsRef = useRef(new Map<string, number>());
@@ -282,6 +286,44 @@ export function ChatPage() {
     [auth.token, auth.user?.isAdmin],
   );
 
+  const loadAdminUsers = useCallback(async () => {
+    if (!auth.token || !auth.user?.isAdmin) {
+      return;
+    }
+    setLoadingAdminUsers(true);
+    try {
+      const response = await chatApi.adminUsers(auth.token);
+      setAdminUsers(response.users);
+      setAdminUsersError(null);
+    } catch (err) {
+      setAdminUsersError(getErrorMessage(err, 'Could not load users'));
+    } finally {
+      setLoadingAdminUsers(false);
+    }
+  }, [auth.token, auth.user?.isAdmin]);
+
+  const updateAdminUser = useCallback(
+    async (
+      userId: string,
+      input: Partial<{ role: UserRole; isSuspended: boolean; suspendedUntil: string | null }>,
+    ) => {
+      if (!auth.token || !auth.user?.isAdmin) {
+        return;
+      }
+      setUpdatingAdminUserId(userId);
+      try {
+        const response = await chatApi.updateAdminUser(auth.token, userId, input);
+        setAdminUsers((prev) => prev.map((user) => (user.id === userId ? response.user : user)));
+        setAdminUsersError(null);
+      } catch (err) {
+        setAdminUsersError(getErrorMessage(err, 'Could not update user'));
+      } finally {
+        setUpdatingAdminUserId(null);
+      }
+    },
+    [auth.token, auth.user?.isAdmin],
+  );
+
   useEffect(() => {
     if (activeView !== 'admin' || !auth.user?.isAdmin) {
       return;
@@ -289,15 +331,17 @@ export function ChatPage() {
 
     void loadAdminStats();
     void loadAdminSettings();
+    void loadAdminUsers();
     const interval = window.setInterval(() => {
       void loadAdminStats();
       void loadAdminSettings();
+      void loadAdminUsers();
     }, 5000);
 
     return () => {
       window.clearInterval(interval);
     };
-  }, [activeView, auth.user?.isAdmin, loadAdminStats, loadAdminSettings]);
+  }, [activeView, auth.user?.isAdmin, loadAdminStats, loadAdminSettings, loadAdminUsers]);
 
   useEffect(() => {
     if (!auth.token || !activeChannelId || ws.connected) {
@@ -314,6 +358,20 @@ export function ChatPage() {
   }, [auth.token, activeChannelId, loadMessages, ws.connected]);
 
   if (!auth.token || !auth.user) {
+    if (auth.token && auth.hydrating) {
+      return (
+        <main className="chat-layout">
+          <section className="chat-panel">
+            <header className="panel-header">
+              <h1>Restoring session...</h1>
+            </header>
+            <section className="chat-view">
+              <p className="muted">Loading account...</p>
+            </section>
+          </section>
+        </main>
+      );
+    }
     return <Navigate to="/login" replace />;
   }
 
@@ -459,6 +517,7 @@ export function ChatPage() {
         {activeView === 'chat' ? (
           <>
             <ChatView
+              activeChannelId={activeChannelId}
               loading={loadingMessages}
               messages={messages}
               wsConnected={ws.connected}
@@ -483,6 +542,13 @@ export function ChatPage() {
             onRefresh={loadAdminStats}
             onRefreshSettings={loadAdminSettings}
             onSaveSettings={saveAdminSettings}
+            users={adminUsers}
+            usersLoading={loadingAdminUsers}
+            usersError={adminUsersError}
+            updatingUserId={updatingAdminUserId}
+            onRefreshUsers={loadAdminUsers}
+            onUpdateUser={updateAdminUser}
+            currentUserId={auth.user.id}
           />
         ) : null}
       </section>

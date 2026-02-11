@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import type { AdminSettings, AdminStats } from '../types/api';
+import type { AdminSettings, AdminStats, AdminUserSummary, UserRole } from '../types/api';
 
 interface AdminSettingsPanelProps {
   stats: AdminStats | null;
@@ -12,6 +12,16 @@ interface AdminSettingsPanelProps {
   onRefresh: () => Promise<void>;
   onRefreshSettings: () => Promise<void>;
   onSaveSettings: (settings: AdminSettings) => Promise<void>;
+  users: AdminUserSummary[];
+  usersLoading: boolean;
+  usersError: string | null;
+  updatingUserId: string | null;
+  onRefreshUsers: () => Promise<void>;
+  onUpdateUser: (
+    userId: string,
+    input: Partial<{ role: UserRole; isSuspended: boolean; suspendedUntil: string | null }>,
+  ) => Promise<void>;
+  currentUserId: string;
 }
 
 function formatUptime(totalSec: number) {
@@ -113,6 +123,78 @@ export function AdminSettingsPanel(props: AdminSettingsPanelProps) {
         >
           {props.savingSettings ? 'Saving...' : 'Save settings'}
         </button>
+      </article>
+
+      <article className="setting-card">
+        <div className="admin-header">
+          <h3>User Permissions</h3>
+          <button className="ghost-btn" onClick={() => void props.onRefreshUsers()} disabled={props.usersLoading}>
+            {props.usersLoading ? 'Loading...' : 'Reload users'}
+          </button>
+        </div>
+
+        {props.usersError ? <p className="error-banner">{props.usersError}</p> : null}
+
+        <div className="admin-user-table-wrap">
+          <table className="admin-user-table">
+            <thead>
+              <tr>
+                <th>User</th>
+                <th>Role</th>
+                <th>Status</th>
+                <th>Created</th>
+                <th>Actions</th>
+              </tr>
+            </thead>
+            <tbody>
+              {props.users.map((user) => {
+                const isSelf = user.id === props.currentUserId;
+                const busy = props.updatingUserId === user.id;
+                return (
+                  <tr key={user.id}>
+                    <td>
+                      <strong>{user.username}</strong>
+                      <small>{user.email}</small>
+                    </td>
+                    <td>
+                      <select
+                        value={user.role}
+                        disabled={busy || isSelf}
+                        onChange={(event) =>
+                          void props.onUpdateUser(user.id, { role: event.target.value as UserRole })
+                        }
+                      >
+                        <option value="OWNER">OWNER</option>
+                        <option value="ADMIN">ADMIN</option>
+                        <option value="MODERATOR">MODERATOR</option>
+                        <option value="MEMBER">MEMBER</option>
+                      </select>
+                    </td>
+                    <td>
+                      {user.isSuspended ? (
+                        <span className="status-chip danger">Suspended</span>
+                      ) : (
+                        <span className="status-chip ok">Active</span>
+                      )}
+                    </td>
+                    <td>{new Date(user.createdAt).toLocaleDateString()}</td>
+                    <td className="admin-user-actions">
+                      <button
+                        className="ghost-btn"
+                        disabled={busy || isSelf}
+                        onClick={() =>
+                          void props.onUpdateUser(user.id, { isSuspended: !user.isSuspended })
+                        }
+                      >
+                        {busy ? 'Saving...' : user.isSuspended ? 'Unsuspend' : 'Suspend'}
+                      </button>
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
       </article>
 
       {props.stats ? (

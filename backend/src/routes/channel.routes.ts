@@ -10,6 +10,8 @@ import {
   listMessagesQuerySchema,
 } from '../schemas/message.schema.js';
 import { AppError } from '../utils/app-error.js';
+import { isAdminRole } from '../utils/roles.js';
+import { isSuspensionActive } from '../utils/suspension.js';
 
 interface ChannelRoutesOptions {
   channelService: ChannelService;
@@ -21,11 +23,16 @@ export const channelRoutes: FastifyPluginAsync<ChannelRoutesOptions> = async (fa
     await request.jwtVerify();
     const user = await prisma.user.findUnique({
       where: { id: request.user.userId },
-      select: { id: true },
+      select: { id: true, role: true, isSuspended: true, suspendedUntil: true },
     });
     if (!user) {
       throw new AppError('INVALID_SESSION', 401, 'Session is no longer valid. Please log in again.');
     }
+    if (isSuspensionActive(user.isSuspended, user.suspendedUntil)) {
+      throw new AppError('ACCOUNT_SUSPENDED', 403, 'Your account is currently suspended');
+    }
+    request.user.role = user.role;
+    request.user.isAdmin = isAdminRole(user.role);
   };
 
   fastify.get(
@@ -48,7 +55,7 @@ export const channelRoutes: FastifyPluginAsync<ChannelRoutesOptions> = async (fa
       },
     },
     async (request, reply) => {
-      if (!request.user.isAdmin) {
+      if (!isAdminRole(request.user.role)) {
         throw new AppError('FORBIDDEN', 403, 'Admin permission required');
       }
 
@@ -93,7 +100,7 @@ export const channelRoutes: FastifyPluginAsync<ChannelRoutesOptions> = async (fa
         channelId,
         content: body.content,
         userId: request.user.userId,
-        userIsAdmin: request.user.isAdmin,
+        userIsAdmin: isAdminRole(request.user.role),
       });
       fastify.wsGateway.broadcastMessage(channelId, message);
 

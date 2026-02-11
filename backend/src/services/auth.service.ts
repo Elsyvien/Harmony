@@ -1,8 +1,11 @@
 import bcrypt from 'bcryptjs';
+import type { UserRole } from '@prisma/client';
 import type { UserRepository } from '../repositories/user.repository.js';
 import type { AuthUser } from '../types/api.js';
 import type { AdminSettingsService } from './admin-settings.service.js';
 import { AppError } from '../utils/app-error.js';
+import { isAdminRole } from '../utils/roles.js';
+import { isSuspensionActive } from '../utils/suspension.js';
 
 export interface RegisterInput {
   username: string;
@@ -15,8 +18,12 @@ export interface LoginInput {
   password: string;
 }
 
-function isAdminUser(username: string) {
-  return username.trim().toLowerCase() === 'max';
+function normalizeUsername(username: string) {
+  return username.trim().toLowerCase();
+}
+
+function bootstrapRoleForUsername(username: string): UserRole {
+  return normalizeUsername(username) === 'max' ? 'OWNER' : 'MEMBER';
 }
 
 export class AuthService {
@@ -27,7 +34,7 @@ export class AuthService {
   ) {}
 
   async register(input: RegisterInput): Promise<AuthUser> {
-    const settings = this.adminSettingsService?.getSettings();
+    const settings = await this.adminSettingsService?.getSettings();
     if (settings && !settings.allowRegistrations) {
       throw new AppError('REGISTRATION_DISABLED', 403, 'Registration is currently disabled');
     }
@@ -43,10 +50,13 @@ export class AuthService {
     }
 
     const passwordHash = await bcrypt.hash(input.password, this.saltRounds);
+    const role = bootstrapRoleForUsername(input.username);
     const user = await this.userRepo.create({
       username: input.username,
       email: input.email,
       passwordHash,
+      role,
+      isAdmin: isAdminRole(role),
     });
 
     return this.toAuthUser(user);
@@ -61,6 +71,10 @@ export class AuthService {
     const isValid = await bcrypt.compare(input.password, user.passwordHash);
     if (!isValid) {
       throw new AppError('INVALID_CREDENTIALS', 401, 'Invalid credentials');
+    }
+
+    if (isSuspensionActive(Boolean(user.isSuspended), user.suspendedUntil ?? null)) {
+      throw new AppError('ACCOUNT_SUSPENDED', 403, 'Your account is currently suspended');
     }
 
     return this.toAuthUser(user);
@@ -78,13 +92,15 @@ export class AuthService {
     id: string;
     username: string;
     email: string;
+    role: UserRole;
     createdAt: Date;
   }): AuthUser {
     return {
       id: user.id,
       username: user.username,
       email: user.email,
-      isAdmin: isAdminUser(user.username),
+      role: user.role,
+      isAdmin: isAdminRole(user.role),
       createdAt: user.createdAt,
     };
   }

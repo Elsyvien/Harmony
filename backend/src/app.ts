@@ -8,12 +8,14 @@ import { loadEnv } from './config/env.js';
 import { wsPlugin } from './plugins/ws.plugin.js';
 import { PrismaChannelRepository } from './repositories/channel.repository.js';
 import { PrismaMessageRepository } from './repositories/message.repository.js';
+import { prisma } from './repositories/prisma.js';
 import { PrismaUserRepository } from './repositories/user.repository.js';
 import { authRoutes } from './routes/auth.routes.js';
 import { channelRoutes } from './routes/channel.routes.js';
 import { adminRoutes } from './routes/admin.routes.js';
 import { AdminService } from './services/admin.service.js';
 import { AdminSettingsService } from './services/admin-settings.service.js';
+import { AdminUserService } from './services/admin-user.service.js';
 import { AuthService } from './services/auth.service.js';
 import { ChannelService } from './services/channel.service.js';
 import { MessageService } from './services/message.service.js';
@@ -59,13 +61,35 @@ export async function buildApp() {
     adminSettingsService,
   );
   const adminService = new AdminService();
+  const adminUserService = new AdminUserService();
+
+  // Keep "Max" as owner/admin per project requirement.
+  await prisma.user.updateMany({
+    where: { username: 'max' },
+    data: {
+      role: 'OWNER',
+      isAdmin: true,
+      isSuspended: false,
+      suspendedUntil: null,
+    },
+  });
+
+  await prisma.user.updateMany({
+    where: { username: 'Max' },
+    data: {
+      role: 'OWNER',
+      isAdmin: true,
+      isSuspended: false,
+      suspendedUntil: null,
+    },
+  });
 
   await channelService.ensureDefaultChannel();
 
   await app.register(wsPlugin, { channelService, messageService });
   await app.register(authRoutes, { authService, env });
   await app.register(channelRoutes, { channelService, messageService });
-  await app.register(adminRoutes, { adminService, adminSettingsService });
+  await app.register(adminRoutes, { adminService, adminSettingsService, adminUserService });
 
   app.get('/health', async () => ({ ok: true }));
 

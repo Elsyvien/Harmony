@@ -20,7 +20,13 @@ export const authRoutes: FastifyPluginAsync<AuthRoutesOptions> = async (fastify,
       const body = registerBodySchema.parse(request.body);
       const user = await options.authService.register(body);
       const token = fastify.jwt.sign(
-        { userId: user.id, email: user.email, username: user.username, isAdmin: user.isAdmin },
+        {
+          userId: user.id,
+          email: user.email,
+          username: user.username,
+          role: user.role,
+          isAdmin: user.isAdmin,
+        },
         { expiresIn: options.env.JWT_EXPIRES_IN },
       );
 
@@ -39,7 +45,13 @@ export const authRoutes: FastifyPluginAsync<AuthRoutesOptions> = async (fastify,
       const body = loginBodySchema.parse(request.body);
       const user = await options.authService.login(body);
       const token = fastify.jwt.sign(
-        { userId: user.id, email: user.email, username: user.username, isAdmin: user.isAdmin },
+        {
+          userId: user.id,
+          email: user.email,
+          username: user.username,
+          role: user.role,
+          isAdmin: user.isAdmin,
+        },
         { expiresIn: options.env.JWT_EXPIRES_IN },
       );
       return { token, user };

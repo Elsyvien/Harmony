@@ -5,6 +5,7 @@ interface JwtUserPayload {
   userId: string;
   username: string;
   email: string;
+  role: 'OWNER' | 'ADMIN' | 'MODERATOR' | 'MEMBER';
   isAdmin: boolean;
 }
 

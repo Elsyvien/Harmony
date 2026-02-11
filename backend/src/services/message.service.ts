@@ -41,14 +41,17 @@ export class MessageService {
   }
 
   async createMessage(input: CreateMessageInput): Promise<MessageWithAuthor> {
-    const settings = this.adminSettingsService?.getSettings();
+    const settings = await this.adminSettingsService?.getSettings();
     if (settings?.readOnlyMode && !input.userIsAdmin) {
       throw new AppError('READ_ONLY_MODE', 403, 'Chat is currently in read-only mode');
     }
 
     if (settings && settings.slowModeSeconds > 0 && !input.userIsAdmin) {
-      const retryAfterSec =
-        this.adminSettingsService?.getSlowModeRetrySeconds(input.userId, input.channelId) ?? 0;
+      const retryAfterSec = this.adminSettingsService?.getSlowModeRetrySeconds(
+        input.userId,
+        input.channelId,
+        settings.slowModeSeconds,
+      ) ?? 0;
       if (retryAfterSec > 0) {
         throw new AppError(
           'SLOW_MODE_ACTIVE',
