@@ -66,14 +66,7 @@ export const wsPlugin: FastifyPluginAsync<WsPluginOptions> = async (fastify, opt
     },
   });
 
-  fastify.get('/ws', { websocket: true }, (connection, request) => {
-    const socket = connection.socket;
-    
-    if (!socket) {
-      fastify.log.error('WebSocket connection socket is undefined');
-      return;
-    }
-
+  fastify.get('/ws', { websocket: true }, (socket, request) => {
     const ctx: ClientContext = {
       userId: null,
       isAdmin: false,
