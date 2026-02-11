@@ -310,6 +310,7 @@ export function ChatPage() {
       setMessages([]);
       return;
     }
+    setMessageQuery('');
     void loadMessages(activeChannelId);
   }, [activeChannelId, loadMessages]);
 
@@ -599,16 +600,33 @@ export function ChatPage() {
 
       <section className="chat-panel">
         <header className="panel-header">
-          <h1>
-            {activeView === 'chat'
-              ? activeChannel
-                ? `# ${activeChannel.name}`
-                : 'Select channel'
-              : activeView === 'settings'
-                ? 'Settings'
-                : 'Admin Settings'}
-          </h1>
-          {error ? <p className="error-banner">{error}</p> : null}
+          <div className="panel-header-main">
+            <h1>
+              {activeView === 'chat'
+                ? activeChannel
+                  ? `# ${activeChannel.name}`
+                  : 'Select channel'
+                : activeView === 'settings'
+                  ? 'Settings'
+                  : 'Admin Settings'}
+            </h1>
+            {error ? <p className="error-banner">{error}</p> : null}
+          </div>
+          {activeView === 'chat' ? (
+            <div className="panel-tools">
+              <input
+                className="panel-search-input"
+                value={messageQuery}
+                onChange={(event) => setMessageQuery(event.target.value)}
+                placeholder="Search messages"
+              />
+              {messageQuery ? (
+                <button className="ghost-btn small" onClick={() => setMessageQuery('')}>
+                  Clear
+                </button>
+              ) : null}
+            </div>
+          ) : null}
         </header>
 
         {activeView === 'chat' ? (
@@ -616,16 +634,30 @@ export function ChatPage() {
             <ChatView
               activeChannelId={activeChannelId}
               loading={loadingMessages}
-              messages={messages}
+              messages={filteredMessages}
               wsConnected={ws.connected}
+              use24HourClock={preferences.use24HourClock}
+              showSeconds={preferences.showSeconds}
               onLoadOlder={loadOlder}
               onUserClick={setSelectedUser}
             />
-            <MessageComposer disabled={!activeChannelId} onSend={sendMessage} />
+            <MessageComposer
+              disabled={!activeChannelId}
+              enterToSend={preferences.enterToSend}
+              onSend={sendMessage}
+            />
           </>
         ) : null}
 
-        {activeView === 'settings' ? <SettingsPanel user={auth.user} wsConnected={ws.connected} /> : null}
+        {activeView === 'settings' ? (
+          <SettingsPanel
+            user={auth.user}
+            wsConnected={ws.connected}
+            preferences={preferences}
+            onUpdatePreferences={updatePreferences}
+            onResetPreferences={resetPreferences}
+          />
+        ) : null}
 
         {activeView === 'admin' && auth.user.isAdmin ? (
           <AdminSettingsPanel

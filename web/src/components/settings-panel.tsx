@@ -5,7 +5,6 @@ import type { UserPreferences } from '../types/preferences';
 interface SettingsPanelProps {
   user: User;
   wsConnected: boolean;
-  use24HourClock: boolean;
   preferences: UserPreferences;
   onUpdatePreferences: (patch: Partial<UserPreferences>) => void;
   onResetPreferences: () => void;
