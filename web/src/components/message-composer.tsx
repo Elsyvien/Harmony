@@ -2,6 +2,7 @@ import { useState, useRef, useEffect } from 'react';
 
 interface MessageComposerProps {
   disabled?: boolean;
+  enterToSend?: boolean;
   onSend: (content: string) => Promise<void>;
 }
 
@@ -19,7 +20,12 @@ export function MessageComposer(props: MessageComposerProps) {
   }, [value]);
 
   const handleKeyDown = async (e: React.KeyboardEvent) => {
-    if (e.key === 'Enter' && !e.shiftKey) {
+    const sendWithEnter = props.enterToSend ?? true;
+    const shouldSend = sendWithEnter
+      ? e.key === 'Enter' && !e.shiftKey
+      : e.key === 'Enter' && (e.ctrlKey || e.metaKey);
+
+    if (shouldSend) {
       e.preventDefault();
       handleSubmit();
     }
@@ -64,7 +70,7 @@ export function MessageComposer(props: MessageComposerProps) {
             value={value}
             onChange={(event) => setValue(event.target.value)}
             onKeyDown={handleKeyDown}
-            placeholder="Message..."
+            placeholder={(props.enterToSend ?? true) ? 'Message...' : 'Message... (Ctrl/Cmd+Enter to send)'}
             rows={1}
             disabled={props.disabled || isSending}
           />

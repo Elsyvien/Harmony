@@ -16,10 +16,14 @@ interface ChannelSidebarProps {
 export function ChannelSidebar(props: ChannelSidebarProps) {
   const [channelName, setChannelName] = useState('');
   const [creating, setCreating] = useState(false);
+  const [channelFilter, setChannelFilter] = useState('');
   const userTag = `${props.username.length}${props.username
     .split('')
     .reduce((sum, char) => sum + char.charCodeAt(0), 0) % 10000}`
     .padStart(4, '0');
+  const filteredChannels = props.channels.filter((channel) =>
+    channel.name.toLowerCase().includes(channelFilter.trim().toLowerCase()),
+  );
 
   return (
     <aside className="channel-sidebar">
@@ -28,7 +32,19 @@ export function ChannelSidebar(props: ChannelSidebarProps) {
       </header>
 
       <nav>
-        {props.channels.map((channel) => (
+        <div className="channel-filter-wrap">
+          <input
+            className="channel-filter-input"
+            value={channelFilter}
+            onChange={(event) => setChannelFilter(event.target.value)}
+            placeholder="Search channels"
+          />
+          <small className="channel-count">
+            {filteredChannels.length} / {props.channels.length}
+          </small>
+        </div>
+
+        {filteredChannels.map((channel) => (
           <button
             key={channel.id}
             className={channel.id === props.activeChannelId ? 'channel-item active' : 'channel-item'}
@@ -37,6 +53,7 @@ export function ChannelSidebar(props: ChannelSidebarProps) {
             # {channel.name}
           </button>
         ))}
+        {filteredChannels.length === 0 ? <p className="muted">No channels match.</p> : null}
       </nav>
 
       {props.isAdmin ? (
