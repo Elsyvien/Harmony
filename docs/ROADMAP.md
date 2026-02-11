@@ -15,8 +15,8 @@ This roadmap is based on current code in `backend/` and `web/`.
   - read-only chat mode for non-admin users
   - slow mode (0-60s) for non-admin users
 - Admin stats dashboard (process/system/database counters)
-- Role-based admin foundation with persisted user roles and suspension
-- Admin user management endpoints + frontend controls for role/suspension updates
+- Role-based admin foundation with persisted user roles
+- Admin user management endpoints + frontend controls for role updates and account deletion
 
 ## Priority Next Features
 

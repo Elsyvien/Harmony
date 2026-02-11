@@ -35,6 +35,8 @@ export async function buildApp() {
     origin: env.CLIENT_ORIGIN.includes(',') 
       ? env.CLIENT_ORIGIN.split(',').map(o => o.trim())
       : env.CLIENT_ORIGIN,
+    methods: ['GET', 'HEAD', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
+    allowedHeaders: ['Content-Type', 'Authorization'],
     credentials: true,
   });
 

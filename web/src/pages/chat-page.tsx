@@ -108,6 +108,7 @@ export function ChatPage() {
   const [loadingAdminUsers, setLoadingAdminUsers] = useState(false);
   const [adminUsersError, setAdminUsersError] = useState<string | null>(null);
   const [updatingAdminUserId, setUpdatingAdminUserId] = useState<string | null>(null);
+  const [deletingAdminUserId, setDeletingAdminUserId] = useState<string | null>(null);
   const [selectedUser, setSelectedUser] = useState<{ id: string; username: string } | null>(null);
   const pendingSignaturesRef = useRef(new Set<string>());
   const pendingTimeoutsRef = useRef(new Map<string, number>());
@@ -305,7 +306,7 @@ export function ChatPage() {
   const updateAdminUser = useCallback(
     async (
       userId: string,
-      input: Partial<{ role: UserRole; isSuspended: boolean; suspendedUntil: string | null }>,
+      input: Partial<{ role: UserRole }>,
     ) => {
       if (!auth.token || !auth.user?.isAdmin) {
         return;
@@ -319,6 +320,25 @@ export function ChatPage() {
         setAdminUsersError(getErrorMessage(err, 'Could not update user'));
       } finally {
         setUpdatingAdminUserId(null);
+      }
+    },
+    [auth.token, auth.user?.isAdmin],
+  );
+
+  const deleteAdminUser = useCallback(
+    async (userId: string) => {
+      if (!auth.token || !auth.user?.isAdmin) {
+        return;
+      }
+      setDeletingAdminUserId(userId);
+      try {
+        await chatApi.deleteAdminUser(auth.token, userId);
+        setAdminUsers((prev) => prev.filter((user) => user.id !== userId));
+        setAdminUsersError(null);
+      } catch (err) {
+        setAdminUsersError(getErrorMessage(err, 'Could not delete user'));
+      } finally {
+        setDeletingAdminUserId(null);
       }
     },
     [auth.token, auth.user?.isAdmin],
@@ -546,8 +566,10 @@ export function ChatPage() {
             usersLoading={loadingAdminUsers}
             usersError={adminUsersError}
             updatingUserId={updatingAdminUserId}
+            deletingUserId={deletingAdminUserId}
             onRefreshUsers={loadAdminUsers}
             onUpdateUser={updateAdminUser}
+            onDeleteUser={deleteAdminUser}
             currentUserId={auth.user.id}
           />
         ) : null}

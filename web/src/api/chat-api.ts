@@ -87,13 +87,23 @@ export const chatApi = {
   updateAdminUser(
     token: string,
     userId: string,
-    input: Partial<{ role: UserRole; isSuspended: boolean; suspendedUntil: string | null }>,
+    input: Partial<{ role: UserRole }>,
   ) {
     return apiRequest<{ user: AdminUserSummary }>(
       `/admin/users/${userId}`,
       {
         method: 'PATCH',
         body: JSON.stringify(input),
+      },
+      token,
+    );
+  },
+
+  deleteAdminUser(token: string, userId: string) {
+    return apiRequest<{ deletedUserId: string }>(
+      `/admin/users/${userId}`,
+      {
+        method: 'DELETE',
       },
       token,
     );

@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import type { AdminSettings, AdminStats, AdminUserSummary, UserRole } from '../types/api';
 
 interface AdminSettingsPanelProps {
@@ -16,11 +16,13 @@ interface AdminSettingsPanelProps {
   usersLoading: boolean;
   usersError: string | null;
   updatingUserId: string | null;
+  deletingUserId: string | null;
   onRefreshUsers: () => Promise<void>;
   onUpdateUser: (
     userId: string,
-    input: Partial<{ role: UserRole; isSuspended: boolean; suspendedUntil: string | null }>,
+    input: Partial<{ role: UserRole }>,
   ) => Promise<void>;
+  onDeleteUser: (userId: string) => Promise<void>;
   currentUserId: string;
 }
 
@@ -37,12 +39,43 @@ export function AdminSettingsPanel(props: AdminSettingsPanelProps) {
     readOnlyMode: false,
     slowModeSeconds: 0,
   });
+  const [search, setSearch] = useState('');
+  const [roleFilter, setRoleFilter] = useState<'ALL' | UserRole>('ALL');
+  const [confirmDeleteUserId, setConfirmDeleteUserId] = useState<string | null>(null);
+  const [confirmDeleteText, setConfirmDeleteText] = useState('');
 
   useEffect(() => {
     if (props.settings) {
       setDraft(props.settings);
     }
   }, [props.settings]);
+
+  const filteredUsers = useMemo(() => {
+    const normalizedSearch = search.trim().toLowerCase();
+    return props.users.filter((user) => {
+      if (roleFilter !== 'ALL' && user.role !== roleFilter) {
+        return false;
+      }
+      if (!normalizedSearch) {
+        return true;
+      }
+      return (
+        user.username.toLowerCase().includes(normalizedSearch) ||
+        user.email.toLowerCase().includes(normalizedSearch)
+      );
+    });
+  }, [props.users, search, roleFilter]);
+
+  const userStats = useMemo(
+    () => ({
+      total: props.users.length,
+      owners: props.users.filter((user) => user.role === 'OWNER').length,
+      admins: props.users.filter((user) => user.role === 'ADMIN').length,
+      moderators: props.users.filter((user) => user.role === 'MODERATOR').length,
+      members: props.users.filter((user) => user.role === 'MEMBER').length,
+    }),
+    [props.users],
+  );
 
   return (
     <section className="settings-panel">
@@ -127,7 +160,7 @@ export function AdminSettingsPanel(props: AdminSettingsPanelProps) {
 
       <article className="setting-card">
         <div className="admin-header">
-          <h3>User Permissions</h3>
+          <h3>User Management</h3>
           <button className="ghost-btn" onClick={() => void props.onRefreshUsers()} disabled={props.usersLoading}>
             {props.usersLoading ? 'Loading...' : 'Reload users'}
           </button>
@@ -135,23 +168,48 @@ export function AdminSettingsPanel(props: AdminSettingsPanelProps) {
 
         {props.usersError ? <p className="error-banner">{props.usersError}</p> : null}
 
+        <div className="admin-user-stats">
+          <span className="status-chip neutral">Total {userStats.total}</span>
+          <span className="status-chip neutral">Owners {userStats.owners}</span>
+          <span className="status-chip neutral">Admins {userStats.admins}</span>
+          <span className="status-chip neutral">Mods {userStats.moderators}</span>
+          <span className="status-chip neutral">Members {userStats.members}</span>
+        </div>
+
+        <div className="admin-user-toolbar">
+          <input
+            className="admin-user-search"
+            placeholder="Search by username or email"
+            value={search}
+            onChange={(event) => setSearch(event.target.value)}
+          />
+          <select value={roleFilter} onChange={(event) => setRoleFilter(event.target.value as 'ALL' | UserRole)}>
+            <option value="ALL">All roles</option>
+            <option value="OWNER">Owner</option>
+            <option value="ADMIN">Admin</option>
+            <option value="MODERATOR">Moderator</option>
+            <option value="MEMBER">Member</option>
+          </select>
+        </div>
+
         <div className="admin-user-table-wrap">
           <table className="admin-user-table">
             <thead>
               <tr>
                 <th>User</th>
                 <th>Role</th>
-                <th>Status</th>
                 <th>Created</th>
                 <th>Actions</th>
               </tr>
             </thead>
             <tbody>
-              {props.users.map((user) => {
+              {filteredUsers.map((user) => {
                 const isSelf = user.id === props.currentUserId;
-                const busy = props.updatingUserId === user.id;
-                return (
-                  <tr key={user.id}>
+                const busy = props.updatingUserId === user.id || props.deletingUserId === user.id;
+                const confirmOpen = confirmDeleteUserId === user.id;
+                const canDelete = !isSelf && user.role !== 'OWNER';
+                return [
+                  <tr key={`row-${user.id}`}>
                     <td>
                       <strong>{user.username}</strong>
                       <small>{user.email}</small>
@@ -170,28 +228,69 @@ export function AdminSettingsPanel(props: AdminSettingsPanelProps) {
                         <option value="MEMBER">MEMBER</option>
                       </select>
                     </td>
-                    <td>
-                      {user.isSuspended ? (
-                        <span className="status-chip danger">Suspended</span>
-                      ) : (
-                        <span className="status-chip ok">Active</span>
-                      )}
-                    </td>
                     <td>{new Date(user.createdAt).toLocaleDateString()}</td>
                     <td className="admin-user-actions">
                       <button
-                        className="ghost-btn"
-                        disabled={busy || isSelf}
-                        onClick={() =>
-                          void props.onUpdateUser(user.id, { isSuspended: !user.isSuspended })
-                        }
+                        className="danger-btn"
+                        disabled={!canDelete || busy}
+                        onClick={() => {
+                          if (confirmOpen) {
+                            setConfirmDeleteUserId(null);
+                            setConfirmDeleteText('');
+                            return;
+                          }
+                          setConfirmDeleteUserId(user.id);
+                          setConfirmDeleteText('');
+                        }}
                       >
-                        {busy ? 'Saving...' : user.isSuspended ? 'Unsuspend' : 'Suspend'}
+                        {props.deletingUserId === user.id
+                          ? 'Deleting...'
+                          : confirmOpen
+                            ? 'Cancel'
+                            : 'Delete'}
                       </button>
                     </td>
-                  </tr>
-                );
+                  </tr>,
+                  confirmOpen ? (
+                    <tr key={`confirm-${user.id}`}>
+                      <td colSpan={4}>
+                        <div className="delete-confirm-row">
+                          <p>
+                            Delete <strong>{user.username}</strong>? This removes account data and cannot be undone.
+                          </p>
+                          <input
+                            value={confirmDeleteText}
+                            onChange={(event) => setConfirmDeleteText(event.target.value)}
+                            placeholder={`Type "${user.username}" to confirm`}
+                            disabled={props.deletingUserId === user.id}
+                          />
+                          <button
+                            className="danger-btn"
+                            disabled={
+                              props.deletingUserId === user.id ||
+                              confirmDeleteText.trim() !== user.username
+                            }
+                            onClick={() => {
+                              void props.onDeleteUser(user.id);
+                              setConfirmDeleteUserId(null);
+                              setConfirmDeleteText('');
+                            }}
+                          >
+                            Confirm delete
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  ) : null,
+                ];
               })}
+              {filteredUsers.length === 0 ? (
+                <tr>
+                  <td colSpan={4}>
+                    <p className="muted">No users found for current filter.</p>
+                  </td>
+                </tr>
+              ) : null}
             </tbody>
           </table>
         </div>

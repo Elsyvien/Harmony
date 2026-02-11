@@ -37,23 +37,8 @@ const updateAdminUserParamsSchema = z.object({
 const updateAdminUserSchema = z
   .object({
     role: z.nativeEnum(UserRole).optional(),
-    isSuspended: z.boolean().optional(),
-    suspendedUntil: z
-      .string()
-      .datetime()
-      .nullable()
-      .optional()
-      .transform((value) => (value === undefined || value === null ? value : new Date(value))),
   })
-  .refine(
-    (value) =>
-      value.role !== undefined || value.isSuspended !== undefined || value.suspendedUntil !== undefined,
-    { message: 'At least one field must be provided' },
-  )
-  .refine(
-    (value) => !(value.isSuspended === false && value.suspendedUntil !== undefined && value.suspendedUntil !== null),
-    { message: 'suspendedUntil must be null when isSuspended is false' },
-  );
+  .refine((value) => value.role !== undefined, { message: 'At least one field must be provided' });
 
 export const adminRoutes: FastifyPluginAsync<AdminRoutesOptions> = async (fastify, options) => {
   const authPreHandler = async (request: FastifyRequest) => {
@@ -157,12 +142,28 @@ export const adminRoutes: FastifyPluginAsync<AdminRoutesOptions> = async (fastif
         id,
         {
           role: body.role,
-          isSuspended: body.isSuspended,
-          suspendedUntil: body.suspendedUntil,
         },
       );
 
       return { user };
+    },
+  );
+
+  fastify.delete(
+    '/admin/users/:id',
+    {
+      preHandler: [authPreHandler],
+      config: {
+        rateLimit: { max: 15, timeWindow: 60_000 },
+      },
+    },
+    async (request, reply) => {
+      const { id } = updateAdminUserParamsSchema.parse(request.params);
+      const result = await options.adminUserService.deleteUser(
+        { id: request.user.userId, role: request.user.role },
+        id,
+      );
+      reply.code(200).send({ deletedUserId: result.id });
     },
   );
 };

@@ -256,21 +256,27 @@ Constraints:
 - `PATCH /admin/users/:id`
 - Auth: yes
 - Requires `OWNER` or `ADMIN`
-- Body (partial):
+- Body:
 
 ```json
 {
-  "role": "MODERATOR",
-  "isSuspended": false,
-  "suspendedUntil": null
+  "role": "MODERATOR"
 }
 ```
 
-- At least one field is required.
 - Response:
 
 ```json
 { "user": { "...": "..." } }
+```
+
+- `DELETE /admin/users/:id`
+- Auth: yes
+- Requires `OWNER` or `ADMIN`
+- Response:
+
+```json
+{ "deletedUserId": "uuid" }
 ```
 
 ## WebSocket API
@@ -302,7 +308,7 @@ Envelope:
 
 - Authorization uses persisted DB roles: `OWNER`, `ADMIN`, `MODERATOR`, `MEMBER`.
 - Admin endpoints require `OWNER` or `ADMIN`.
-- User management endpoint (`PATCH /admin/users/:id`) enforces hierarchy rules:
+- User management endpoints (`PATCH /admin/users/:id`, `DELETE /admin/users/:id`) enforce hierarchy rules:
   - non-owner cannot modify owner/admin accounts
   - users cannot modify their own admin state
 - Bootstrap rule: username `Max`/`max` is promoted to `OWNER` in seed/startup safeguards.

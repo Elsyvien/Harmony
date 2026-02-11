@@ -17,8 +17,6 @@ export interface AdminUserSummary {
 
 export interface UpdateAdminUserInput {
   role?: UserRole;
-  isSuspended?: boolean;
-  suspendedUntil?: Date | null;
 }
 
 function canRoleManageUsers(role: UserRole): boolean {
@@ -28,6 +26,30 @@ function canRoleManageUsers(role: UserRole): boolean {
 function assertRoleCanManageUsers(role: UserRole) {
   if (!canRoleManageUsers(role)) {
     throw new AppError('FORBIDDEN', 403, 'Admin permission required');
+  }
+}
+
+function assertActorCanManageTarget(
+  actor: { id: string; role: UserRole },
+  target: { id: string; role: UserRole },
+  input?: { role?: UserRole },
+) {
+  if (target.id === actor.id) {
+    throw new AppError('SELF_UPDATE_FORBIDDEN', 400, 'You cannot modify your own account');
+  }
+
+  if (actor.role !== 'OWNER') {
+    if (target.role === 'OWNER') {
+      throw new AppError('FORBIDDEN', 403, 'Only owner can modify owner accounts');
+    }
+
+    if (input?.role === 'OWNER' || input?.role === 'ADMIN') {
+      throw new AppError('FORBIDDEN', 403, 'Only owner can grant owner/admin role');
+    }
+
+    if (target.role === 'ADMIN') {
+      throw new AppError('FORBIDDEN', 403, 'Only owner can modify admin accounts');
+    }
   }
 }
 
@@ -94,40 +116,14 @@ export class AdminUserService {
       throw new AppError('USER_NOT_FOUND', 404, 'User not found');
     }
 
-    if (target.id === actor.id) {
-      throw new AppError('SELF_UPDATE_FORBIDDEN', 400, 'You cannot change your own admin state');
-    }
-
-    if (actor.role !== 'OWNER') {
-      if (target.role === 'OWNER') {
-        throw new AppError('FORBIDDEN', 403, 'Only owner can modify owner accounts');
-      }
-
-      if (input.role === 'OWNER' || input.role === 'ADMIN') {
-        throw new AppError('FORBIDDEN', 403, 'Only owner can grant owner/admin role');
-      }
-
-      if (target.role === 'ADMIN') {
-        throw new AppError('FORBIDDEN', 403, 'Only owner can modify admin accounts');
-      }
-    }
+    assertActorCanManageTarget(actor, target, { role: input.role });
 
     const nextRole = input.role ?? target.role;
-    const nextSuspended = input.isSuspended ?? target.isSuspended;
-    const nextSuspendedUntil =
-      input.isSuspended === false
-        ? null
-        : input.suspendedUntil !== undefined
-          ? input.suspendedUntil
-          : target.suspendedUntil;
-
     const updated = await prisma.user.update({
       where: { id: target.id },
       data: {
         role: nextRole,
         isAdmin: isAdminRole(nextRole),
-        isSuspended: nextSuspended,
-        suspendedUntil: nextSuspended ? nextSuspendedUntil : null,
       },
       select: {
         id: true,
@@ -141,5 +137,25 @@ export class AdminUserService {
     });
 
     return toSummary(updated);
+  }
+
+  async deleteUser(actor: { id: string; role: UserRole }, targetUserId: string): Promise<{ id: string }> {
+    assertRoleCanManageUsers(actor.role);
+
+    const target = await prisma.user.findUnique({
+      where: { id: targetUserId },
+      select: {
+        id: true,
+        role: true,
+      },
+    });
+
+    if (!target) {
+      throw new AppError('USER_NOT_FOUND', 404, 'User not found');
+    }
+
+    assertActorCanManageTarget(actor, target);
+    await prisma.user.delete({ where: { id: target.id } });
+    return { id: target.id };
   }
 }
