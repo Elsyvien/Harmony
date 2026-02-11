@@ -15,3 +15,12 @@ export const listMessagesQuerySchema = z.object({
 export const createMessageBodySchema = z.object({
   content: z.string().min(1).max(2000),
 });
+
+export const createChannelBodySchema = z.object({
+  name: z
+    .string()
+    .trim()
+    .min(2)
+    .max(64)
+    .regex(/^[a-zA-Z0-9_-]+$/, 'Channel name may only contain letters, numbers, - and _'),
+});

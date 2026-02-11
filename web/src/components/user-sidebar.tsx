@@ -1,10 +1,9 @@
-import { User } from '../types/api';
-
 interface UserSidebarProps {
   users: { id: string; username: string }[];
+  onUserClick?: (user: { id: string; username: string }) => void;
 }
 
-export function UserSidebar({ users }: UserSidebarProps) {
+export function UserSidebar({ users, onUserClick }: UserSidebarProps) {
   return (
     <aside className="user-sidebar">
       <header>
@@ -12,7 +11,7 @@ export function UserSidebar({ users }: UserSidebarProps) {
       </header>
       <div className="user-list">
         {users.map((user) => (
-          <div key={user.id} className="user-item">
+          <div key={user.id} className="user-item" onClick={() => onUserClick?.(user)}>
             <div className="avatar" style={{ backgroundColor: stringToColor(user.username) }}>
               {user.username.slice(0, 1).toUpperCase()}
             </div>

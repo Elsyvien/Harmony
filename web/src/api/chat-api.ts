@@ -1,5 +1,5 @@
 import { apiRequest } from './client';
-import type { Channel, Message, User } from '../types/api';
+import type { AdminStats, Channel, Message, User } from '../types/api';
 
 export interface AuthResponse {
   token: string;
@@ -37,6 +37,21 @@ export const chatApi = {
 
   channels(token: string) {
     return apiRequest<{ channels: Channel[] }>('/channels', {}, token);
+  },
+
+  createChannel(token: string, name: string) {
+    return apiRequest<{ channel: Channel }>(
+      '/channels',
+      {
+        method: 'POST',
+        body: JSON.stringify({ name }),
+      },
+      token,
+    );
+  },
+
+  adminStats(token: string) {
+    return apiRequest<{ stats: AdminStats }>('/admin/stats', {}, token);
   },
 
   messages(token: string, channelId: string, params?: { before?: string; limit?: number }) {

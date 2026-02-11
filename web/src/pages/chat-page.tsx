@@ -1,12 +1,16 @@
 import { Navigate } from 'react-router-dom';
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { chatApi } from '../api/chat-api';
+import { AdminSettingsPanel } from '../components/admin-settings-panel';
 import { ChannelSidebar } from '../components/channel-sidebar';
 import { ChatView } from '../components/chat-view';
 import { MessageComposer } from '../components/message-composer';
+import { SettingsPanel } from '../components/settings-panel';
+import { UserSidebar } from '../components/user-sidebar';
+import { UserProfile } from '../components/user-profile';
 import { useChatSocket } from '../hooks/use-chat-socket';
 import { useAuth } from '../store/auth-store';
-import type { Channel, Message } from '../types/api';
+import type { AdminStats, Channel, Message } from '../types/api';
 import { getErrorMessage } from '../utils/error-message';
 
 function mergeMessages(existing: Message[], incoming: Message[]) {
@@ -19,6 +23,29 @@ function mergeMessages(existing: Message[], incoming: Message[]) {
   );
 }
 
+function messageSignature(channelId: string, userId: string, content: string) {
+  return `${channelId}:${userId}:${content.trim().toLowerCase()}`;
+}
+
+function reconcileIncomingMessage(existing: Message[], incoming: Message) {
+  const optimisticIndex = existing.findIndex(
+    (item) =>
+      item.optimistic &&
+      !item.failed &&
+      item.channelId === incoming.channelId &&
+      item.userId === incoming.userId &&
+      item.content === incoming.content,
+  );
+
+  if (optimisticIndex >= 0) {
+    const next = [...existing];
+    next[optimisticIndex] = incoming;
+    return next.sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
+  }
+
+  return mergeMessages(existing, [incoming]);
+}
+
 export function ChatPage() {
   const auth = useAuth();
   const [channels, setChannels] = useState<Channel[]>([]);
@@ -26,11 +53,29 @@ export function ChatPage() {
   const [messages, setMessages] = useState<Message[]>([]);
   const [loadingMessages, setLoadingMessages] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [activeView, setActiveView] = useState<'chat' | 'settings' | 'admin'>('chat');
+  const [adminStats, setAdminStats] = useState<AdminStats | null>(null);
+  const [loadingAdminStats, setLoadingAdminStats] = useState(false);
+  const [adminStatsError, setAdminStatsError] = useState<string | null>(null);
+  const [selectedUser, setSelectedUser] = useState<{ id: string; username: string } | null>(null);
+  const pendingSignaturesRef = useRef(new Set<string>());
+  const pendingTimeoutsRef = useRef(new Map<string, number>());
 
   const activeChannel = useMemo(
     () => channels.find((channel) => channel.id === activeChannelId) ?? null,
     [channels, activeChannelId],
   );
+
+  const uniqueUsers = useMemo(() => {
+    const userMap = new Map<string, { id: string; username: string }>();
+    if (auth.user) {
+      userMap.set(auth.user.id, { id: auth.user.id, username: auth.user.username });
+    }
+    messages.forEach((msg) => {
+      userMap.set(msg.user.id, msg.user);
+    });
+    return Array.from(userMap.values());
+  }, [messages, auth.user]);
 
   const loadMessages = useCallback(
     async (channelId: string, before?: string, prepend = false) => {
@@ -41,12 +86,37 @@ export function ChatPage() {
       setLoadingMessages(true);
       try {
         const response = await chatApi.messages(auth.token, channelId, { before, limit: 50 });
-        setMessages((prev) => (prepend ? mergeMessages(response.messages, prev) : response.messages));
+        setMessages((prev) => {
+          if (prepend) {
+            return mergeMessages(response.messages, prev);
+          }
+          const localPending = prev.filter((item) => item.optimistic || item.failed);
+          return mergeMessages(response.messages, localPending);
+        });
       } finally {
         setLoadingMessages(false);
       }
     },
     [auth.token],
+  );
+
+  const clearPendingSignature = useCallback((signature: string) => {
+    pendingSignaturesRef.current.delete(signature);
+    const timeoutId = pendingTimeoutsRef.current.get(signature);
+    if (timeoutId) {
+      window.clearTimeout(timeoutId);
+      pendingTimeoutsRef.current.delete(signature);
+    }
+  }, []);
+
+  const schedulePendingTimeout = useCallback(
+    (signature: string) => {
+      const timeoutId = window.setTimeout(() => {
+        clearPendingSignature(signature);
+      }, 12_000);
+      pendingTimeoutsRef.current.set(signature, timeoutId);
+    },
+    [clearPendingSignature],
   );
 
   const ws = useChatSocket({
@@ -56,9 +126,28 @@ export function ChatPage() {
       if (message.channelId !== activeChannelId) {
         return;
       }
-      setMessages((prev) => mergeMessages(prev, [message]));
+
+      if (auth.user) {
+        const signature = messageSignature(message.channelId, auth.user.id, message.content);
+        clearPendingSignature(signature);
+      }
+
+      setMessages((prev) => reconcileIncomingMessage(prev, message));
     },
   });
+
+  useEffect(() => {
+    const timeoutMap = pendingTimeoutsRef.current;
+    const signatureSet = pendingSignaturesRef.current;
+
+    return () => {
+      for (const timeoutId of timeoutMap.values()) {
+        window.clearTimeout(timeoutId);
+      }
+      timeoutMap.clear();
+      signatureSet.clear();
+    };
+  }, []);
 
   useEffect(() => {
     if (!auth.token) {
@@ -95,6 +184,37 @@ export function ChatPage() {
     void loadMessages(activeChannelId);
   }, [activeChannelId, loadMessages]);
 
+  const loadAdminStats = useCallback(async () => {
+    if (!auth.token || !auth.user?.isAdmin) {
+      return;
+    }
+    setLoadingAdminStats(true);
+    try {
+      const response = await chatApi.adminStats(auth.token);
+      setAdminStats(response.stats);
+      setAdminStatsError(null);
+    } catch (err) {
+      setAdminStatsError(getErrorMessage(err, 'Could not load admin stats'));
+    } finally {
+      setLoadingAdminStats(false);
+    }
+  }, [auth.token, auth.user?.isAdmin]);
+
+  useEffect(() => {
+    if (activeView !== 'admin' || !auth.user?.isAdmin) {
+      return;
+    }
+
+    void loadAdminStats();
+    const interval = window.setInterval(() => {
+      void loadAdminStats();
+    }, 5000);
+
+    return () => {
+      window.clearInterval(interval);
+    };
+  }, [activeView, auth.user?.isAdmin, loadAdminStats]);
+
   useEffect(() => {
     if (!auth.token || !activeChannelId || ws.connected) {
       return;
@@ -114,17 +234,55 @@ export function ChatPage() {
   }
 
   const sendMessage = async (content: string) => {
-    if (!auth.token || !activeChannelId) {
+    if (!auth.token || !activeChannelId || !auth.user) {
       return;
     }
+
+    const signature = messageSignature(activeChannelId, auth.user.id, content);
+    if (pendingSignaturesRef.current.has(signature)) {
+      return;
+    }
+
+    pendingSignaturesRef.current.add(signature);
+    schedulePendingTimeout(signature);
+
+    const optimisticMessage: Message = {
+      id: `tmp-${crypto.randomUUID()}`,
+      channelId: activeChannelId,
+      userId: auth.user.id,
+      content,
+      createdAt: new Date().toISOString(),
+      optimistic: true,
+      user: {
+        id: auth.user.id,
+        username: auth.user.username,
+      },
+    };
+    setMessages((prev) => mergeMessages(prev, [optimisticMessage]));
 
     const wsSent = ws.connected ? ws.sendMessage(activeChannelId, content) : false;
     if (wsSent) {
       return;
     }
 
-    const response = await chatApi.sendMessage(auth.token, activeChannelId, content);
-    setMessages((prev) => mergeMessages(prev, [response.message]));
+    try {
+      const response = await chatApi.sendMessage(auth.token, activeChannelId, content);
+      clearPendingSignature(signature);
+      setMessages((prev) => {
+        const replaced = prev.map((item) => (item.id === optimisticMessage.id ? response.message : item));
+        return mergeMessages(replaced, []);
+      });
+    } catch (err) {
+      clearPendingSignature(signature);
+      setMessages((prev) =>
+        prev.map((item) =>
+          item.id === optimisticMessage.id
+            ? { ...item, failed: true, optimistic: false }
+            : item,
+        ),
+      );
+      throw err;
+    }
   };
 
   const loadOlder = async () => {
@@ -146,31 +304,89 @@ export function ChatPage() {
     auth.clearAuth();
   };
 
+  const createChannel = async (name: string) => {
+    if (!auth.token || !auth.user?.isAdmin) {
+      return;
+    }
+    try {
+      const response = await chatApi.createChannel(auth.token, name);
+      setChannels((prev) => {
+        const exists = prev.some((channel) => channel.id === response.channel.id);
+        return exists ? prev : [...prev, response.channel];
+      });
+      setActiveChannelId(response.channel.id);
+      setActiveView('chat');
+      setError(null);
+    } catch (err) {
+      setError(getErrorMessage(err, 'Could not create channel'));
+    }
+  };
+
   return (
     <main className="chat-layout">
       <ChannelSidebar
         channels={channels}
         activeChannelId={activeChannelId}
-        onSelect={setActiveChannelId}
+        onSelect={(channelId) => {
+          setActiveChannelId(channelId);
+          setActiveView('chat');
+        }}
+        activeView={activeView}
+        onChangeView={setActiveView}
         onLogout={logout}
         username={auth.user.username}
+        isAdmin={auth.user.isAdmin}
+        onCreateChannel={createChannel}
       />
 
       <section className="chat-panel">
         <header className="panel-header">
-          <h1>{activeChannel ? `# ${activeChannel.name}` : 'Select channel'}</h1>
+          <h1>
+            {activeView === 'chat'
+              ? activeChannel
+                ? `# ${activeChannel.name}`
+                : 'Select channel'
+              : activeView === 'settings'
+                ? 'Settings'
+                : 'Admin Settings'}
+          </h1>
           {error ? <p className="error-banner">{error}</p> : null}
         </header>
 
-        <ChatView
-          loading={loadingMessages}
-          messages={messages}
-          wsConnected={ws.connected}
-          onLoadOlder={loadOlder}
-        />
+        {activeView === 'chat' ? (
+          <>
+            <ChatView
+              loading={loadingMessages}
+              messages={messages}
+              wsConnected={ws.connected}
+              onLoadOlder={loadOlder}
+              onUserClick={setSelectedUser}
+            />
+            <MessageComposer disabled={!activeChannelId} onSend={sendMessage} />
+          </>
+        ) : null}
 
-        <MessageComposer disabled={!activeChannelId} onSend={sendMessage} />
+        {activeView === 'settings' ? <SettingsPanel user={auth.user} wsConnected={ws.connected} /> : null}
+
+        {activeView === 'admin' && auth.user.isAdmin ? (
+          <AdminSettingsPanel
+            stats={adminStats}
+            loading={loadingAdminStats}
+            error={adminStatsError}
+            onRefresh={loadAdminStats}
+          />
+        ) : null}
       </section>
+
+      {activeView === 'chat' ? (
+        <UserSidebar users={uniqueUsers} onUserClick={setSelectedUser} />
+      ) : null}
+
+      <UserProfile
+        user={selectedUser}
+        onClose={() => setSelectedUser(null)}
+        currentUser={auth.user}
+      />
     </main>
   );
 }

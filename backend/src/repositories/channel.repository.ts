@@ -4,6 +4,8 @@ import { prisma } from './prisma.js';
 export interface ChannelRepository {
   list(): Promise<Channel[]>;
   findById(id: string): Promise<Channel | null>;
+  findByName(name: string): Promise<Channel | null>;
+  create(params: { name: string }): Promise<Channel>;
   ensureByName(name: string): Promise<Channel>;
 }
 
@@ -14,6 +16,14 @@ export class PrismaChannelRepository implements ChannelRepository {
 
   findById(id: string) {
     return prisma.channel.findUnique({ where: { id } });
+  }
+
+  findByName(name: string) {
+    return prisma.channel.findUnique({ where: { name } });
+  }
+
+  create(params: { name: string }) {
+    return prisma.channel.create({ data: params });
   }
 
   ensureByName(name: string) {

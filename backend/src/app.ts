@@ -10,6 +10,8 @@ import { PrismaMessageRepository } from './repositories/message.repository.js';
 import { PrismaUserRepository } from './repositories/user.repository.js';
 import { authRoutes } from './routes/auth.routes.js';
 import { channelRoutes } from './routes/channel.routes.js';
+import { adminRoutes } from './routes/admin.routes.js';
+import { AdminService } from './services/admin.service.js';
 import { AuthService } from './services/auth.service.js';
 import { ChannelService } from './services/channel.service.js';
 import { MessageService } from './services/message.service.js';
@@ -46,12 +48,14 @@ export async function buildApp() {
   const authService = new AuthService(userRepo, env.BCRYPT_SALT_ROUNDS);
   const channelService = new ChannelService(channelRepo);
   const messageService = new MessageService(messageRepo, channelService, env.MESSAGE_MAX_LENGTH);
+  const adminService = new AdminService();
 
   await channelService.ensureDefaultChannel();
 
   await app.register(wsPlugin, { channelService, messageService });
   await app.register(authRoutes, { authService, env });
   await app.register(channelRoutes, { channelService, messageService });
+  await app.register(adminRoutes, { adminService });
 
   app.get('/health', async () => ({ ok: true }));
 

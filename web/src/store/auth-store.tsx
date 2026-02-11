@@ -18,12 +18,33 @@ interface AuthContextValue extends AuthState {
 const initialToken = localStorage.getItem(TOKEN_KEY);
 const initialUser = localStorage.getItem(USER_KEY);
 
+function parseStoredUser(raw: string | null): User | null {
+  if (!raw) {
+    return null;
+  }
+  try {
+    const parsed = JSON.parse(raw) as Partial<User>;
+    if (!parsed.id || !parsed.username || !parsed.email || !parsed.createdAt) {
+      return null;
+    }
+    return {
+      id: parsed.id,
+      username: parsed.username,
+      email: parsed.email,
+      createdAt: parsed.createdAt,
+      isAdmin: parsed.isAdmin ?? parsed.username.trim().toLowerCase() === 'max',
+    };
+  } catch {
+    return null;
+  }
+}
+
 const AuthContext = createContext<AuthContextValue | null>(null);
 
 export function AuthProvider({ children }: PropsWithChildren) {
   const [state, setState] = useState<AuthState>({
     token: initialToken,
-    user: initialUser ? (JSON.parse(initialUser) as User) : null,
+    user: parseStoredUser(initialUser),
   });
 
   const value = useMemo<AuthContextValue>(

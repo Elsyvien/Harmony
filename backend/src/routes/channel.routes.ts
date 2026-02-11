@@ -4,9 +4,11 @@ import type { ChannelService } from '../services/channel.service.js';
 import type { MessageService } from '../services/message.service.js';
 import {
   channelIdParamsSchema,
+  createChannelBodySchema,
   createMessageBodySchema,
   listMessagesQuerySchema,
 } from '../schemas/message.schema.js';
+import { AppError } from '../utils/app-error.js';
 
 interface ChannelRoutesOptions {
   channelService: ChannelService;
@@ -26,6 +28,25 @@ export const channelRoutes: FastifyPluginAsync<ChannelRoutesOptions> = async (fa
     async () => {
       const channels = await options.channelService.listChannels();
       return { channels };
+    },
+  );
+
+  fastify.post(
+    '/channels',
+    {
+      preHandler: [authPreHandler],
+      config: {
+        rateLimit: { max: 10, timeWindow: 60_000 },
+      },
+    },
+    async (request, reply) => {
+      if (!request.user.isAdmin) {
+        throw new AppError('FORBIDDEN', 403, 'Admin permission required');
+      }
+
+      const body = createChannelBodySchema.parse(request.body);
+      const channel = await options.channelService.createChannel(body.name);
+      reply.code(201).send({ channel });
     },
   );
 
