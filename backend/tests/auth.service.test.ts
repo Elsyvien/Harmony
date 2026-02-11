@@ -12,6 +12,7 @@ class InMemoryUserRepo implements UserRepository {
     username: string;
     email: string;
     passwordHash: string;
+    isAdmin: boolean;
     createdAt: Date;
   }> = [];
 
@@ -33,6 +34,7 @@ class InMemoryUserRepo implements UserRepository {
       username: params.username,
       email: params.email,
       passwordHash: params.passwordHash,
+      isAdmin: false,
       createdAt: now,
     };
     this.users.push(user);
