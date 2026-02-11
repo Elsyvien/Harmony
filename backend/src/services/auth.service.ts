@@ -1,6 +1,7 @@
 import bcrypt from 'bcryptjs';
 import type { UserRepository } from '../repositories/user.repository.js';
 import type { AuthUser } from '../types/api.js';
+import type { AdminSettingsService } from './admin-settings.service.js';
 import { AppError } from '../utils/app-error.js';
 
 export interface RegisterInput {
@@ -22,9 +23,15 @@ export class AuthService {
   constructor(
     private readonly userRepo: UserRepository,
     private readonly saltRounds: number,
+    private readonly adminSettingsService?: AdminSettingsService,
   ) {}
 
   async register(input: RegisterInput): Promise<AuthUser> {
+    const settings = this.adminSettingsService?.getSettings();
+    if (settings && !settings.allowRegistrations) {
+      throw new AppError('REGISTRATION_DISABLED', 403, 'Registration is currently disabled');
+    }
+
     const existingEmail = await this.userRepo.findByEmail(input.email);
     if (existingEmail) {
       throw new AppError('EMAIL_EXISTS', 409, 'Email already in use');

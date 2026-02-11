@@ -63,3 +63,9 @@ export interface AdminStats {
     messagesLastHour: number;
   };
 }
+
+export interface AdminSettings {
+  allowRegistrations: boolean;
+  readOnlyMode: boolean;
+  slowModeSeconds: number;
+}

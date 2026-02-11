@@ -1,5 +1,5 @@
 import { apiRequest } from './client';
-import type { AdminStats, Channel, Message, User } from '../types/api';
+import type { AdminSettings, AdminStats, Channel, Message, User } from '../types/api';
 
 export interface AuthResponse {
   token: string;
@@ -52,6 +52,24 @@ export const chatApi = {
 
   adminStats(token: string) {
     return apiRequest<{ stats: AdminStats }>('/admin/stats', {}, token);
+  },
+
+  adminSettings(token: string) {
+    return apiRequest<{ settings: AdminSettings }>('/admin/settings', {}, token);
+  },
+
+  updateAdminSettings(
+    token: string,
+    input: Partial<Pick<AdminSettings, 'allowRegistrations' | 'readOnlyMode' | 'slowModeSeconds'>>,
+  ) {
+    return apiRequest<{ settings: AdminSettings }>(
+      '/admin/settings',
+      {
+        method: 'PUT',
+        body: JSON.stringify(input),
+      },
+      token,
+    );
   },
 
   messages(token: string, channelId: string, params?: { before?: string; limit?: number }) {

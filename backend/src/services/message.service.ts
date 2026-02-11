@@ -3,6 +3,7 @@ import type {
   MessageWithAuthor,
 } from '../repositories/message.repository.js';
 import type { ChannelService } from './channel.service.js';
+import type { AdminSettingsService } from './admin-settings.service.js';
 import { AppError } from '../utils/app-error.js';
 
 export interface ListMessagesInput {
@@ -15,6 +16,7 @@ export interface CreateMessageInput {
   channelId: string;
   userId: string;
   content: string;
+  userIsAdmin?: boolean;
 }
 
 export class MessageService {
@@ -22,6 +24,7 @@ export class MessageService {
     private readonly messageRepo: MessageRepository,
     private readonly channelService: ChannelService,
     private readonly maxLength: number,
+    private readonly adminSettingsService?: AdminSettingsService,
   ) {}
 
   async listMessages(input: ListMessagesInput): Promise<MessageWithAuthor[]> {
@@ -38,6 +41,23 @@ export class MessageService {
   }
 
   async createMessage(input: CreateMessageInput): Promise<MessageWithAuthor> {
+    const settings = this.adminSettingsService?.getSettings();
+    if (settings?.readOnlyMode && !input.userIsAdmin) {
+      throw new AppError('READ_ONLY_MODE', 403, 'Chat is currently in read-only mode');
+    }
+
+    if (settings && settings.slowModeSeconds > 0 && !input.userIsAdmin) {
+      const retryAfterSec =
+        this.adminSettingsService?.getSlowModeRetrySeconds(input.userId, input.channelId) ?? 0;
+      if (retryAfterSec > 0) {
+        throw new AppError(
+          'SLOW_MODE_ACTIVE',
+          429,
+          `Slow mode is active. Please wait ${retryAfterSec}s before sending another message.`,
+        );
+      }
+    }
+
     const channelExists = await this.channelService.ensureChannelExists(input.channelId);
     if (!channelExists) {
       throw new AppError('CHANNEL_NOT_FOUND', 404, 'Channel not found');
@@ -55,10 +75,16 @@ export class MessageService {
       );
     }
 
-    return this.messageRepo.create({
+    const created = await this.messageRepo.create({
       channelId: input.channelId,
       userId: input.userId,
       content: trimmed,
     });
+
+    if (settings && settings.slowModeSeconds > 0 && !input.userIsAdmin) {
+      this.adminSettingsService?.markMessageSent(input.userId, input.channelId);
+    }
+
+    return created;
   }
 }

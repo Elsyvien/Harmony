@@ -10,7 +10,7 @@ import { UserSidebar } from '../components/user-sidebar';
 import { UserProfile } from '../components/user-profile';
 import { useChatSocket } from '../hooks/use-chat-socket';
 import { useAuth } from '../store/auth-store';
-import type { AdminStats, Channel, Message } from '../types/api';
+import type { AdminSettings, AdminStats, Channel, Message } from '../types/api';
 import { getErrorMessage } from '../utils/error-message';
 
 function mergeMessages(existing: Message[], incoming: Message[]) {
@@ -25,6 +25,25 @@ function mergeMessages(existing: Message[], incoming: Message[]) {
 
 function messageSignature(channelId: string, userId: string, content: string) {
   return `${channelId}:${userId}:${content.trim().toLowerCase()}`;
+}
+
+function isLogicalSameMessage(a: Message, b: Message) {
+  if (a.channelId !== b.channelId || a.userId !== b.userId) {
+    return false;
+  }
+  if (a.content.trim() !== b.content.trim()) {
+    return false;
+  }
+  const aTime = new Date(a.createdAt).getTime();
+  const bTime = new Date(b.createdAt).getTime();
+  return Math.abs(aTime - bTime) <= 60_000;
+}
+
+function mergeServerWithLocal(serverMessages: Message[], localMessages: Message[]) {
+  const unresolvedLocal = localMessages.filter(
+    (local) => !serverMessages.some((server) => isLogicalSameMessage(local, server)),
+  );
+  return mergeMessages(serverMessages, unresolvedLocal);
 }
 
 function reconcileIncomingMessage(existing: Message[], incoming: Message) {
@@ -43,6 +62,30 @@ function reconcileIncomingMessage(existing: Message[], incoming: Message) {
     return next.sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
   }
 
+  // If a send briefly failed but the same message arrives afterwards,
+  // replace the failed bubble to avoid showing duplicates.
+  const incomingTime = new Date(incoming.createdAt).getTime();
+  const failedIndex = existing.findIndex((item) => {
+    if (!item.failed) {
+      return false;
+    }
+    if (
+      item.channelId !== incoming.channelId ||
+      item.userId !== incoming.userId ||
+      item.content !== incoming.content
+    ) {
+      return false;
+    }
+    const failedTime = new Date(item.createdAt).getTime();
+    return Math.abs(incomingTime - failedTime) <= 30_000;
+  });
+
+  if (failedIndex >= 0) {
+    const next = [...existing];
+    next[failedIndex] = incoming;
+    return next.sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
+  }
+
   return mergeMessages(existing, [incoming]);
 }
 
@@ -57,6 +100,10 @@ export function ChatPage() {
   const [adminStats, setAdminStats] = useState<AdminStats | null>(null);
   const [loadingAdminStats, setLoadingAdminStats] = useState(false);
   const [adminStatsError, setAdminStatsError] = useState<string | null>(null);
+  const [adminSettings, setAdminSettings] = useState<AdminSettings | null>(null);
+  const [loadingAdminSettings, setLoadingAdminSettings] = useState(false);
+  const [adminSettingsError, setAdminSettingsError] = useState<string | null>(null);
+  const [savingAdminSettings, setSavingAdminSettings] = useState(false);
   const [selectedUser, setSelectedUser] = useState<{ id: string; username: string } | null>(null);
   const pendingSignaturesRef = useRef(new Set<string>());
   const pendingTimeoutsRef = useRef(new Map<string, number>());
@@ -91,7 +138,7 @@ export function ChatPage() {
             return mergeMessages(response.messages, prev);
           }
           const localPending = prev.filter((item) => item.optimistic || item.failed);
-          return mergeMessages(response.messages, localPending);
+          return mergeServerWithLocal(response.messages, localPending);
         });
       } finally {
         setLoadingMessages(false);
@@ -200,20 +247,57 @@ export function ChatPage() {
     }
   }, [auth.token, auth.user?.isAdmin]);
 
+  const loadAdminSettings = useCallback(async () => {
+    if (!auth.token || !auth.user?.isAdmin) {
+      return;
+    }
+    setLoadingAdminSettings(true);
+    try {
+      const response = await chatApi.adminSettings(auth.token);
+      setAdminSettings(response.settings);
+      setAdminSettingsError(null);
+    } catch (err) {
+      setAdminSettingsError(getErrorMessage(err, 'Could not load admin settings'));
+    } finally {
+      setLoadingAdminSettings(false);
+    }
+  }, [auth.token, auth.user?.isAdmin]);
+
+  const saveAdminSettings = useCallback(
+    async (next: AdminSettings) => {
+      if (!auth.token || !auth.user?.isAdmin) {
+        return;
+      }
+      setSavingAdminSettings(true);
+      try {
+        const response = await chatApi.updateAdminSettings(auth.token, next);
+        setAdminSettings(response.settings);
+        setAdminSettingsError(null);
+      } catch (err) {
+        setAdminSettingsError(getErrorMessage(err, 'Could not save admin settings'));
+      } finally {
+        setSavingAdminSettings(false);
+      }
+    },
+    [auth.token, auth.user?.isAdmin],
+  );
+
   useEffect(() => {
     if (activeView !== 'admin' || !auth.user?.isAdmin) {
       return;
     }
 
     void loadAdminStats();
+    void loadAdminSettings();
     const interval = window.setInterval(() => {
       void loadAdminStats();
+      void loadAdminSettings();
     }, 5000);
 
     return () => {
       window.clearInterval(interval);
     };
-  }, [activeView, auth.user?.isAdmin, loadAdminStats]);
+  }, [activeView, auth.user?.isAdmin, loadAdminStats, loadAdminSettings]);
 
   useEffect(() => {
     if (!auth.token || !activeChannelId || ws.connected) {
@@ -273,6 +357,25 @@ export function ChatPage() {
         return mergeMessages(replaced, []);
       });
     } catch (err) {
+      // Verify against server before showing "Failed" to avoid false negatives
+      // when the write succeeded but the response path failed.
+      try {
+        const verification = await chatApi.messages(auth.token, activeChannelId, { limit: 100 });
+        const confirmed = verification.messages.find((message) =>
+          isLogicalSameMessage(message, optimisticMessage),
+        );
+
+        if (confirmed) {
+          clearPendingSignature(signature);
+          setMessages((prev) =>
+            prev.map((item) => (item.id === optimisticMessage.id ? confirmed : item)),
+          );
+          return;
+        }
+      } catch {
+        // Keep original failure handling below if verification fails.
+      }
+
       clearPendingSignature(signature);
       setMessages((prev) =>
         prev.map((item) =>
@@ -371,9 +474,15 @@ export function ChatPage() {
         {activeView === 'admin' && auth.user.isAdmin ? (
           <AdminSettingsPanel
             stats={adminStats}
+            settings={adminSettings}
+            settingsLoading={loadingAdminSettings}
+            settingsError={adminSettingsError}
+            savingSettings={savingAdminSettings}
             loading={loadingAdminStats}
             error={adminStatsError}
             onRefresh={loadAdminStats}
+            onRefreshSettings={loadAdminSettings}
+            onSaveSettings={saveAdminSettings}
           />
         ) : null}
       </section>

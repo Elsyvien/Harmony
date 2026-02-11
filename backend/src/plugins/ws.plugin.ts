@@ -2,6 +2,7 @@ import websocket from '@fastify/websocket';
 import type { FastifyPluginAsync } from 'fastify';
 import type { ChannelService } from '../services/channel.service.js';
 import type { MessageService } from '../services/message.service.js';
+import { prisma } from '../repositories/prisma.js';
 import { AppError } from '../utils/app-error.js';
 
 interface WsPluginOptions {
@@ -11,6 +12,7 @@ interface WsPluginOptions {
 
 interface ClientContext {
   userId: string | null;
+  isAdmin: boolean;
   joinedChannels: Set<string>;
   socket: {
     send: (data: string) => void;
@@ -67,6 +69,7 @@ export const wsPlugin: FastifyPluginAsync<WsPluginOptions> = async (fastify, opt
   fastify.get('/ws', { websocket: true }, (connection) => {
     const ctx: ClientContext = {
       userId: null,
+      isAdmin: false,
       joinedChannels: new Set<string>(),
       socket: connection.socket,
     };
@@ -90,7 +93,15 @@ export const wsPlugin: FastifyPluginAsync<WsPluginOptions> = async (fastify, opt
             email: string;
             isAdmin: boolean;
           }>(payload.token);
+          const dbUser = await prisma.user.findUnique({
+            where: { id: user.userId },
+            select: { id: true },
+          });
+          if (!dbUser) {
+            throw new AppError('INVALID_SESSION', 401, 'Session is no longer valid. Please log in again.');
+          }
           ctx.userId = user.userId;
+          ctx.isAdmin = Boolean(user.isAdmin);
           send(ctx, 'auth:ok', { userId: user.userId });
           return;
         }
@@ -138,6 +149,7 @@ export const wsPlugin: FastifyPluginAsync<WsPluginOptions> = async (fastify, opt
             channelId: payload.channelId,
             content: payload.content,
             userId: ctx.userId,
+            userIsAdmin: ctx.isAdmin,
           });
 
           fastify.wsGateway.broadcastMessage(payload.channelId, message);

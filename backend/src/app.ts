@@ -1,6 +1,7 @@
 import cors from '@fastify/cors';
 import jwt from '@fastify/jwt';
 import rateLimit from '@fastify/rate-limit';
+import { Prisma } from '@prisma/client';
 import Fastify from 'fastify';
 import { ZodError } from 'zod';
 import { loadEnv } from './config/env.js';
@@ -12,6 +13,7 @@ import { authRoutes } from './routes/auth.routes.js';
 import { channelRoutes } from './routes/channel.routes.js';
 import { adminRoutes } from './routes/admin.routes.js';
 import { AdminService } from './services/admin.service.js';
+import { AdminSettingsService } from './services/admin-settings.service.js';
 import { AuthService } from './services/auth.service.js';
 import { ChannelService } from './services/channel.service.js';
 import { MessageService } from './services/message.service.js';
@@ -44,10 +46,16 @@ export async function buildApp() {
   const userRepo = new PrismaUserRepository();
   const channelRepo = new PrismaChannelRepository();
   const messageRepo = new PrismaMessageRepository();
+  const adminSettingsService = new AdminSettingsService();
 
-  const authService = new AuthService(userRepo, env.BCRYPT_SALT_ROUNDS);
+  const authService = new AuthService(userRepo, env.BCRYPT_SALT_ROUNDS, adminSettingsService);
   const channelService = new ChannelService(channelRepo);
-  const messageService = new MessageService(messageRepo, channelService, env.MESSAGE_MAX_LENGTH);
+  const messageService = new MessageService(
+    messageRepo,
+    channelService,
+    env.MESSAGE_MAX_LENGTH,
+    adminSettingsService,
+  );
   const adminService = new AdminService();
 
   await channelService.ensureDefaultChannel();
@@ -55,7 +63,7 @@ export async function buildApp() {
   await app.register(wsPlugin, { channelService, messageService });
   await app.register(authRoutes, { authService, env });
   await app.register(channelRoutes, { channelService, messageService });
-  await app.register(adminRoutes, { adminService });
+  await app.register(adminRoutes, { adminService, adminSettingsService });
 
   app.get('/health', async () => ({ ok: true }));
 
@@ -77,6 +85,23 @@ export async function buildApp() {
     if ((error as { statusCode?: number }).statusCode === 401) {
       reply.code(401).send({ code: 'UNAUTHORIZED', message: 'Unauthorized' });
       return;
+    }
+
+    if (error instanceof Prisma.PrismaClientKnownRequestError) {
+      if (error.code === 'P2003') {
+        reply.code(401).send({
+          code: 'INVALID_SESSION',
+          message: 'Session is no longer valid. Please log in again.',
+        });
+        return;
+      }
+      if (error.code === 'P2002') {
+        reply.code(409).send({
+          code: 'CONFLICT',
+          message: 'Resource already exists.',
+        });
+        return;
+      }
     }
 
     app.log.error(error);

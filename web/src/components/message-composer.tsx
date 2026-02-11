@@ -8,6 +8,7 @@ interface MessageComposerProps {
 export function MessageComposer(props: MessageComposerProps) {
   const [value, setValue] = useState('');
   const [isSending, setIsSending] = useState(false);
+  const sendingRef = useRef(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
   useEffect(() => {
@@ -26,7 +27,7 @@ export function MessageComposer(props: MessageComposerProps) {
 
   const handleSubmit = async (e?: React.FormEvent) => {
     e?.preventDefault();
-    if (isSending || props.disabled) {
+    if (sendingRef.current || props.disabled) {
       return;
     }
     const trimmed = value.trim();
@@ -35,6 +36,7 @@ export function MessageComposer(props: MessageComposerProps) {
     }
 
     // Clear immediately so the UI feels instant.
+    sendingRef.current = true;
     setValue('');
     setIsSending(true);
     if (textareaRef.current) textareaRef.current.style.height = 'auto'; // Reset height
@@ -44,6 +46,7 @@ export function MessageComposer(props: MessageComposerProps) {
     } catch {
       setValue(trimmed);
     } finally {
+      sendingRef.current = false;
       setIsSending(false);
     }
   };

@@ -2,6 +2,7 @@ import type { FastifyPluginAsync } from 'fastify';
 import type { FastifyRequest } from 'fastify';
 import type { ChannelService } from '../services/channel.service.js';
 import type { MessageService } from '../services/message.service.js';
+import { prisma } from '../repositories/prisma.js';
 import {
   channelIdParamsSchema,
   createChannelBodySchema,
@@ -18,6 +19,13 @@ interface ChannelRoutesOptions {
 export const channelRoutes: FastifyPluginAsync<ChannelRoutesOptions> = async (fastify, options) => {
   const authPreHandler = async (request: FastifyRequest) => {
     await request.jwtVerify();
+    const user = await prisma.user.findUnique({
+      where: { id: request.user.userId },
+      select: { id: true },
+    });
+    if (!user) {
+      throw new AppError('INVALID_SESSION', 401, 'Session is no longer valid. Please log in again.');
+    }
   };
 
   fastify.get(
@@ -85,6 +93,7 @@ export const channelRoutes: FastifyPluginAsync<ChannelRoutesOptions> = async (fa
         channelId,
         content: body.content,
         userId: request.user.userId,
+        userIsAdmin: request.user.isAdmin,
       });
       fastify.wsGateway.broadcastMessage(channelId, message);
 

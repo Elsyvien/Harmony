@@ -1,10 +1,17 @@
-import type { AdminStats } from '../types/api';
+import { useEffect, useState } from 'react';
+import type { AdminSettings, AdminStats } from '../types/api';
 
 interface AdminSettingsPanelProps {
   stats: AdminStats | null;
+  settings: AdminSettings | null;
+  settingsLoading: boolean;
+  settingsError: string | null;
+  savingSettings: boolean;
   loading: boolean;
   error: string | null;
   onRefresh: () => Promise<void>;
+  onRefreshSettings: () => Promise<void>;
+  onSaveSettings: (settings: AdminSettings) => Promise<void>;
 }
 
 function formatUptime(totalSec: number) {
@@ -15,6 +22,18 @@ function formatUptime(totalSec: number) {
 }
 
 export function AdminSettingsPanel(props: AdminSettingsPanelProps) {
+  const [draft, setDraft] = useState<AdminSettings>({
+    allowRegistrations: true,
+    readOnlyMode: false,
+    slowModeSeconds: 0,
+  });
+
+  useEffect(() => {
+    if (props.settings) {
+      setDraft(props.settings);
+    }
+  }, [props.settings]);
+
   return (
     <section className="settings-panel">
       <div className="admin-header">
@@ -26,6 +45,75 @@ export function AdminSettingsPanel(props: AdminSettingsPanelProps) {
 
       {props.error ? <p className="error-banner">{props.error}</p> : null}
       {!props.stats ? <p className="muted">No server stats available yet.</p> : null}
+
+      <article className="setting-card">
+        <div className="admin-header">
+          <h3>Runtime Controls</h3>
+          <button className="ghost-btn" onClick={() => void props.onRefreshSettings()} disabled={props.settingsLoading}>
+            {props.settingsLoading ? 'Loading...' : 'Reload'}
+          </button>
+        </div>
+
+        {props.settingsError ? <p className="error-banner">{props.settingsError}</p> : null}
+
+        <label className="toggle-row">
+          <input
+            type="checkbox"
+            checked={draft.allowRegistrations}
+            onChange={(event) =>
+              setDraft((prev) => ({ ...prev, allowRegistrations: event.target.checked }))
+            }
+            disabled={props.settingsLoading || props.savingSettings}
+          />
+          <span>
+            <strong>Allow registrations</strong>
+            <small>Blocks new user signups when disabled.</small>
+          </span>
+        </label>
+
+        <label className="toggle-row">
+          <input
+            type="checkbox"
+            checked={draft.readOnlyMode}
+            onChange={(event) =>
+              setDraft((prev) => ({ ...prev, readOnlyMode: event.target.checked }))
+            }
+            disabled={props.settingsLoading || props.savingSettings}
+          />
+          <span>
+            <strong>Read-only chat mode</strong>
+            <small>Non-admin users cannot send messages.</small>
+          </span>
+        </label>
+
+        <label className="field-inline">
+          <span>
+            <strong>Slow mode (seconds)</strong>
+            <small>Limit how frequently non-admin users can send in a channel.</small>
+          </span>
+          <input
+            type="number"
+            min={0}
+            max={60}
+            value={draft.slowModeSeconds}
+            onChange={(event) =>
+              setDraft((prev) => ({
+                ...prev,
+                slowModeSeconds: Math.max(0, Math.min(60, Number(event.target.value) || 0)),
+              }))
+            }
+            disabled={props.settingsLoading || props.savingSettings}
+          />
+        </label>
+
+        <button
+          className="ghost-btn"
+          onClick={() => void props.onSaveSettings(draft)}
+          disabled={props.settingsLoading || props.savingSettings}
+        >
+          {props.savingSettings ? 'Saving...' : 'Save settings'}
+        </button>
+      </article>
 
       {props.stats ? (
         <div className="admin-stats-grid">
