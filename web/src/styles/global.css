@@ -229,6 +229,27 @@ button {
   overflow-y: auto;
 }
 
+.channel-filter-wrap {
+  display: grid;
+  gap: 6px;
+  margin-bottom: 8px;
+}
+
+.channel-filter-input {
+  width: 100%;
+  background-color: var(--bg-darkest);
+  border: 1px solid var(--panel-border);
+  color: var(--text-header);
+  border-radius: var(--radius-sharp);
+  padding: 8px 10px;
+}
+
+.channel-count {
+  color: var(--text-muted);
+  font-size: 11px;
+  text-align: right;
+}
+
 .sidebar-menu,
 .admin-menu {
   padding: 8px;
@@ -405,11 +426,36 @@ button {
   z-index: 10;
 }
 
+.panel-header-main {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
 .panel-header h1 {
   font-size: 15px;
   font-weight: 700;
   color: var(--text-header);
   margin: 0;
+}
+
+.panel-tools {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.panel-search-input {
+  width: 240px;
+  max-width: 36vw;
+  background-color: var(--bg-darkest);
+  border: 1px solid var(--panel-border);
+  color: var(--text-header);
+  border-radius: var(--radius-sharp);
+  padding: 6px 9px;
+  font-size: 12px;
 }
 
 .settings-panel {
@@ -523,6 +569,15 @@ button {
 }
 
 .field-inline input {
+  width: 100%;
+  background-color: var(--bg-darkest);
+  border: 1px solid var(--panel-border);
+  color: var(--text-header);
+  border-radius: var(--radius-sharp);
+  padding: 8px 10px;
+}
+
+.field-inline select {
   width: 100%;
   background-color: var(--bg-darkest);
   border: 1px solid var(--panel-border);
@@ -784,6 +839,18 @@ body.compact-chat .message-content p {
 body.reduced-motion * {
   animation: none !important;
   transition: none !important;
+}
+
+body.font-scale-sm {
+  font-size: 14px;
+}
+
+body.font-scale-md {
+  font-size: 16px;
+}
+
+body.font-scale-lg {
+  font-size: 18px;
 }
 
 .message-item:hover {
@@ -1116,6 +1183,10 @@ body.reduced-motion * {
 
   .delete-confirm-row {
     grid-template-columns: 1fr;
+  }
+
+  .panel-search-input {
+    width: 170px;
   }
 }
 

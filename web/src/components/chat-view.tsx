@@ -6,6 +6,8 @@ interface ChatViewProps {
   messages: Message[];
   loading: boolean;
   wsConnected: boolean;
+  use24HourClock?: boolean;
+  showSeconds?: boolean;
   onLoadOlder: () => Promise<void>;
   onUserClick?: (user: { id: string; username: string }) => void;
 }
@@ -86,6 +88,12 @@ export function ChatView(props: ChatViewProps) {
     previousMessageCountRef.current = props.messages.length;
   }, [lastMessageId, props.messages.length]);
 
+  const formatMessageTime = (value: string) =>
+    new Date(value).toLocaleString([], {
+      hour12: !(props.use24HourClock ?? false),
+      ...(props.showSeconds ? { second: '2-digit' as const } : {}),
+    });
+
   return (
     <section className="chat-view">
       <div className="chat-header">
@@ -136,7 +144,7 @@ export function ChatView(props: ChatViewProps) {
                 >
                   {message.user.username}
                 </strong>
-                <time>{new Date(message.createdAt).toLocaleString()}</time>
+                <time>{formatMessageTime(message.createdAt)}</time>
                 {message.optimistic ? <span className="pending-tag">Sending...</span> : null}
                 {message.failed ? <span className="pending-tag failed">Failed</span> : null}
               </header>
