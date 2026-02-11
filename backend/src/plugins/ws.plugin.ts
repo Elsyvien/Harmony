@@ -66,15 +66,22 @@ export const wsPlugin: FastifyPluginAsync<WsPluginOptions> = async (fastify, opt
     },
   });
 
-  fastify.get('/ws', { websocket: true }, (connection) => {
+  fastify.get('/ws', { websocket: true }, (connection, request) => {
+    const socket = connection.socket;
+    
+    if (!socket) {
+      fastify.log.error('WebSocket connection socket is undefined');
+      return;
+    }
+
     const ctx: ClientContext = {
       userId: null,
       isAdmin: false,
       joinedChannels: new Set<string>(),
-      socket: connection.socket,
+      socket: socket,
     };
 
-    connection.socket.on('message', async (raw: unknown) => {
+    socket.on('message', async (raw: unknown) => {
       try {
         const parsed = JSON.parse(String(raw)) as { type?: string; payload?: unknown };
         if (!parsed.type) {
@@ -166,7 +173,7 @@ export const wsPlugin: FastifyPluginAsync<WsPluginOptions> = async (fastify, opt
       }
     });
 
-    connection.socket.on('close', () => {
+    socket.on('close', () => {
       leaveAllChannels(ctx);
     });
   });
