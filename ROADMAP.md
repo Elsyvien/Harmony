@@ -31,7 +31,7 @@
 **Goal:** Personal connections and user status.
 - [ ] **Direct Messages (DMs):** Private 1:1 conversations.
 - [ ] **User Status:** Real-time Online/Idle/DND indicators.
-- [ ] **Friend System:** Send/Accept friend requests.
+- [x] **Friend System:** Send/Accept friend requests, manage incoming/outgoing queues, remove friends.
 - [ ] **Block List:** User-side moderation.
 
 ## ⚪ Phase 5: Architecture Expansion

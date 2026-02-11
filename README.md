@@ -4,8 +4,9 @@ Discord-like chat app with:
 - JWT auth (register/login/logout)
 - Channel-based chat
 - Realtime delivery via WebSocket with polling fallback
+- Friend system (requests, accept/decline/cancel, remove)
 - Admin runtime controls (registrations, read-only mode, slow mode)
-- Admin stats dashboard
+- Admin stats dashboard and user management
 
 ## Documentation
 

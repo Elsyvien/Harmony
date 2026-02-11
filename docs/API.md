@@ -279,6 +279,113 @@ Constraints:
 { "deletedUserId": "uuid" }
 ```
 
+### List Friends
+
+- `GET /friends`
+- Auth: yes
+- Returns:
+
+```json
+{
+  "friends": [
+    {
+      "id": "uuid",
+      "user": { "id": "uuid", "username": "bob" },
+      "friendsSince": "ISO_DATE"
+    }
+  ]
+}
+```
+
+### List Friend Requests
+
+- `GET /friends/requests`
+- Auth: yes
+- Returns:
+
+```json
+{
+  "incoming": [
+    {
+      "id": "uuid",
+      "status": "PENDING",
+      "from": { "id": "uuid", "username": "bob" },
+      "to": { "id": "uuid", "username": "alice" },
+      "requestedById": "uuid",
+      "createdAt": "ISO_DATE"
+    }
+  ],
+  "outgoing": []
+}
+```
+
+### Send Friend Request
+
+- `POST /friends/requests`
+- Auth: yes
+- Body:
+
+```json
+{ "username": "bob" }
+```
+
+Validation:
+
+- `username`: 3-24 chars, `[a-zA-Z0-9_]+`
+
+Returns `201`:
+
+```json
+{
+  "request": {
+    "id": "uuid",
+    "status": "PENDING",
+    "from": { "id": "uuid", "username": "alice" },
+    "to": { "id": "uuid", "username": "bob" },
+    "requestedById": "uuid",
+    "createdAt": "ISO_DATE"
+  }
+}
+```
+
+### Accept Friend Request
+
+- `POST /friends/requests/:id/accept`
+- Auth: yes
+- `:id`: UUID request id
+- Returns:
+
+```json
+{
+  "friendship": {
+    "id": "uuid",
+    "user": { "id": "uuid", "username": "alice" },
+    "friendsSince": "ISO_DATE"
+  }
+}
+```
+
+### Decline Friend Request
+
+- `POST /friends/requests/:id/decline`
+- Auth: yes
+- `:id`: UUID request id
+- Returns: `204 No Content`
+
+### Cancel Friend Request
+
+- `POST /friends/requests/:id/cancel`
+- Auth: yes
+- `:id`: UUID request id
+- Returns: `204 No Content`
+
+### Remove Friend
+
+- `DELETE /friends/:id`
+- Auth: yes
+- `:id`: UUID friendship id
+- Returns: `204 No Content`
+
 ## WebSocket API
 
 Endpoint: `ws://localhost:4000/ws`
@@ -302,6 +409,12 @@ Envelope:
 - `channel:joined` payload: `{ "channelId": "<uuid>" }`
 - `channel:left` payload: `{ "channelId": "<uuid>" }`
 - `message:new` payload: `{ "message": { "...": "..." } }`
+- `friend:request:new` payload: `{ "request": { "...": "..." } }`
+- `friend:request:updated` payload:
+  - accepted: `{ "kind": "accepted", "requestId": "uuid", "friendship": { "...": "..." } }`
+  - declined: `{ "kind": "declined", "requestId": "uuid" }`
+  - cancelled: `{ "kind": "cancelled", "requestId": "uuid" }`
+  - removed: `{ "kind": "removed", "friendshipId": "uuid" }`
 - `error` payload: `{ "code": "SOME_CODE", "message": "..." }`
 
 ## Authorization Model Notes

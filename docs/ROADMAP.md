@@ -17,6 +17,11 @@ This roadmap is based on current code in `backend/` and `web/`.
 - Admin stats dashboard (process/system/database counters)
 - Role-based admin foundation with persisted user roles
 - Admin user management endpoints + frontend controls for role updates and account deletion
+- Friend system:
+  - send friend requests by username
+  - incoming/outgoing request queues
+  - accept, decline, cancel, remove friend
+  - realtime friend updates via websocket events
 
 ## Priority Next Features
 
@@ -47,7 +52,7 @@ This roadmap is based on current code in `backend/` and `web/`.
 
 ## Later Milestones
 
-- DMs and group DMs
+- DMs and group DMs (friend graph is already in place)
 - Threads and replies
 - Reactions and mentions
 - File uploads
