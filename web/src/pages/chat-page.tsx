@@ -9,6 +9,7 @@ import { SettingsPanel } from '../components/settings-panel';
 import { UserSidebar } from '../components/user-sidebar';
 import { UserProfile } from '../components/user-profile';
 import { useChatSocket } from '../hooks/use-chat-socket';
+import { useUserPreferences } from '../hooks/use-user-preferences';
 import { useAuth } from '../store/auth-store';
 import type { AdminSettings, AdminStats, AdminUserSummary, Channel, Message, UserRole } from '../types/api';
 import { getErrorMessage } from '../utils/error-message';
@@ -91,9 +92,11 @@ function reconcileIncomingMessage(existing: Message[], incoming: Message) {
 
 export function ChatPage() {
   const auth = useAuth();
+  const { preferences, updatePreferences, resetPreferences } = useUserPreferences();
   const [channels, setChannels] = useState<Channel[]>([]);
   const [activeChannelId, setActiveChannelId] = useState<string | null>(null);
   const [messages, setMessages] = useState<Message[]>([]);
+  const [messageQuery, setMessageQuery] = useState('');
   const [loadingMessages, setLoadingMessages] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [activeView, setActiveView] = useState<'chat' | 'settings' | 'admin'>('chat');
@@ -109,6 +112,7 @@ export function ChatPage() {
   const [adminUsersError, setAdminUsersError] = useState<string | null>(null);
   const [updatingAdminUserId, setUpdatingAdminUserId] = useState<string | null>(null);
   const [deletingAdminUserId, setDeletingAdminUserId] = useState<string | null>(null);
+  const [hiddenUnreadCount, setHiddenUnreadCount] = useState(0);
   const [selectedUser, setSelectedUser] = useState<{ id: string; username: string } | null>(null);
   const pendingSignaturesRef = useRef(new Set<string>());
   const pendingTimeoutsRef = useRef(new Map<string, number>());
@@ -128,6 +132,19 @@ export function ChatPage() {
     });
     return Array.from(userMap.values());
   }, [messages, auth.user]);
+
+  const filteredMessages = useMemo(() => {
+    const query = messageQuery.trim().toLowerCase();
+    if (!query) {
+      return messages;
+    }
+
+    return messages.filter(
+      (message) =>
+        message.content.toLowerCase().includes(query) ||
+        message.user.username.toLowerCase().includes(query),
+    );
+  }, [messages, messageQuery]);
 
   const loadMessages = useCallback(
     async (channelId: string, before?: string, prepend = false) => {
@@ -171,6 +188,37 @@ export function ChatPage() {
     [clearPendingSignature],
   );
 
+  const playIncomingMessageSound = useCallback(() => {
+    if (!preferences.playMessageSound) {
+      return;
+    }
+    try {
+      const AudioContextClass =
+        window.AudioContext ||
+        (window as typeof window & { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
+      if (!AudioContextClass) {
+        return;
+      }
+      const ctx = new AudioContextClass();
+      const oscillator = ctx.createOscillator();
+      const gain = ctx.createGain();
+      oscillator.type = 'triangle';
+      oscillator.frequency.value = 880;
+      gain.gain.setValueAtTime(0.001, ctx.currentTime);
+      gain.gain.exponentialRampToValueAtTime(0.06, ctx.currentTime + 0.01);
+      gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.13);
+      oscillator.connect(gain);
+      gain.connect(ctx.destination);
+      oscillator.start();
+      oscillator.stop(ctx.currentTime + 0.14);
+      window.setTimeout(() => {
+        void ctx.close();
+      }, 220);
+    } catch {
+      // Sound is best-effort and should never break chat flow.
+    }
+  }, [preferences.playMessageSound]);
+
   const ws = useChatSocket({
     token: auth.token,
     activeChannelId,
@@ -182,6 +230,13 @@ export function ChatPage() {
       if (auth.user) {
         const signature = messageSignature(message.channelId, auth.user.id, message.content);
         clearPendingSignature(signature);
+        if (message.userId !== auth.user.id) {
+          playIncomingMessageSound();
+        }
+      }
+
+      if (document.hidden) {
+        setHiddenUnreadCount((count) => count + 1);
       }
 
       setMessages((prev) => reconcileIncomingMessage(prev, message));
@@ -200,6 +255,28 @@ export function ChatPage() {
       signatureSet.clear();
     };
   }, []);
+
+  useEffect(() => {
+    const handleVisibility = () => {
+      if (!document.hidden) {
+        setHiddenUnreadCount(0);
+      }
+    };
+    document.addEventListener('visibilitychange', handleVisibility);
+    window.addEventListener('focus', handleVisibility);
+    return () => {
+      document.removeEventListener('visibilitychange', handleVisibility);
+      window.removeEventListener('focus', handleVisibility);
+    };
+  }, []);
+
+  useEffect(() => {
+    if (hiddenUnreadCount > 0) {
+      document.title = `(${hiddenUnreadCount}) DiscordClone`;
+      return;
+    }
+    document.title = 'DiscordClone';
+  }, [hiddenUnreadCount]);
 
   useEffect(() => {
     if (!auth.token) {
