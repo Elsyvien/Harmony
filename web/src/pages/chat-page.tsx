@@ -4,15 +4,27 @@ import { chatApi } from '../api/chat-api';
 import { AdminSettingsPanel } from '../components/admin-settings-panel';
 import { ChannelSidebar } from '../components/channel-sidebar';
 import { ChatView } from '../components/chat-view';
+import { FriendsPanel } from '../components/friends-panel';
 import { MessageComposer } from '../components/message-composer';
 import { SettingsPanel } from '../components/settings-panel';
-import { UserSidebar } from '../components/user-sidebar';
 import { UserProfile } from '../components/user-profile';
+import { UserSidebar } from '../components/user-sidebar';
 import { useChatSocket } from '../hooks/use-chat-socket';
 import { useUserPreferences } from '../hooks/use-user-preferences';
 import { useAuth } from '../store/auth-store';
-import type { AdminSettings, AdminStats, AdminUserSummary, Channel, Message, UserRole } from '../types/api';
+import type {
+  AdminSettings,
+  AdminStats,
+  AdminUserSummary,
+  Channel,
+  FriendRequestSummary,
+  FriendSummary,
+  Message,
+  UserRole,
+} from '../types/api';
 import { getErrorMessage } from '../utils/error-message';
+
+type MainView = 'chat' | 'friends' | 'settings' | 'admin';
 
 function mergeMessages(existing: Message[], incoming: Message[]) {
   const map = new Map<string, Message>();
@@ -63,8 +75,6 @@ function reconcileIncomingMessage(existing: Message[], incoming: Message) {
     return next.sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
   }
 
-  // If a send briefly failed but the same message arrives afterwards,
-  // replace the failed bubble to avoid showing duplicates.
   const incomingTime = new Date(incoming.createdAt).getTime();
   const failedIndex = existing.findIndex((item) => {
     if (!item.failed) {
@@ -93,13 +103,15 @@ function reconcileIncomingMessage(existing: Message[], incoming: Message) {
 export function ChatPage() {
   const auth = useAuth();
   const { preferences, updatePreferences, resetPreferences } = useUserPreferences();
+
   const [channels, setChannels] = useState<Channel[]>([]);
   const [activeChannelId, setActiveChannelId] = useState<string | null>(null);
   const [messages, setMessages] = useState<Message[]>([]);
   const [messageQuery, setMessageQuery] = useState('');
   const [loadingMessages, setLoadingMessages] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [activeView, setActiveView] = useState<'chat' | 'settings' | 'admin'>('chat');
+  const [activeView, setActiveView] = useState<MainView>('chat');
+
   const [adminStats, setAdminStats] = useState<AdminStats | null>(null);
   const [loadingAdminStats, setLoadingAdminStats] = useState(false);
   const [adminStatsError, setAdminStatsError] = useState<string | null>(null);
@@ -112,8 +124,17 @@ export function ChatPage() {
   const [adminUsersError, setAdminUsersError] = useState<string | null>(null);
   const [updatingAdminUserId, setUpdatingAdminUserId] = useState<string | null>(null);
   const [deletingAdminUserId, setDeletingAdminUserId] = useState<string | null>(null);
-  const [hiddenUnreadCount, setHiddenUnreadCount] = useState(0);
+
+  const [friends, setFriends] = useState<FriendSummary[]>([]);
+  const [incomingRequests, setIncomingRequests] = useState<FriendRequestSummary[]>([]);
+  const [outgoingRequests, setOutgoingRequests] = useState<FriendRequestSummary[]>([]);
+  const [loadingFriends, setLoadingFriends] = useState(false);
+  const [friendsError, setFriendsError] = useState<string | null>(null);
+  const [friendActionBusyId, setFriendActionBusyId] = useState<string | null>(null);
+  const [submittingFriendRequest, setSubmittingFriendRequest] = useState(false);
+
   const [selectedUser, setSelectedUser] = useState<{ id: string; username: string } | null>(null);
+  const [hiddenUnreadCount, setHiddenUnreadCount] = useState(0);
   const pendingSignaturesRef = useRef(new Set<string>());
   const pendingTimeoutsRef = useRef(new Map<string, number>());
 
@@ -121,6 +142,18 @@ export function ChatPage() {
     () => channels.find((channel) => channel.id === activeChannelId) ?? null,
     [channels, activeChannelId],
   );
+
+  const filteredMessages = useMemo(() => {
+    const query = messageQuery.trim().toLowerCase();
+    if (!query) {
+      return messages;
+    }
+    return messages.filter(
+      (message) =>
+        message.content.toLowerCase().includes(query) ||
+        message.user.username.toLowerCase().includes(query),
+    );
+  }, [messages, messageQuery]);
 
   const uniqueUsers = useMemo(() => {
     const userMap = new Map<string, { id: string; username: string }>();
@@ -133,25 +166,11 @@ export function ChatPage() {
     return Array.from(userMap.values());
   }, [messages, auth.user]);
 
-  const filteredMessages = useMemo(() => {
-    const query = messageQuery.trim().toLowerCase();
-    if (!query) {
-      return messages;
-    }
-
-    return messages.filter(
-      (message) =>
-        message.content.toLowerCase().includes(query) ||
-        message.user.username.toLowerCase().includes(query),
-    );
-  }, [messages, messageQuery]);
-
   const loadMessages = useCallback(
     async (channelId: string, before?: string, prepend = false) => {
       if (!auth.token) {
         return;
       }
-
       setLoadingMessages(true);
       try {
         const response = await chatApi.messages(auth.token, channelId, { before, limit: 50 });
@@ -169,24 +188,26 @@ export function ChatPage() {
     [auth.token],
   );
 
-  const clearPendingSignature = useCallback((signature: string) => {
-    pendingSignaturesRef.current.delete(signature);
-    const timeoutId = pendingTimeoutsRef.current.get(signature);
-    if (timeoutId) {
-      window.clearTimeout(timeoutId);
-      pendingTimeoutsRef.current.delete(signature);
+  const loadFriendData = useCallback(async () => {
+    if (!auth.token) {
+      return;
     }
-  }, []);
-
-  const schedulePendingTimeout = useCallback(
-    (signature: string) => {
-      const timeoutId = window.setTimeout(() => {
-        clearPendingSignature(signature);
-      }, 12_000);
-      pendingTimeoutsRef.current.set(signature, timeoutId);
-    },
-    [clearPendingSignature],
-  );
+    setLoadingFriends(true);
+    try {
+      const [friendsResponse, requestResponse] = await Promise.all([
+        chatApi.friends(auth.token),
+        chatApi.friendRequests(auth.token),
+      ]);
+      setFriends(friendsResponse.friends);
+      setIncomingRequests(requestResponse.incoming);
+      setOutgoingRequests(requestResponse.outgoing);
+      setFriendsError(null);
+    } catch (err) {
+      setFriendsError(getErrorMessage(err, 'Could not load friends'));
+    } finally {
+      setLoadingFriends(false);
+    }
+  }, [auth.token]);
 
   const playIncomingMessageSound = useCallback(() => {
     if (!preferences.playMessageSound) {
@@ -215,9 +236,28 @@ export function ChatPage() {
         void ctx.close();
       }, 220);
     } catch {
-      // Sound is best-effort and should never break chat flow.
+      // Best effort only.
     }
   }, [preferences.playMessageSound]);
+
+  const clearPendingSignature = useCallback((signature: string) => {
+    pendingSignaturesRef.current.delete(signature);
+    const timeoutId = pendingTimeoutsRef.current.get(signature);
+    if (timeoutId) {
+      window.clearTimeout(timeoutId);
+      pendingTimeoutsRef.current.delete(signature);
+    }
+  }, []);
+
+  const schedulePendingTimeout = useCallback(
+    (signature: string) => {
+      const timeoutId = window.setTimeout(() => {
+        clearPendingSignature(signature);
+      }, 12_000);
+      pendingTimeoutsRef.current.set(signature, timeoutId);
+    },
+    [clearPendingSignature],
+  );
 
   const ws = useChatSocket({
     token: auth.token,
@@ -226,7 +266,6 @@ export function ChatPage() {
       if (message.channelId !== activeChannelId) {
         return;
       }
-
       if (auth.user) {
         const signature = messageSignature(message.channelId, auth.user.id, message.content);
         clearPendingSignature(signature);
@@ -234,19 +273,19 @@ export function ChatPage() {
           playIncomingMessageSound();
         }
       }
-
       if (document.hidden) {
         setHiddenUnreadCount((count) => count + 1);
       }
-
       setMessages((prev) => reconcileIncomingMessage(prev, message));
+    },
+    onFriendEvent: () => {
+      void loadFriendData();
     },
   });
 
   useEffect(() => {
     const timeoutMap = pendingTimeoutsRef.current;
     const signatureSet = pendingSignaturesRef.current;
-
     return () => {
       for (const timeoutId of timeoutMap.values()) {
         window.clearTimeout(timeoutId);
@@ -271,18 +310,13 @@ export function ChatPage() {
   }, []);
 
   useEffect(() => {
-    if (hiddenUnreadCount > 0) {
-      document.title = `(${hiddenUnreadCount}) DiscordClone`;
-      return;
-    }
-    document.title = 'DiscordClone';
+    document.title = hiddenUnreadCount > 0 ? `(${hiddenUnreadCount}) DiscordClone` : 'DiscordClone';
   }, [hiddenUnreadCount]);
 
   useEffect(() => {
     if (!auth.token) {
       return;
     }
-
     let disposed = false;
     const load = async () => {
       try {
@@ -298,12 +332,18 @@ export function ChatPage() {
         }
       }
     };
-
     void load();
     return () => {
       disposed = true;
     };
   }, [auth.token]);
+
+  useEffect(() => {
+    if (!auth.token) {
+      return;
+    }
+    void loadFriendData();
+  }, [auth.token, loadFriendData]);
 
   useEffect(() => {
     if (!activeChannelId) {
@@ -382,10 +422,7 @@ export function ChatPage() {
   }, [auth.token, auth.user?.isAdmin]);
 
   const updateAdminUser = useCallback(
-    async (
-      userId: string,
-      input: Partial<{ role: UserRole }>,
-    ) => {
+    async (userId: string, input: Partial<{ role: UserRole }>) => {
       if (!auth.token || !auth.user?.isAdmin) {
         return;
       }
@@ -422,11 +459,100 @@ export function ChatPage() {
     [auth.token, auth.user?.isAdmin],
   );
 
+  const sendFriendRequest = useCallback(
+    async (username: string) => {
+      if (!auth.token) {
+        return;
+      }
+      setSubmittingFriendRequest(true);
+      try {
+        await chatApi.sendFriendRequest(auth.token, username);
+        await loadFriendData();
+      } catch (err) {
+        setFriendsError(getErrorMessage(err, 'Could not send friend request'));
+      } finally {
+        setSubmittingFriendRequest(false);
+      }
+    },
+    [auth.token, loadFriendData],
+  );
+
+  const acceptFriendRequest = useCallback(
+    async (requestId: string) => {
+      if (!auth.token) {
+        return;
+      }
+      setFriendActionBusyId(requestId);
+      try {
+        await chatApi.acceptFriendRequest(auth.token, requestId);
+        await loadFriendData();
+      } catch (err) {
+        setFriendsError(getErrorMessage(err, 'Could not accept request'));
+      } finally {
+        setFriendActionBusyId(null);
+      }
+    },
+    [auth.token, loadFriendData],
+  );
+
+  const declineFriendRequest = useCallback(
+    async (requestId: string) => {
+      if (!auth.token) {
+        return;
+      }
+      setFriendActionBusyId(requestId);
+      try {
+        await chatApi.declineFriendRequest(auth.token, requestId);
+        await loadFriendData();
+      } catch (err) {
+        setFriendsError(getErrorMessage(err, 'Could not decline request'));
+      } finally {
+        setFriendActionBusyId(null);
+      }
+    },
+    [auth.token, loadFriendData],
+  );
+
+  const cancelFriendRequest = useCallback(
+    async (requestId: string) => {
+      if (!auth.token) {
+        return;
+      }
+      setFriendActionBusyId(requestId);
+      try {
+        await chatApi.cancelFriendRequest(auth.token, requestId);
+        await loadFriendData();
+      } catch (err) {
+        setFriendsError(getErrorMessage(err, 'Could not cancel request'));
+      } finally {
+        setFriendActionBusyId(null);
+      }
+    },
+    [auth.token, loadFriendData],
+  );
+
+  const removeFriend = useCallback(
+    async (friendshipId: string) => {
+      if (!auth.token) {
+        return;
+      }
+      setFriendActionBusyId(friendshipId);
+      try {
+        await chatApi.removeFriend(auth.token, friendshipId);
+        await loadFriendData();
+      } catch (err) {
+        setFriendsError(getErrorMessage(err, 'Could not remove friend'));
+      } finally {
+        setFriendActionBusyId(null);
+      }
+    },
+    [auth.token, loadFriendData],
+  );
+
   useEffect(() => {
     if (activeView !== 'admin' || !auth.user?.isAdmin) {
       return;
     }
-
     void loadAdminStats();
     void loadAdminSettings();
     void loadAdminUsers();
@@ -435,21 +561,30 @@ export function ChatPage() {
       void loadAdminSettings();
       void loadAdminUsers();
     }, 5000);
-
     return () => {
       window.clearInterval(interval);
     };
   }, [activeView, auth.user?.isAdmin, loadAdminStats, loadAdminSettings, loadAdminUsers]);
 
   useEffect(() => {
+    if (activeView !== 'friends' || !auth.token) {
+      return;
+    }
+    const interval = window.setInterval(() => {
+      void loadFriendData();
+    }, 8000);
+    return () => {
+      window.clearInterval(interval);
+    };
+  }, [activeView, auth.token, loadFriendData]);
+
+  useEffect(() => {
     if (!auth.token || !activeChannelId || ws.connected) {
       return;
     }
-
     const interval = window.setInterval(() => {
       void loadMessages(activeChannelId);
     }, 5000);
-
     return () => {
       window.clearInterval(interval);
     };
@@ -477,12 +612,10 @@ export function ChatPage() {
     if (!auth.token || !activeChannelId || !auth.user) {
       return;
     }
-
     const signature = messageSignature(activeChannelId, auth.user.id, content);
     if (pendingSignaturesRef.current.has(signature)) {
       return;
     }
-
     pendingSignaturesRef.current.add(signature);
     schedulePendingTimeout(signature);
 
@@ -493,10 +626,7 @@ export function ChatPage() {
       content,
       createdAt: new Date().toISOString(),
       optimistic: true,
-      user: {
-        id: auth.user.id,
-        username: auth.user.username,
-      },
+      user: { id: auth.user.id, username: auth.user.username },
     };
     setMessages((prev) => mergeMessages(prev, [optimisticMessage]));
 
@@ -513,31 +643,24 @@ export function ChatPage() {
         return mergeMessages(replaced, []);
       });
     } catch (err) {
-      // Verify against server before showing "Failed" to avoid false negatives
-      // when the write succeeded but the response path failed.
       try {
         const verification = await chatApi.messages(auth.token, activeChannelId, { limit: 100 });
         const confirmed = verification.messages.find((message) =>
           isLogicalSameMessage(message, optimisticMessage),
         );
-
         if (confirmed) {
           clearPendingSignature(signature);
-          setMessages((prev) =>
-            prev.map((item) => (item.id === optimisticMessage.id ? confirmed : item)),
-          );
+          setMessages((prev) => prev.map((item) => (item.id === optimisticMessage.id ? confirmed : item)));
           return;
         }
       } catch {
-        // Keep original failure handling below if verification fails.
+        // Ignore verification errors and continue with failed-state UI.
       }
 
       clearPendingSignature(signature);
       setMessages((prev) =>
         prev.map((item) =>
-          item.id === optimisticMessage.id
-            ? { ...item, failed: true, optimistic: false }
-            : item,
+          item.id === optimisticMessage.id ? { ...item, failed: true, optimistic: false } : item,
         ),
       );
       throw err;
@@ -548,8 +671,7 @@ export function ChatPage() {
     if (!activeChannelId || messages.length === 0) {
       return;
     }
-    const before = messages[0].createdAt;
-    await loadMessages(activeChannelId, before, true);
+    await loadMessages(activeChannelId, messages[0].createdAt, true);
   };
 
   const logout = async () => {
@@ -557,7 +679,7 @@ export function ChatPage() {
       try {
         await chatApi.logout(auth.token);
       } catch {
-        // Keep logout resilient even if the backend is unavailable.
+        // Keep logout resilient even if backend is down.
       }
     }
     auth.clearAuth();
@@ -581,6 +703,17 @@ export function ChatPage() {
     }
   };
 
+  const panelTitle =
+    activeView === 'chat'
+      ? activeChannel
+        ? `# ${activeChannel.name}`
+        : 'Select channel'
+      : activeView === 'friends'
+        ? 'Friends'
+        : activeView === 'settings'
+          ? 'Settings'
+          : 'Admin Settings';
+
   return (
     <main className="chat-layout">
       <ChannelSidebar
@@ -596,20 +729,13 @@ export function ChatPage() {
         username={auth.user.username}
         isAdmin={auth.user.isAdmin}
         onCreateChannel={createChannel}
+        incomingFriendRequests={incomingRequests.length}
       />
 
       <section className="chat-panel">
         <header className="panel-header">
           <div className="panel-header-main">
-            <h1>
-              {activeView === 'chat'
-                ? activeChannel
-                  ? `# ${activeChannel.name}`
-                  : 'Select channel'
-                : activeView === 'settings'
-                  ? 'Settings'
-                  : 'Admin Settings'}
-            </h1>
+            <h1>{panelTitle}</h1>
             {error ? <p className="error-banner">{error}</p> : null}
           </div>
           {activeView === 'chat' ? (
@@ -649,15 +775,28 @@ export function ChatPage() {
           </>
         ) : null}
 
+        {activeView === 'friends' ? (
+          <FriendsPanel
+            friends={friends}
+            incoming={incomingRequests}
+            outgoing={outgoingRequests}
+            loading={loadingFriends}
+            error={friendsError}
+            actionBusyId={friendActionBusyId}
+            submittingRequest={submittingFriendRequest}
+            onRefresh={loadFriendData}
+            onSendRequest={sendFriendRequest}
+            onAccept={acceptFriendRequest}
+            onDecline={declineFriendRequest}
+            onCancel={cancelFriendRequest}
+            onRemove={removeFriend}
+          />
+        ) : null}
+
         {activeView === 'settings' ? (
           <SettingsPanel
             user={auth.user}
             wsConnected={ws.connected}
-            onLogout={logout}
-            activeView={activeView}
-            onToggleAdmin={
-              auth.user.isAdmin ? () => setActiveView((c) => (c === 'admin' ? 'settings' : 'admin')) : undefined
-            }
             preferences={preferences}
             onUpdatePreferences={updatePreferences}
             onResetPreferences={resetPreferences}
@@ -689,15 +828,9 @@ export function ChatPage() {
         ) : null}
       </section>
 
-      {activeView === 'chat' ? (
-        <UserSidebar users={uniqueUsers} onUserClick={setSelectedUser} />
-      ) : null}
+      {activeView === 'chat' ? <UserSidebar users={uniqueUsers} onUserClick={setSelectedUser} /> : null}
 
-      <UserProfile
-        user={selectedUser}
-        onClose={() => setSelectedUser(null)}
-        currentUser={auth.user}
-      />
+      <UserProfile user={selectedUser} onClose={() => setSelectedUser(null)} currentUser={auth.user} />
     </main>
   );
 }

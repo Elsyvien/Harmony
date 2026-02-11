@@ -12,15 +12,18 @@ export function useChatSocket(params: {
   token: string | null;
   activeChannelId: string | null;
   onMessageNew: (message: Message) => void;
+  onFriendEvent?: () => void;
 }) {
   const socketRef = useRef<WebSocket | null>(null);
   const reconnectTimerRef = useRef<number | null>(null);
   const joinedChannelRef = useRef<string | null>(null);
   const activeChannelIdRef = useRef(params.activeChannelId);
   const onMessageNewRef = useRef(params.onMessageNew);
+  const onFriendEventRef = useRef(params.onFriendEvent);
   const [connected, setConnected] = useState(false);
 
   onMessageNewRef.current = params.onMessageNew;
+  onFriendEventRef.current = params.onFriendEvent;
   activeChannelIdRef.current = params.activeChannelId;
 
   const sendEvent = useCallback((type: string, payload: unknown) => {
@@ -64,6 +67,11 @@ export function useChatSocket(params: {
             if (payload.message) {
               onMessageNewRef.current(payload.message);
             }
+            return;
+          }
+
+          if (parsed.type === 'friend:request:new' || parsed.type === 'friend:request:updated') {
+            onFriendEventRef.current?.();
           }
         } catch {
           // Ignore malformed event payloads from the server.

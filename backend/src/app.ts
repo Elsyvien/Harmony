@@ -7,11 +7,13 @@ import { ZodError } from 'zod';
 import { loadEnv } from './config/env.js';
 import { wsPlugin } from './plugins/ws.plugin.js';
 import { PrismaChannelRepository } from './repositories/channel.repository.js';
+import { PrismaFriendshipRepository } from './repositories/friendship.repository.js';
 import { PrismaMessageRepository } from './repositories/message.repository.js';
 import { prisma } from './repositories/prisma.js';
 import { PrismaUserRepository } from './repositories/user.repository.js';
 import { authRoutes } from './routes/auth.routes.js';
 import { channelRoutes } from './routes/channel.routes.js';
+import { friendRoutes } from './routes/friend.routes.js';
 import { adminRoutes } from './routes/admin.routes.js';
 import { AdminService } from './services/admin.service.js';
 import { AdminSettingsService } from './services/admin-settings.service.js';
@@ -19,6 +21,7 @@ import { AdminUserService } from './services/admin-user.service.js';
 import { AuthService } from './services/auth.service.js';
 import { ChannelService } from './services/channel.service.js';
 import { MessageService } from './services/message.service.js';
+import { FriendService } from './services/friend.service.js';
 import { AppError } from './utils/app-error.js';
 
 export async function buildApp() {
@@ -52,6 +55,7 @@ export async function buildApp() {
   const userRepo = new PrismaUserRepository();
   const channelRepo = new PrismaChannelRepository();
   const messageRepo = new PrismaMessageRepository();
+  const friendshipRepo = new PrismaFriendshipRepository();
   const adminSettingsService = new AdminSettingsService();
 
   const authService = new AuthService(userRepo, env.BCRYPT_SALT_ROUNDS, adminSettingsService);
@@ -62,6 +66,7 @@ export async function buildApp() {
     env.MESSAGE_MAX_LENGTH,
     adminSettingsService,
   );
+  const friendService = new FriendService(friendshipRepo, userRepo);
   const adminService = new AdminService();
   const adminUserService = new AdminUserService();
 
@@ -91,6 +96,7 @@ export async function buildApp() {
   await app.register(wsPlugin, { channelService, messageService });
   await app.register(authRoutes, { authService, env });
   await app.register(channelRoutes, { channelService, messageService });
+  await app.register(friendRoutes, { friendService });
   await app.register(adminRoutes, { adminService, adminSettingsService, adminUserService });
 
   app.get('/health', async () => ({ ok: true }));

@@ -4,6 +4,8 @@ import type {
   AdminStats,
   AdminUserSummary,
   Channel,
+  FriendRequestSummary,
+  FriendSummary,
   Message,
   User,
   UserRole,
@@ -102,6 +104,69 @@ export const chatApi = {
   deleteAdminUser(token: string, userId: string) {
     return apiRequest<{ deletedUserId: string }>(
       `/admin/users/${userId}`,
+      {
+        method: 'DELETE',
+      },
+      token,
+    );
+  },
+
+  friends(token: string) {
+    return apiRequest<{ friends: FriendSummary[] }>('/friends', {}, token);
+  },
+
+  friendRequests(token: string) {
+    return apiRequest<{ incoming: FriendRequestSummary[]; outgoing: FriendRequestSummary[] }>(
+      '/friends/requests',
+      {},
+      token,
+    );
+  },
+
+  sendFriendRequest(token: string, username: string) {
+    return apiRequest<{ request: FriendRequestSummary }>(
+      '/friends/requests',
+      {
+        method: 'POST',
+        body: JSON.stringify({ username }),
+      },
+      token,
+    );
+  },
+
+  acceptFriendRequest(token: string, requestId: string) {
+    return apiRequest<{ friendship: FriendSummary }>(
+      `/friends/requests/${requestId}/accept`,
+      {
+        method: 'POST',
+      },
+      token,
+    );
+  },
+
+  declineFriendRequest(token: string, requestId: string) {
+    return apiRequest<void>(
+      `/friends/requests/${requestId}/decline`,
+      {
+        method: 'POST',
+      },
+      token,
+    );
+  },
+
+  cancelFriendRequest(token: string, requestId: string) {
+    return apiRequest<void>(
+      `/friends/requests/${requestId}/cancel`,
+      {
+        method: 'POST',
+      },
+      token,
+    );
+  },
+
+  removeFriend(token: string, friendshipId: string) {
+    return apiRequest<void>(
+      `/friends/${friendshipId}`,
       {
         method: 'DELETE',
       },

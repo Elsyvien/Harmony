@@ -29,6 +29,7 @@ export const wsPlugin: FastifyPluginAsync<WsPluginOptions> = async (fastify, opt
   await fastify.register(websocket);
 
   const channelSubscribers = new Map<string, Set<ClientContext>>();
+  const userSubscribers = new Map<string, Set<ClientContext>>();
 
   const send = (ctx: ClientContext, type: string, payload: unknown) => {
     if (ctx.socket.readyState === WS_OPEN_STATE) {
@@ -55,6 +56,21 @@ export const wsPlugin: FastifyPluginAsync<WsPluginOptions> = async (fastify, opt
     }
   };
 
+  const unregisterUser = (ctx: ClientContext) => {
+    if (!ctx.userId) {
+      return;
+    }
+
+    const subscribers = userSubscribers.get(ctx.userId);
+    if (!subscribers) {
+      return;
+    }
+    subscribers.delete(ctx);
+    if (subscribers.size === 0) {
+      userSubscribers.delete(ctx.userId);
+    }
+  };
+
   fastify.decorate('wsGateway', {
     broadcastMessage: (channelId: string, message: unknown) => {
       const subscribers = channelSubscribers.get(channelId);
@@ -64,6 +80,17 @@ export const wsPlugin: FastifyPluginAsync<WsPluginOptions> = async (fastify, opt
 
       for (const client of subscribers) {
         send(client, 'message:new', { message });
+      }
+    },
+    notifyUsers: (userIds: string[], type: string, payload: unknown) => {
+      for (const userId of userIds) {
+        const subscribers = userSubscribers.get(userId);
+        if (!subscribers) {
+          continue;
+        }
+        for (const client of subscribers) {
+          send(client, type, payload);
+        }
       }
     },
   });
@@ -107,6 +134,9 @@ export const wsPlugin: FastifyPluginAsync<WsPluginOptions> = async (fastify, opt
           }
           ctx.userId = user.userId;
           ctx.role = dbUser.role;
+          const subscribers = userSubscribers.get(user.userId) ?? new Set<ClientContext>();
+          subscribers.add(ctx);
+          userSubscribers.set(user.userId, subscribers);
           send(ctx, 'auth:ok', { userId: user.userId });
           return;
         }
@@ -173,6 +203,7 @@ export const wsPlugin: FastifyPluginAsync<WsPluginOptions> = async (fastify, opt
 
     socket.on('close', () => {
       leaveAllChannels(ctx);
+      unregisterUser(ctx);
     });
   });
 };

@@ -167,7 +167,10 @@ export class FriendService {
     return requestSummary(created);
   }
 
-  async acceptRequest(userId: string, requestId: string): Promise<FriendSummary> {
+  async acceptRequest(
+    userId: string,
+    requestId: string,
+  ): Promise<{ friendship: FriendSummary; userIds: string[]; requestId: string }> {
     const existing = await this.friendshipRepo.findById(requestId);
     if (!existing || existing.status !== 'PENDING') {
       throw new AppError('FRIEND_REQUEST_NOT_FOUND', 404, 'Friend request not found');
@@ -182,10 +185,17 @@ export class FriendService {
     }
 
     const updated = await this.friendshipRepo.accept(existing.id);
-    return friendSummary(updated, userId);
+    return {
+      friendship: friendSummary(updated, userId),
+      userIds: [updated.userAId, updated.userBId],
+      requestId: updated.id,
+    };
   }
 
-  async declineRequest(userId: string, requestId: string): Promise<{ removedRequestId: string }> {
+  async declineRequest(
+    userId: string,
+    requestId: string,
+  ): Promise<{ removedRequestId: string; userIds: string[] }> {
     const existing = await this.friendshipRepo.findById(requestId);
     if (!existing || existing.status !== 'PENDING') {
       throw new AppError('FRIEND_REQUEST_NOT_FOUND', 404, 'Friend request not found');
@@ -200,10 +210,16 @@ export class FriendService {
     }
 
     await this.friendshipRepo.deleteById(existing.id);
-    return { removedRequestId: existing.id };
+    return {
+      removedRequestId: existing.id,
+      userIds: [existing.userAId, existing.userBId],
+    };
   }
 
-  async cancelRequest(userId: string, requestId: string): Promise<{ removedRequestId: string }> {
+  async cancelRequest(
+    userId: string,
+    requestId: string,
+  ): Promise<{ removedRequestId: string; userIds: string[] }> {
     const existing = await this.friendshipRepo.findById(requestId);
     if (!existing || existing.status !== 'PENDING') {
       throw new AppError('FRIEND_REQUEST_NOT_FOUND', 404, 'Friend request not found');
@@ -218,10 +234,16 @@ export class FriendService {
     }
 
     await this.friendshipRepo.deleteById(existing.id);
-    return { removedRequestId: existing.id };
+    return {
+      removedRequestId: existing.id,
+      userIds: [existing.userAId, existing.userBId],
+    };
   }
 
-  async removeFriend(userId: string, friendshipId: string): Promise<{ removedFriendshipId: string }> {
+  async removeFriend(
+    userId: string,
+    friendshipId: string,
+  ): Promise<{ removedFriendshipId: string; userIds: string[] }> {
     const existing = await this.friendshipRepo.findById(friendshipId);
     if (!existing || existing.status !== 'ACCEPTED') {
       throw new AppError('FRIENDSHIP_NOT_FOUND', 404, 'Friendship not found');
@@ -233,6 +255,9 @@ export class FriendService {
     }
 
     await this.friendshipRepo.deleteById(existing.id);
-    return { removedFriendshipId: existing.id };
+    return {
+      removedFriendshipId: existing.id,
+      userIds: [existing.userAId, existing.userBId],
+    };
   }
 }

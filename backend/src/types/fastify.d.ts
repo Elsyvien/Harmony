@@ -20,6 +20,7 @@ declare module 'fastify' {
   interface FastifyInstance {
     wsGateway: {
       broadcastMessage: (channelId: string, message: unknown) => void;
+      notifyUsers: (userIds: string[], type: string, payload: unknown) => void;
     };
   }
 }

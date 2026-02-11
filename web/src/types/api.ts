@@ -83,3 +83,27 @@ export interface AdminUserSummary {
   suspendedUntil: string | null;
   createdAt: string;
 }
+
+export interface FriendSummary {
+  id: string;
+  user: {
+    id: string;
+    username: string;
+  };
+  friendsSince: string;
+}
+
+export interface FriendRequestSummary {
+  id: string;
+  status: 'PENDING' | 'ACCEPTED';
+  from: {
+    id: string;
+    username: string;
+  };
+  to: {
+    id: string;
+    username: string;
+  };
+  requestedById: string;
+  createdAt: string;
+}

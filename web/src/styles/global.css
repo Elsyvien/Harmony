@@ -282,6 +282,7 @@ button {
 .channel-item {
   display: flex;
   align-items: center;
+  justify-content: space-between;
   width: 100%;
   text-align: left;
   padding: 6px 12px;
@@ -294,6 +295,20 @@ button {
   font-weight: 500;
   cursor: pointer;
   transition: all 0.1s;
+}
+
+.sidebar-badge {
+  min-width: 20px;
+  height: 20px;
+  border-radius: 999px;
+  padding: 0 6px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 11px;
+  font-weight: 700;
+  background-color: var(--danger);
+  color: #fff;
 }
 
 .channel-item:hover {
@@ -479,6 +494,70 @@ button {
 .setting-hint {
   text-align: left;
   margin: 8px 0 0;
+}
+
+.friends-panel {
+  display: grid;
+  gap: 12px;
+}
+
+.friends-tab-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.active-pill {
+  border-color: var(--accent);
+  color: var(--text-header);
+}
+
+.friends-add-form {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 10px;
+  margin-top: 10px;
+}
+
+.friends-add-form input,
+.friends-search-row input {
+  width: 100%;
+  background-color: var(--bg-darkest);
+  border: 1px solid var(--panel-border);
+  color: var(--text-header);
+  border-radius: var(--radius-sharp);
+  padding: 8px 10px;
+}
+
+.friends-search-row {
+  margin-bottom: 2px;
+}
+
+.friends-list {
+  display: grid;
+  gap: 8px;
+}
+
+.friend-card {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px;
+  border: 1px solid var(--panel-border);
+  border-radius: var(--radius-soft);
+  background-color: var(--bg-darker);
+}
+
+.friend-card small {
+  display: block;
+  color: var(--text-muted);
+  margin-top: 4px;
+}
+
+.friend-card-actions {
+  display: flex;
+  gap: 8px;
 }
 
 .ghost-btn {
@@ -1187,6 +1266,10 @@ body.font-scale-lg {
 
   .panel-search-input {
     width: 170px;
+  }
+
+  .friends-add-form {
+    grid-template-columns: 1fr;
   }
 }
 
