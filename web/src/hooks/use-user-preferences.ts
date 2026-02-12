@@ -53,6 +53,10 @@ function parsePreferences(raw: string | null): UserPreferences {
         typeof parsed.voiceInputDeviceId === 'string'
           ? parsed.voiceInputDeviceId
           : DEFAULT_USER_PREFERENCES.voiceInputDeviceId,
+      noiseSuppression:
+        typeof parsed.noiseSuppression === 'boolean'
+          ? parsed.noiseSuppression
+          : DEFAULT_USER_PREFERENCES.noiseSuppression,
     };
   } catch {
     return DEFAULT_USER_PREFERENCES;

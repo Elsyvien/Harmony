@@ -12,6 +12,10 @@ import { UserSidebar } from '../components/user-sidebar';
 import { VoiceChannelPanel } from '../components/voice-channel-panel';
 import { useChatSocket } from '../hooks/use-chat-socket';
 import type { PresenceState, PresenceUser, VoiceParticipant, VoiceStatePayload } from '../hooks/use-chat-socket';
+import { loadRnnoise, RnnoiseWorkletNode } from '@sapphi-red/web-noise-suppressor';
+import rnnoiseWorkletUrl from '@sapphi-red/web-noise-suppressor/rnnoiseWorklet.js?url';
+import rnnoiseWasmUrl from '@sapphi-red/web-noise-suppressor/rnnoise.wasm?url';
+import rnnoiseSimdWasmUrl from '@sapphi-red/web-noise-suppressor/rnnoise_simd.wasm?url';
 import { useUserPreferences } from '../hooks/use-user-preferences';
 import {
   mergeMessages,
@@ -356,6 +360,8 @@ export function ChatPage() {
   const createOfferForPeerRef = useRef((() => Promise.resolve()) as (peerUserId: string, channelId: string) => Promise<void>);
   const leaveVoiceRef = useRef((() => false) as (channelId?: string) => boolean);
   const messageSearchInputRef = useRef<HTMLInputElement | null>(null);
+  const noiseSuppressorWorkletRef = useRef<RnnoiseWorkletNode | null>(null);
+  const voiceCleanupRef = useRef<(() => void) | null>(null);
 
   const activeChannel = useMemo(
     () => channels.find((channel) => channel.id === activeChannelId) ?? null,
@@ -966,6 +972,14 @@ export function ChatPage() {
       void localAnalyserContextRef.current.close();
       localAnalyserContextRef.current = null;
     }
+    if (voiceCleanupRef.current) {
+      voiceCleanupRef.current();
+      voiceCleanupRef.current = null;
+    }
+    if (noiseSuppressorWorkletRef.current) {
+      noiseSuppressorWorkletRef.current.destroy();
+      noiseSuppressorWorkletRef.current = null;
+    }
   }, []);
 
   const ensureRemoteAudioContext = useCallback(() => {
@@ -1082,25 +1096,94 @@ export function ChatPage() {
     };
 
     let stream: MediaStream;
-    try {
-      stream = await navigator.mediaDevices.getUserMedia({
-        audio: audioConstraints,
-        video: false,
-      });
-    } catch (err) {
-      if (!preferredDeviceId) {
-        throw err;
+
+    // Helper to cleanup AI noise suppression resources
+    const cleanupNoiseSuppression = () => {
+      if (voiceCleanupRef.current) {
+        voiceCleanupRef.current();
+        voiceCleanupRef.current = null;
       }
-      updatePreferences({ voiceInputDeviceId: null });
-      resolvedDeviceId = null;
-      stream = await navigator.mediaDevices.getUserMedia({
+      if (noiseSuppressorWorkletRef.current) {
+        noiseSuppressorWorkletRef.current.destroy();
+        noiseSuppressorWorkletRef.current = null;
+      }
+    };
+
+    if (preferences.noiseSuppression) {
+      // AI Noise Suppression Path
+      cleanupNoiseSuppression();
+
+      const constraints = {
         audio: {
-          echoCancellation: true,
-          noiseSuppression: true,
+          ...audioConstraints,
+          echoCancellation: true, // Keep EC
+          noiseSuppression: false, // Disable browser NS to avoid double processing
           autoGainControl: true,
         },
         video: false,
-      });
+      };
+
+      try {
+        const rawStream = await navigator.mediaDevices.getUserMedia(constraints);
+        const AudioContextClass = window.AudioContext || (window as any).webkitAudioContext;
+        if (!AudioContextClass) {
+          stream = rawStream; // Fallback
+        } else {
+          const ctx = new AudioContextClass();
+          // Load worklet module from URL
+          await ctx.audioWorklet.addModule(rnnoiseWorkletUrl);
+          // Load WASM binary
+          const wasmBinary = await loadRnnoise({ url: rnnoiseWasmUrl, simdUrl: rnnoiseSimdWasmUrl });
+
+          const source = ctx.createMediaStreamSource(rawStream);
+          const worklet = new RnnoiseWorkletNode(ctx, { maxChannels: 1, wasmBinary });
+          source.connect(worklet);
+          const destination = ctx.createMediaStreamDestination();
+          worklet.connect(destination);
+
+          stream = destination.stream;
+          noiseSuppressorWorkletRef.current = worklet;
+          voiceCleanupRef.current = () => {
+            source.disconnect();
+            worklet.disconnect();
+            void ctx.close();
+            // Important: stop the raw stream tracks too
+            for (const track of rawStream.getTracks()) {
+              track.stop();
+            }
+          };
+        }
+      } catch (err) {
+        // Fallback to normal if AI setup fails
+        console.warn('Failed to setup AI noise suppression, falling back to default', err);
+        stream = await navigator.mediaDevices.getUserMedia({
+          audio: { ...audioConstraints, noiseSuppression: true },
+          video: false
+        });
+      }
+    } else {
+      // Standard Path
+      cleanupNoiseSuppression();
+      try {
+        stream = await navigator.mediaDevices.getUserMedia({
+          audio: audioConstraints,
+          video: false,
+        });
+      } catch (err) {
+        if (!preferredDeviceId) {
+          throw err;
+        }
+        updatePreferences({ voiceInputDeviceId: null });
+        resolvedDeviceId = null;
+        stream = await navigator.mediaDevices.getUserMedia({
+          audio: {
+            echoCancellation: true,
+            noiseSuppression: true,
+            autoGainControl: true,
+          },
+          video: false,
+        });
+      }
     }
 
     const nextTrack = stream.getAudioTracks()[0] ?? null;
@@ -1150,6 +1233,8 @@ export function ChatPage() {
     localVoiceInputDeviceIdRef.current = resolvedDeviceId;
 
     if (previousStream) {
+      // If we are replacing the stream (e.g. device change or noise suppression toggle),
+      // update all active senders.
       for (const connection of peerConnectionsRef.current.values()) {
         for (const sender of connection.getSenders()) {
           if (sender.track?.kind !== 'audio') {
@@ -1179,9 +1264,24 @@ export function ChatPage() {
     enumerateAudioInputDevices,
     initLocalAnalyser,
     preferences.voiceInputDeviceId,
+    preferences.noiseSuppression,
     refreshMicrophonePermission,
     updatePreferences,
   ]);
+
+  // Effect to trigger stream refresh when noise suppression toggles
+  useEffect(() => {
+    if (!activeVoiceChannelId) {
+      return;
+    }
+    // We only want to refresh if we already have a stream and the setting changed.
+    // getLocalVoiceStream internally checks preferences.noiseSuppression.
+    // By calling it here, we force a re-evaluation and stream replacement.
+    // We purposefully don't await it to avoid blocking.
+    void getLocalVoiceStream().catch(() => {
+      // Ignore errors (e.g. permission denied on re-request)
+    });
+  }, [preferences.noiseSuppression, activeVoiceChannelId, getLocalVoiceStream]);
 
   const applyAudioBitrateToConnection = useCallback(
     async (connection: RTCPeerConnection, bitrateKbps: number) => {
@@ -3267,13 +3367,13 @@ export function ChatPage() {
           </header>
           <label className="audio-context-volume">
             <span>Volume</span>
-                <input
-                  type="range"
-                  min={0}
-                  max={200}
-                  step={1}
-                  value={getUserAudioState(audioContextMenu.userId).volume}
-                onChange={(event) => {
+            <input
+              type="range"
+              min={0}
+              max={200}
+              step={1}
+              value={getUserAudioState(audioContextMenu.userId).volume}
+              onChange={(event) => {
                 setUserVolume(audioContextMenu.userId, Number(event.target.value));
               }}
             />
