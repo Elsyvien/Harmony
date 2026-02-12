@@ -1,6 +1,7 @@
 import { useMemo, useState } from 'react';
 import type { User } from '../types/api';
 import type { UserPreferences } from '../types/preferences';
+import { DropdownSelect } from './dropdown-select';
 
 interface SettingsPanelProps {
   user: User;
@@ -232,19 +233,22 @@ export function SettingsPanel(props: SettingsPanelProps) {
                 <strong>Font scale</strong>
                 <small>Adjust readability in chat and side panels.</small>
               </span>
-              <select
-                className="settings-select"
-                value={props.preferences.fontScale}
-                onChange={(event) =>
-                  props.onUpdatePreferences({
-                    fontScale: event.target.value as UserPreferences['fontScale'],
-                  })
+              <DropdownSelect
+                options={['Small', 'Normal', 'Large']}
+                value={
+                  props.preferences.fontScale === 'sm'
+                    ? 'Small'
+                    : props.preferences.fontScale === 'lg'
+                      ? 'Large'
+                      : 'Normal'
                 }
-              >
-                <option value="sm">Small</option>
-                <option value="md">Normal</option>
-                <option value="lg">Large</option>
-              </select>
+                onChange={(value) => {
+                  const scaleMap = { Small: 'sm', Normal: 'md', Large: 'lg' } as const;
+                  props.onUpdatePreferences({
+                    fontScale: scaleMap[value as keyof typeof scaleMap],
+                  });
+                }}
+              />
             </label>
           </section>
 
