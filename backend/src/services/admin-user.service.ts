@@ -10,6 +10,7 @@ export interface AdminUserSummary {
   email: string;
   role: UserRole;
   isAdmin: boolean;
+  avatarUrl: string | null;
   isSuspended: boolean;
   suspendedUntil: Date | null;
   createdAt: Date;
@@ -17,6 +18,9 @@ export interface AdminUserSummary {
 
 export interface UpdateAdminUserInput {
   role?: UserRole;
+  avatarUrl?: string | null;
+  isSuspended?: boolean;
+  suspensionHours?: number;
 }
 
 function canRoleManageUsers(role: UserRole): boolean {
@@ -53,11 +57,80 @@ function assertActorCanManageTarget(
   }
 }
 
+function normalizeAvatarUrl(
+  avatarUrl: string | null | undefined,
+): string | null | undefined {
+  if (avatarUrl === undefined) {
+    return undefined;
+  }
+  if (avatarUrl === null) {
+    return null;
+  }
+
+  const normalized = avatarUrl.trim();
+  if (!normalized) {
+    return null;
+  }
+  if (normalized.length > 1024) {
+    throw new AppError('VALIDATION_ERROR', 400, 'Avatar URL is too long');
+  }
+
+  if (normalized.startsWith('/uploads/avatars/')) {
+    return normalized;
+  }
+
+  let parsed: URL;
+  try {
+    parsed = new URL(normalized);
+  } catch {
+    throw new AppError('VALIDATION_ERROR', 400, 'Avatar URL must be a valid URL');
+  }
+
+  if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
+    throw new AppError('VALIDATION_ERROR', 400, 'Avatar URL must use http or https');
+  }
+
+  return normalized;
+}
+
+function resolveSuspensionUpdate(
+  input: UpdateAdminUserInput,
+): { isSuspended: boolean; suspendedUntil: Date | null } | undefined {
+  if (input.isSuspended === undefined && input.suspensionHours === undefined) {
+    return undefined;
+  }
+
+  if (input.isSuspended === false) {
+    if (input.suspensionHours !== undefined) {
+      throw new AppError(
+        'VALIDATION_ERROR',
+        400,
+        'Suspension hours can only be set when suspending a user',
+      );
+    }
+    return { isSuspended: false, suspendedUntil: null };
+  }
+
+  if (input.isSuspended === undefined) {
+    throw new AppError('VALIDATION_ERROR', 400, 'isSuspended must be true to apply suspension hours');
+  }
+
+  if (input.suspensionHours === undefined) {
+    return { isSuspended: true, suspendedUntil: null };
+  }
+
+  return {
+    isSuspended: true,
+    suspendedUntil: new Date(Date.now() + input.suspensionHours * 60 * 60 * 1000),
+  };
+}
+
 function toSummary(user: {
   id: string;
   username: string;
   email: string;
   role: UserRole;
+  avatarUrl: string | null;
   isSuspended: boolean;
   suspendedUntil: Date | null;
   createdAt: Date;
@@ -68,6 +141,7 @@ function toSummary(user: {
     email: user.email,
     role: user.role,
     isAdmin: isAdminRole(user.role),
+    avatarUrl: user.avatarUrl,
     isSuspended: isSuspensionActive(user.isSuspended, user.suspendedUntil),
     suspendedUntil: user.suspendedUntil,
     createdAt: user.createdAt,
@@ -84,6 +158,7 @@ export class AdminUserService {
         username: true,
         email: true,
         role: true,
+        avatarUrl: true,
         isSuspended: true,
         suspendedUntil: true,
         createdAt: true,
@@ -106,6 +181,7 @@ export class AdminUserService {
         username: true,
         email: true,
         role: true,
+        avatarUrl: true,
         isSuspended: true,
         suspendedUntil: true,
         createdAt: true,
@@ -118,18 +194,43 @@ export class AdminUserService {
 
     assertActorCanManageTarget(actor, target, { role: input.role });
 
-    const nextRole = input.role ?? target.role;
+    const updateData: {
+      role?: UserRole;
+      isAdmin?: boolean;
+      avatarUrl?: string | null;
+      isSuspended?: boolean;
+      suspendedUntil?: Date | null;
+    } = {};
+
+    if (input.role !== undefined) {
+      updateData.role = input.role;
+      updateData.isAdmin = isAdminRole(input.role);
+    }
+
+    const normalizedAvatarUrl = normalizeAvatarUrl(input.avatarUrl);
+    if (normalizedAvatarUrl !== undefined) {
+      updateData.avatarUrl = normalizedAvatarUrl;
+    }
+
+    const suspensionUpdate = resolveSuspensionUpdate(input);
+    if (suspensionUpdate) {
+      updateData.isSuspended = suspensionUpdate.isSuspended;
+      updateData.suspendedUntil = suspensionUpdate.suspendedUntil;
+    }
+
+    if (Object.keys(updateData).length === 0) {
+      return toSummary(target);
+    }
+
     const updated = await prisma.user.update({
       where: { id: target.id },
-      data: {
-        role: nextRole,
-        isAdmin: isAdminRole(nextRole),
-      },
+      data: updateData,
       select: {
         id: true,
         username: true,
         email: true,
         role: true,
+        avatarUrl: true,
         isSuspended: true,
         suspendedUntil: true,
         createdAt: true,

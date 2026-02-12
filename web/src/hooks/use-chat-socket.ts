@@ -26,6 +26,8 @@ export interface VoiceParticipant {
   userId: string;
   username: string;
   avatarUrl?: string;
+  muted?: boolean;
+  deafened?: boolean;
 }
 
 export interface VoiceStatePayload {
@@ -273,8 +275,12 @@ export function useChatSocket(params: {
   );
 
   const joinVoice = useCallback(
-    (channelId: string) => {
-      return sendEvent('voice:join', { channelId });
+    (channelId: string, options?: { muted?: boolean; deafened?: boolean }) => {
+      return sendEvent('voice:join', {
+        channelId,
+        ...(options?.muted !== undefined ? { muted: options.muted } : {}),
+        ...(options?.deafened !== undefined ? { deafened: options.deafened } : {}),
+      });
     },
     [sendEvent],
   );
@@ -289,6 +295,13 @@ export function useChatSocket(params: {
   const sendVoiceSignal = useCallback(
     (channelId: string, targetUserId: string, data: unknown) => {
       return sendEvent('voice:signal', { channelId, targetUserId, data });
+    },
+    [sendEvent],
+  );
+
+  const sendVoiceSelfState = useCallback(
+    (channelId: string, muted: boolean, deafened: boolean) => {
+      return sendEvent('voice:self-state', { channelId, muted, deafened });
     },
     [sendEvent],
   );
@@ -312,5 +325,5 @@ export function useChatSocket(params: {
 
   const [ping, setPing] = useState<number | null>(null);
 
-  return { connected, sendMessage, joinVoice, leaveVoice, sendVoiceSignal, ping };
+  return { connected, sendMessage, joinVoice, leaveVoice, sendVoiceSignal, sendVoiceSelfState, ping };
 }

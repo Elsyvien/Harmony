@@ -1,29 +1,14 @@
 import type { FastifyPluginAsync } from 'fastify';
-import type { FastifyRequest } from 'fastify';
-import { prisma } from '../repositories/prisma.js';
 import { friendshipIdParamsSchema, friendRequestBodySchema } from '../schemas/friend.schema.js';
 import type { FriendService } from '../services/friend.service.js';
-import { AppError } from '../utils/app-error.js';
-import { isSuspensionActive } from '../utils/suspension.js';
+import { createAuthGuard } from './guards.js';
 
 interface FriendRoutesOptions {
   friendService: FriendService;
 }
 
 export const friendRoutes: FastifyPluginAsync<FriendRoutesOptions> = async (fastify, options) => {
-  const authPreHandler = async (request: FastifyRequest) => {
-    await request.jwtVerify();
-    const user = await prisma.user.findUnique({
-      where: { id: request.user.userId },
-      select: { id: true, isSuspended: true, suspendedUntil: true },
-    });
-    if (!user) {
-      throw new AppError('INVALID_SESSION', 401, 'Session is no longer valid. Please log in again.');
-    }
-    if (isSuspensionActive(user.isSuspended, user.suspendedUntil)) {
-      throw new AppError('ACCOUNT_SUSPENDED', 403, 'Your account is currently suspended');
-    }
-  };
+  const authPreHandler = createAuthGuard();
 
   fastify.get(
     '/friends',

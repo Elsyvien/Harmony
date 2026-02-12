@@ -13,6 +13,14 @@ interface WsPluginOptions {
   messageService: MessageService;
 }
 
+interface VoiceParticipantState {
+  userId: string;
+  username: string;
+  avatarUrl?: string;
+  muted: boolean;
+  deafened: boolean;
+}
+
 interface ClientContext {
   userId: string | null;
   username: string | null;
@@ -33,10 +41,7 @@ const wsPluginImpl: FastifyPluginAsync<WsPluginOptions> = async (fastify, option
 
   const channelSubscribers = new Map<string, Set<ClientContext>>();
   const userSubscribers = new Map<string, Set<ClientContext>>();
-  const voiceParticipants = new Map<
-    string,
-    Map<string, { userId: string; username: string; avatarUrl?: string }>
-  >();
+  const voiceParticipants = new Map<string, Map<string, VoiceParticipantState>>();
   const activeVoiceChannelByUser = new Map<string, string>();
 
   const send = (ctx: ClientContext, type: string, payload: unknown) => {
@@ -179,6 +184,8 @@ const wsPluginImpl: FastifyPluginAsync<WsPluginOptions> = async (fastify, option
         userId,
         username: profile.username,
         avatarUrl: profile.avatarUrl ?? undefined,
+        muted: participants.get(userId)?.muted ?? false,
+        deafened: participants.get(userId)?.deafened ?? false,
       });
       channelsToUpdate.add(channelId);
     }
@@ -361,7 +368,11 @@ const wsPluginImpl: FastifyPluginAsync<WsPluginOptions> = async (fastify, option
         }
 
         if (parsed.type === 'voice:join') {
-          const payload = parsed.payload as { channelId?: string };
+          const payload = parsed.payload as {
+            channelId?: string;
+            muted?: boolean;
+            deafened?: boolean;
+          };
           if (!payload?.channelId) {
             throw new AppError('INVALID_CHANNEL', 400, 'Missing channelId');
           }
@@ -386,10 +397,14 @@ const wsPluginImpl: FastifyPluginAsync<WsPluginOptions> = async (fastify, option
           }
 
           const participants = voiceParticipants.get(payload.channelId) ?? new Map();
+          const deafened = Boolean(payload.deafened);
+          const muted = deafened ? true : Boolean(payload.muted);
           participants.set(ctx.userId, {
             userId: ctx.userId,
             username: ctx.username,
             avatarUrl: ctx.avatarUrl ?? undefined,
+            muted,
+            deafened,
           });
           voiceParticipants.set(payload.channelId, participants);
           activeVoiceChannelByUser.set(ctx.userId, payload.channelId);
@@ -400,6 +415,36 @@ const wsPluginImpl: FastifyPluginAsync<WsPluginOptions> = async (fastify, option
         if (parsed.type === 'voice:leave') {
           const payload = parsed.payload as { channelId?: string } | undefined;
           leaveVoiceChannel(ctx.userId, payload?.channelId);
+          return;
+        }
+
+        if (parsed.type === 'voice:self-state') {
+          const payload = parsed.payload as {
+            channelId?: string;
+            muted?: boolean;
+            deafened?: boolean;
+          };
+          const activeChannelId = activeVoiceChannelByUser.get(ctx.userId);
+          if (!activeChannelId) {
+            throw new AppError('VOICE_NOT_JOINED', 403, 'Join the voice channel first');
+          }
+          if (payload?.channelId && payload.channelId !== activeChannelId) {
+            throw new AppError('INVALID_CHANNEL', 400, 'Invalid channelId for voice state');
+          }
+          const participants = voiceParticipants.get(activeChannelId);
+          const currentParticipant = participants?.get(ctx.userId);
+          if (!participants || !currentParticipant) {
+            throw new AppError('VOICE_NOT_JOINED', 403, 'Join the voice channel first');
+          }
+
+          const deafened = Boolean(payload?.deafened);
+          const muted = deafened ? true : Boolean(payload?.muted);
+          participants.set(ctx.userId, {
+            ...currentParticipant,
+            muted,
+            deafened,
+          });
+          broadcastVoiceState(activeChannelId);
           return;
         }
 

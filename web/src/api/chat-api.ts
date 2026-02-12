@@ -151,7 +151,12 @@ export const chatApi = {
   updateAdminUser(
     token: string,
     userId: string,
-    input: Partial<{ role: UserRole }>,
+    input: Partial<{
+      role: UserRole;
+      avatarUrl: string | null;
+      isSuspended: boolean;
+      suspensionHours: number;
+    }>,
   ) {
     return apiRequest<{ user: AdminUserSummary }>(
       `/admin/users/${userId}`,

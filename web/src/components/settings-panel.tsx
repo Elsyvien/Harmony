@@ -4,7 +4,9 @@ import type { UserPreferences } from '../types/preferences';
 import { chatApi } from '../api/chat-api';
 import { useAuth } from '../store/auth-store';
 import { DropdownSelect } from './dropdown-select';
+import { getErrorMessage } from '../utils/error-message';
 import { resolveMediaUrl } from '../utils/media-url';
+import { trackTelemetry, trackTelemetryError } from '../utils/telemetry';
 import lobsterImage from '../../ressources/logos/images/maxresdefault.jpg';
 import lobsterAudio from '../../ressources/logos/audio/lobster.wav';
 
@@ -26,6 +28,15 @@ interface SettingsPanelProps {
   onLogout: () => Promise<void>;
 }
 
+const MAX_AVATAR_FILE_SIZE_BYTES = 5 * 1024 * 1024;
+const ALLOWED_AVATAR_MIME_TYPES = new Set([
+  'image/png',
+  'image/jpeg',
+  'image/webp',
+  'image/gif',
+  'image/avif',
+]);
+
 function currentNotificationPermission() {
   if (typeof window === 'undefined' || !('Notification' in window)) {
     return 'unsupported';
@@ -46,30 +57,104 @@ export function SettingsPanel(props: SettingsPanelProps) {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const { token, setAuth } = useAuth();
   const [uploadingAvatar, setUploadingAvatar] = useState(false);
+  const [avatarUploadFeedback, setAvatarUploadFeedback] = useState<{
+    type: 'error' | 'info';
+    message: string;
+  } | null>(null);
 
   const handleAvatarClick = () => {
+    if (uploadingAvatar) {
+      return;
+    }
     fileInputRef.current?.click();
+  };
+
+  const resetAvatarInput = () => {
+    if (fileInputRef.current) {
+      fileInputRef.current.value = '';
+    }
+  };
+
+  const handleAvatarKeyDown = (event: React.KeyboardEvent<HTMLDivElement>) => {
+    if (event.key !== 'Enter' && event.key !== ' ') {
+      return;
+    }
+    event.preventDefault();
+    handleAvatarClick();
   };
 
   const handleFileChange = async (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
-    if (!file || !token) {
+    if (!file) {
       return;
     }
 
+    if (!token) {
+      trackTelemetry({
+        name: 'avatar_upload_blocked_unauthenticated',
+        level: 'warn',
+      });
+      setAvatarUploadFeedback({
+        type: 'error',
+        message: 'You need to be logged in to update your avatar.',
+      });
+      resetAvatarInput();
+      return;
+    }
+
+    if (!ALLOWED_AVATAR_MIME_TYPES.has(file.type)) {
+      trackTelemetry({
+        name: 'avatar_upload_invalid_type',
+        level: 'warn',
+        context: { mimeType: file.type },
+      });
+      setAvatarUploadFeedback({
+        type: 'error',
+        message: 'Only PNG, JPG, WEBP, GIF or AVIF images are allowed.',
+      });
+      resetAvatarInput();
+      return;
+    }
+
+    if (file.size > MAX_AVATAR_FILE_SIZE_BYTES) {
+      trackTelemetry({
+        name: 'avatar_upload_too_large',
+        level: 'warn',
+        context: { sizeBytes: file.size },
+      });
+      setAvatarUploadFeedback({
+        type: 'error',
+        message: 'Avatar must be 5 MB or smaller.',
+      });
+      resetAvatarInput();
+      return;
+    }
+
+    setAvatarUploadFeedback(null);
     setUploadingAvatar(true);
     try {
       const response = await chatApi.uploadAvatar(token, file);
       setAuth(token, response.user);
+      trackTelemetry({
+        name: 'avatar_upload_succeeded',
+        context: { sizeBytes: file.size, mimeType: file.type },
+      });
+      setAvatarUploadFeedback({
+        type: 'info',
+        message: 'Avatar updated successfully.',
+      });
     } catch (error) {
-      console.error('Failed to upload avatar:', error);
-      // specific error handling could go here
+      trackTelemetryError('avatar_upload_failed', error, {
+        sizeBytes: file.size,
+        mimeType: file.type,
+      });
+      setAvatarUploadFeedback({
+        type: 'error',
+        message: getErrorMessage(error, 'Could not upload avatar.'),
+      });
     } finally {
       setUploadingAvatar(false);
-      // Reset input value so same file can be selected again
-      if (fileInputRef.current) {
-        fileInputRef.current.value = '';
-      }
+      resetAvatarInput();
     }
   };
 
@@ -138,9 +223,12 @@ export function SettingsPanel(props: SettingsPanelProps) {
             <div
               className={`settings-avatar${uploadingAvatar ? ' uploading' : ''}`}
               onClick={handleAvatarClick}
+              onKeyDown={handleAvatarKeyDown}
               title="Change Avatar"
               role="button"
-              tabIndex={0}
+              tabIndex={uploadingAvatar ? -1 : 0}
+              aria-disabled={uploadingAvatar}
+              aria-label="Change avatar"
             >
               {avatarUrl ? (
                 <img src={avatarUrl} alt={props.user.username} />
@@ -154,7 +242,7 @@ export function SettingsPanel(props: SettingsPanelProps) {
                 type="file"
                 ref={fileInputRef}
                 onChange={handleFileChange}
-                accept="image/*"
+                accept=".png,.jpg,.jpeg,.webp,.gif,.avif"
                 style={{ display: 'none' }}
               />
             </div>
@@ -163,6 +251,15 @@ export function SettingsPanel(props: SettingsPanelProps) {
               <small>{props.user.email}</small>
             </div>
           </div>
+          {avatarUploadFeedback ? (
+            <p
+              className={avatarUploadFeedback.type === 'error' ? 'error-banner' : 'info-banner'}
+              role="status"
+              aria-live="polite"
+            >
+              {avatarUploadFeedback.message}
+            </p>
+          ) : null}
           <p className="settings-nav-title">User Settings</p>
           <nav className="settings-nav-list" aria-label="Settings sections">
             <button

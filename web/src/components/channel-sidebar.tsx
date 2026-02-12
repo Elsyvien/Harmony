@@ -224,7 +224,6 @@ export function ChannelSidebar(props: ChannelSidebarProps) {
           const isJoined = props.activeVoiceChannelId === channel.id;
           const channelParticipants = props.voiceParticipantsByChannel[channel.id] ?? [];
           const streamingSet = new Set(props.voiceStreamingUserIdsByChannel[channel.id] ?? []);
-          const connectedCount = channelParticipants.length;
           const participants = props.voiceParticipantCounts[channel.id] ?? 0;
           const isTransitioning = props.joiningVoiceChannelId === channel.id;
           const isOtherTransition =
@@ -283,6 +282,11 @@ export function ChannelSidebar(props: ChannelSidebarProps) {
                   {channelParticipants.map((participant) => {
                     const isLive = streamingSet.has(participant.userId);
                     const isSpeaking = speakingSet.has(participant.userId);
+                    const voiceStatusLabel = participant.deafened
+                      ? 'DEAF'
+                      : participant.muted
+                        ? 'MUTED'
+                        : null;
                     return (
                       <div
                         key={participant.userId}
@@ -297,18 +301,14 @@ export function ChannelSidebar(props: ChannelSidebarProps) {
                         </div>
                         <span className="channel-connected-name">{participant.username}</span>
                         {isLive ? <span className="channel-connected-live">LIVE</span> : null}
-                        <span
-                          className="channel-connected-audience"
-                          title={`${connectedCount} connected in ${channel.name}`}
-                        >
-                          <svg width="10" height="10" viewBox="0 0 24 24" aria-hidden="true">
-                            <path
-                              fill="currentColor"
-                              d="M12 12c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4Zm0 2c-3.31 0-6 1.79-6 4v1h12v-1c0-2.21-2.69-4-6-4Z"
-                            />
-                          </svg>
-                          <span>{connectedCount}</span>
-                        </span>
+                        {voiceStatusLabel ? (
+                          <span
+                            className={`channel-connected-status ${voiceStatusLabel === 'DEAF' ? 'deaf' : 'muted'}`}
+                            title={`${participant.username} is ${voiceStatusLabel.toLowerCase()}`}
+                          >
+                            {voiceStatusLabel}
+                          </span>
+                        ) : null}
                       </div>
                     );
                   })}

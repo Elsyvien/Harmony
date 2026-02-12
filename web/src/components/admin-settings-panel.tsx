@@ -20,7 +20,12 @@ interface AdminSettingsPanelProps {
   onRefreshUsers: () => Promise<void>;
   onUpdateUser: (
     userId: string,
-    input: Partial<{ role: UserRole }>,
+    input: Partial<{
+      role: UserRole;
+      avatarUrl: string | null;
+      isSuspended: boolean;
+      suspensionHours: number;
+    }>,
   ) => Promise<void>;
   onDeleteUser: (userId: string) => Promise<void>;
   currentUserId: string;
@@ -33,6 +38,13 @@ function formatUptime(totalSec: number) {
   return `${hours}h ${minutes}m ${seconds}s`;
 }
 
+function formatSuspensionLabel(suspendedUntil: string | null) {
+  if (!suspendedUntil) {
+    return 'Suspended permanently';
+  }
+  return `Suspended until ${new Date(suspendedUntil).toLocaleString()}`;
+}
+
 export function AdminSettingsPanel(props: AdminSettingsPanelProps) {
   const [draft, setDraft] = useState<AdminSettings>({
     allowRegistrations: true,
@@ -43,12 +55,35 @@ export function AdminSettingsPanel(props: AdminSettingsPanelProps) {
   const [roleFilter, setRoleFilter] = useState<'ALL' | UserRole>('ALL');
   const [confirmDeleteUserId, setConfirmDeleteUserId] = useState<string | null>(null);
   const [confirmDeleteText, setConfirmDeleteText] = useState('');
+  const [avatarDraftByUserId, setAvatarDraftByUserId] = useState<Record<string, string>>({});
+  const [suspensionHoursByUserId, setSuspensionHoursByUserId] = useState<Record<string, number>>({});
 
   useEffect(() => {
     if (props.settings) {
       setDraft(props.settings);
     }
   }, [props.settings]);
+
+  useEffect(() => {
+    const next: Record<string, string> = {};
+    for (const user of props.users) {
+      next[user.id] = user.avatarUrl ?? '';
+    }
+    setAvatarDraftByUserId(next);
+  }, [props.users]);
+
+  useEffect(() => {
+    setSuspensionHoursByUserId((prev) => {
+      const next: Record<string, number> = {};
+      for (const user of props.users) {
+        const existing = prev[user.id];
+        next[user.id] = Number.isFinite(existing)
+          ? Math.max(1, Math.min(24 * 30, Math.round(existing)))
+          : 24;
+      }
+      return next;
+    });
+  }, [props.users]);
 
   const filteredUsers = useMemo(() => {
     const normalizedSearch = search.trim().toLowerCase();
@@ -73,6 +108,7 @@ export function AdminSettingsPanel(props: AdminSettingsPanelProps) {
       admins: props.users.filter((user) => user.role === 'ADMIN').length,
       moderators: props.users.filter((user) => user.role === 'MODERATOR').length,
       members: props.users.filter((user) => user.role === 'MEMBER').length,
+      suspended: props.users.filter((user) => user.isSuspended).length,
     }),
     [props.users],
   );
@@ -174,6 +210,7 @@ export function AdminSettingsPanel(props: AdminSettingsPanelProps) {
           <span className="status-chip neutral">Admins {userStats.admins}</span>
           <span className="status-chip neutral">Mods {userStats.moderators}</span>
           <span className="status-chip neutral">Members {userStats.members}</span>
+          <span className="status-chip danger">Suspended {userStats.suspended}</span>
         </div>
 
         <div className="admin-user-toolbar">
@@ -198,6 +235,8 @@ export function AdminSettingsPanel(props: AdminSettingsPanelProps) {
               <tr>
                 <th>User</th>
                 <th>Role</th>
+                <th>Profile</th>
+                <th>Moderation</th>
                 <th>Created</th>
                 <th>Actions</th>
               </tr>
@@ -208,6 +247,7 @@ export function AdminSettingsPanel(props: AdminSettingsPanelProps) {
                 const busy = props.updatingUserId === user.id || props.deletingUserId === user.id;
                 const confirmOpen = confirmDeleteUserId === user.id;
                 const canDelete = !isSelf && user.role !== 'OWNER';
+                const suspensionHours = suspensionHoursByUserId[user.id] ?? 24;
                 return [
                   <tr key={`row-${user.id}`}>
                     <td>
@@ -227,6 +267,92 @@ export function AdminSettingsPanel(props: AdminSettingsPanelProps) {
                         <option value="MODERATOR">MODERATOR</option>
                         <option value="MEMBER">MEMBER</option>
                       </select>
+                    </td>
+                    <td>
+                      <input
+                        className="admin-avatar-input"
+                        value={avatarDraftByUserId[user.id] ?? ''}
+                        onChange={(event) =>
+                          setAvatarDraftByUserId((prev) => ({
+                            ...prev,
+                            [user.id]: event.target.value,
+                          }))
+                        }
+                        placeholder="https://example.com/avatar.png"
+                        disabled={busy || isSelf}
+                      />
+                      <div className="admin-inline-actions">
+                        <button
+                          className="ghost-btn small"
+                          disabled={busy || isSelf}
+                          onClick={() =>
+                            void props.onUpdateUser(user.id, {
+                              avatarUrl: (avatarDraftByUserId[user.id] ?? '').trim() || null,
+                            })
+                          }
+                        >
+                          Save avatar
+                        </button>
+                        <button
+                          className="ghost-btn small"
+                          disabled={busy || isSelf || !user.avatarUrl}
+                          onClick={() => {
+                            setAvatarDraftByUserId((prev) => ({ ...prev, [user.id]: '' }));
+                            void props.onUpdateUser(user.id, { avatarUrl: null });
+                          }}
+                        >
+                          Clear
+                        </button>
+                      </div>
+                      <small className="admin-url-preview">{user.avatarUrl ?? 'No avatar set'}</small>
+                    </td>
+                    <td>
+                      <span className={`status-chip ${user.isSuspended ? 'danger' : 'ok'}`}>
+                        {user.isSuspended ? 'Suspended' : 'Active'}
+                      </span>
+                      <small>
+                        {user.isSuspended ? formatSuspensionLabel(user.suspendedUntil) : 'No active suspension'}
+                      </small>
+                      <div className="admin-inline-actions">
+                        <input
+                          className="admin-hours-input"
+                          type="number"
+                          min={1}
+                          max={24 * 30}
+                          value={suspensionHours}
+                          disabled={busy || isSelf}
+                          onChange={(event) => {
+                            const next = Math.max(
+                              1,
+                              Math.min(24 * 30, Number(event.target.value) || 1),
+                            );
+                            setSuspensionHoursByUserId((prev) => ({ ...prev, [user.id]: next }));
+                          }}
+                        />
+                        <button
+                          className="ghost-btn small"
+                          disabled={busy || isSelf}
+                          onClick={() =>
+                            void props.onUpdateUser(user.id, {
+                              isSuspended: true,
+                              suspensionHours,
+                            })
+                          }
+                        >
+                          Suspend
+                        </button>
+                        <button
+                          className="ghost-btn small"
+                          disabled={busy || isSelf || !user.isSuspended}
+                          onClick={() =>
+                            void props.onUpdateUser(user.id, {
+                              isSuspended: false,
+                            })
+                          }
+                        >
+                          Unsuspend
+                        </button>
+                      </div>
                     </td>
                     <td>{new Date(user.createdAt).toLocaleDateString()}</td>
                     <td className="admin-user-actions">
@@ -253,7 +379,7 @@ export function AdminSettingsPanel(props: AdminSettingsPanelProps) {
                   </tr>,
                   confirmOpen ? (
                     <tr key={`confirm-${user.id}`}>
-                      <td colSpan={4}>
+                      <td colSpan={6}>
                         <div className="delete-confirm-row">
                           <p>
                             Delete <strong>{user.username}</strong>? This removes account data and cannot be undone.
@@ -286,7 +412,7 @@ export function AdminSettingsPanel(props: AdminSettingsPanelProps) {
               })}
               {filteredUsers.length === 0 ? (
                 <tr>
-                  <td colSpan={4}>
+                  <td colSpan={6}>
                     <p className="muted">No users found for current filter.</p>
                   </td>
                 </tr>

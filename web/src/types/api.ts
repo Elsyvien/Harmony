@@ -116,6 +116,7 @@ export interface AdminUserSummary {
   email: string;
   role: UserRole;
   isAdmin: boolean;
+  avatarUrl: string | null;
   isSuspended: boolean;
   suspendedUntil: string | null;
   createdAt: string;

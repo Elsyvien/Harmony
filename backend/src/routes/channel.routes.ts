@@ -4,10 +4,8 @@ import { mkdir } from 'node:fs/promises';
 import path from 'node:path';
 import { pipeline } from 'node:stream/promises';
 import type { FastifyPluginAsync } from 'fastify';
-import type { FastifyRequest } from 'fastify';
 import type { ChannelService } from '../services/channel.service.js';
 import type { MessageService } from '../services/message.service.js';
-import { prisma } from '../repositories/prisma.js';
 import {
   channelIdParamsSchema,
   channelMessageParamsSchema,
@@ -20,8 +18,8 @@ import {
   updateVoiceSettingsBodySchema,
 } from '../schemas/message.schema.js';
 import { AppError } from '../utils/app-error.js';
-import { isAdminRole, isPrivilegedRole } from '../utils/roles.js';
-import { isSuspensionActive } from '../utils/suspension.js';
+import { isAdminRole } from '../utils/roles.js';
+import { createAuthGuard } from './guards.js';
 
 interface ChannelRoutesOptions {
   channelService: ChannelService;
@@ -31,21 +29,9 @@ interface ChannelRoutesOptions {
 export const channelRoutes: FastifyPluginAsync<ChannelRoutesOptions> = async (fastify, options) => {
   const uploadsDir = path.resolve(process.cwd(), 'uploads');
 
-  const authPreHandler = async (request: FastifyRequest) => {
-    await request.jwtVerify();
-    const user = await prisma.user.findUnique({
-      where: { id: request.user.userId },
-      select: { id: true, role: true, isSuspended: true, suspendedUntil: true },
-    });
-    if (!user) {
-      throw new AppError('INVALID_SESSION', 401, 'Session is no longer valid. Please log in again.');
-    }
-    if (isSuspensionActive(user.isSuspended, user.suspendedUntil)) {
-      throw new AppError('ACCOUNT_SUSPENDED', 403, 'Your account is currently suspended');
-    }
-    request.user.role = user.role;
-    request.user.isAdmin = isAdminRole(user.role);
-  };
+  const authPreHandler = createAuthGuard();
+  const adminAuthPreHandler = createAuthGuard({ requiredRole: 'ADMIN' });
+  const privilegedAuthPreHandler = createAuthGuard({ requiredRole: 'PRIVILEGED' });
 
   fastify.get(
     '/channels',
@@ -119,16 +105,12 @@ export const channelRoutes: FastifyPluginAsync<ChannelRoutesOptions> = async (fa
   fastify.post(
     '/channels',
     {
-      preHandler: [authPreHandler],
+      preHandler: [adminAuthPreHandler],
       config: {
         rateLimit: { max: 10, timeWindow: 60_000 },
       },
     },
     async (request, reply) => {
-      if (!isAdminRole(request.user.role)) {
-        throw new AppError('FORBIDDEN', 403, 'Admin permission required');
-      }
-
       const body = createChannelBodySchema.parse(request.body);
       const channel = await options.channelService.createChannel(body.name, body.type);
       reply.code(201).send({ channel });
@@ -138,16 +120,12 @@ export const channelRoutes: FastifyPluginAsync<ChannelRoutesOptions> = async (fa
   fastify.delete(
     '/channels/:id',
     {
-      preHandler: [authPreHandler],
+      preHandler: [adminAuthPreHandler],
       config: {
         rateLimit: { max: 20, timeWindow: 60_000 },
       },
     },
     async (request) => {
-      if (!isAdminRole(request.user.role)) {
-        throw new AppError('FORBIDDEN', 403, 'Admin permission required');
-      }
-
       const { id: channelId } = channelIdParamsSchema.parse(request.params);
       const result = await options.channelService.deleteChannel(channelId);
       return result;
@@ -157,16 +135,12 @@ export const channelRoutes: FastifyPluginAsync<ChannelRoutesOptions> = async (fa
   fastify.patch(
     '/channels/:id/voice-settings',
     {
-      preHandler: [authPreHandler],
+      preHandler: [privilegedAuthPreHandler],
       config: {
         rateLimit: { max: 30, timeWindow: 60_000 },
       },
     },
     async (request) => {
-      if (!isPrivilegedRole(request.user.role)) {
-        throw new AppError('FORBIDDEN', 403, 'Moderator permission required');
-      }
-
       const { id: channelId } = channelIdParamsSchema.parse(request.params);
       const body = updateVoiceSettingsBodySchema.parse(request.body);
       const channel = await options.channelService.updateVoiceChannelSettings(channelId, {

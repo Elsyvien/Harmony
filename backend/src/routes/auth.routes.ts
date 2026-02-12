@@ -2,6 +2,7 @@ import type { FastifyPluginAsync } from 'fastify';
 import { loginBodySchema, registerBodySchema } from '../schemas/auth.schema.js';
 import type { Env } from '../config/env.js';
 import type { AuthService } from '../services/auth.service.js';
+import { createAuthGuard } from './guards.js';
 
 interface AuthRoutesOptions {
   authService: AuthService;
@@ -9,6 +10,8 @@ interface AuthRoutesOptions {
 }
 
 export const authRoutes: FastifyPluginAsync<AuthRoutesOptions> = async (fastify, options) => {
+  const authPreHandler = createAuthGuard({ enforceSuspension: false });
+
   fastify.post(
     '/auth/register',
     {
@@ -61,11 +64,7 @@ export const authRoutes: FastifyPluginAsync<AuthRoutesOptions> = async (fastify,
   fastify.post(
     '/auth/logout',
     {
-      preHandler: [
-        async (request) => {
-          await request.jwtVerify();
-        },
-      ],
+      preHandler: [authPreHandler],
     },
     async (_, reply) => {
       reply.code(204).send();
@@ -75,11 +74,7 @@ export const authRoutes: FastifyPluginAsync<AuthRoutesOptions> = async (fastify,
   fastify.get(
     '/me',
     {
-      preHandler: [
-        async (request) => {
-          await request.jwtVerify();
-        },
-      ],
+      preHandler: [authPreHandler],
     },
     async (request) => {
       const user = await options.authService.getById(request.user.userId);

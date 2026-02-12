@@ -60,10 +60,10 @@ export function AuthProvider({ children }: PropsWithChildren) {
     token: initialToken,
     user: initialParsedUser,
   });
-  const [hydrating, setHydrating] = useState(Boolean(initialToken && !initialParsedUser));
+  const [hydrating, setHydrating] = useState(Boolean(initialToken));
 
   useEffect(() => {
-    if (!state.token || state.user || !hydrating) {
+    if (!state.token || !hydrating) {
       return;
     }
 

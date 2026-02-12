@@ -13,7 +13,6 @@ import { wsPlugin } from './plugins/ws.plugin.js';
 import { PrismaChannelRepository } from './repositories/channel.repository.js';
 import { PrismaFriendshipRepository } from './repositories/friendship.repository.js';
 import { PrismaMessageRepository } from './repositories/message.repository.js';
-import { prisma } from './repositories/prisma.js';
 import { PrismaUserRepository } from './repositories/user.repository.js';
 import { authRoutes } from './routes/auth.routes.js';
 import { channelRoutes } from './routes/channel.routes.js';
@@ -97,27 +96,6 @@ export async function buildApp() {
   const userService = new UserService();
   const adminService = new AdminService();
   const adminUserService = new AdminUserService();
-
-  // Keep "Max" as owner/admin per project requirement.
-  await prisma.user.updateMany({
-    where: { username: 'max' },
-    data: {
-      role: 'OWNER',
-      isAdmin: true,
-      isSuspended: false,
-      suspendedUntil: null,
-    },
-  });
-
-  await prisma.user.updateMany({
-    where: { username: 'Max' },
-    data: {
-      role: 'OWNER',
-      isAdmin: true,
-      isSuspended: false,
-      suspendedUntil: null,
-    },
-  });
 
   await channelService.ensureDefaultChannel();
 

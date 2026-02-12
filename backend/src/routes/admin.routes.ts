@@ -1,14 +1,10 @@
 import type { FastifyPluginAsync } from 'fastify';
-import type { FastifyRequest } from 'fastify';
 import { z } from 'zod';
 import { UserRole } from '@prisma/client';
 import type { AdminService } from '../services/admin.service.js';
 import type { AdminSettingsService } from '../services/admin-settings.service.js';
 import type { AdminUserService } from '../services/admin-user.service.js';
-import { prisma } from '../repositories/prisma.js';
-import { AppError } from '../utils/app-error.js';
-import { isAdminRole } from '../utils/roles.js';
-import { isSuspensionActive } from '../utils/suspension.js';
+import { createAuthGuard } from './guards.js';
 
 interface AdminRoutesOptions {
   adminService: AdminService;
@@ -37,25 +33,21 @@ const updateAdminUserParamsSchema = z.object({
 const updateAdminUserSchema = z
   .object({
     role: z.nativeEnum(UserRole).optional(),
+    avatarUrl: z.union([z.string().max(1024), z.null()]).optional(),
+    isSuspended: z.boolean().optional(),
+    suspensionHours: z.coerce.number().int().min(1).max(24 * 30).optional(),
   })
-  .refine((value) => value.role !== undefined, { message: 'At least one field must be provided' });
+  .refine(
+    (value) =>
+      value.role !== undefined ||
+      value.avatarUrl !== undefined ||
+      value.isSuspended !== undefined ||
+      value.suspensionHours !== undefined,
+    { message: 'At least one field must be provided' },
+  );
 
 export const adminRoutes: FastifyPluginAsync<AdminRoutesOptions> = async (fastify, options) => {
-  const authPreHandler = async (request: FastifyRequest) => {
-    await request.jwtVerify();
-    const user = await prisma.user.findUnique({
-      where: { id: request.user.userId },
-      select: { id: true, role: true, isSuspended: true, suspendedUntil: true },
-    });
-    if (!user) {
-      throw new AppError('INVALID_SESSION', 401, 'Session is no longer valid. Please log in again.');
-    }
-    if (isSuspensionActive(user.isSuspended, user.suspendedUntil)) {
-      throw new AppError('ACCOUNT_SUSPENDED', 403, 'Your account is currently suspended');
-    }
-    request.user.role = user.role;
-    request.user.isAdmin = isAdminRole(user.role);
-  };
+  const authPreHandler = createAuthGuard({ requiredRole: 'ADMIN' });
 
   fastify.get(
     '/admin/stats',
@@ -65,11 +57,7 @@ export const adminRoutes: FastifyPluginAsync<AdminRoutesOptions> = async (fastif
         rateLimit: { max: 30, timeWindow: 60_000 },
       },
     },
-    async (request) => {
-      if (!isAdminRole(request.user.role)) {
-        throw new AppError('FORBIDDEN', 403, 'Admin permission required');
-      }
-
+    async () => {
       const stats = await options.adminService.getServerStats();
       return { stats };
     },
@@ -83,10 +71,7 @@ export const adminRoutes: FastifyPluginAsync<AdminRoutesOptions> = async (fastif
         rateLimit: { max: 30, timeWindow: 60_000 },
       },
     },
-    async (request) => {
-      if (!isAdminRole(request.user.role)) {
-        throw new AppError('FORBIDDEN', 403, 'Admin permission required');
-      }
+    async () => {
       const settings = await options.adminSettingsService.getSettings();
       return { settings };
     },
@@ -101,10 +86,6 @@ export const adminRoutes: FastifyPluginAsync<AdminRoutesOptions> = async (fastif
       },
     },
     async (request) => {
-      if (!isAdminRole(request.user.role)) {
-        throw new AppError('FORBIDDEN', 403, 'Admin permission required');
-      }
-
       const body = updateAdminSettingsSchema.parse(request.body);
       const settings = await options.adminSettingsService.updateSettings(body);
       return { settings };
@@ -142,8 +123,15 @@ export const adminRoutes: FastifyPluginAsync<AdminRoutesOptions> = async (fastif
         id,
         {
           role: body.role,
+          avatarUrl: body.avatarUrl,
+          isSuspended: body.isSuspended,
+          suspensionHours: body.suspensionHours,
         },
       );
+      fastify.wsGateway.updateUserProfile(user.id, {
+        username: user.username,
+        avatarUrl: user.avatarUrl,
+      });
 
       return { user };
     },

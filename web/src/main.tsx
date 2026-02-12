@@ -4,6 +4,9 @@ import { HashRouter } from 'react-router-dom';
 import { App } from './App';
 import { AuthProvider } from './store/auth-store';
 import harmonyLogo from '../ressources/logos/logo.png';
+import './styles/chat.css';
+import './styles/settings.css';
+import './styles/voice.css';
 import './styles/global.css';
 import './styles/user-sidebar.css';
 

@@ -30,7 +30,13 @@ export interface VoiceDetailedConnectionStats {
 
 interface VoiceChannelPanelProps {
   channelName: string;
-  participants: Array<{ userId: string; username: string; avatarUrl?: string }>;
+  participants: Array<{
+    userId: string;
+    username: string;
+    avatarUrl?: string;
+    muted?: boolean;
+    deafened?: boolean;
+  }>;
   currentUserId: string;
   localAudioReady: boolean;
   remoteAudioUsers: Array<{ userId: string; username: string; stream: MediaStream }>;
@@ -88,7 +94,21 @@ const VOICE_BITRATE_OPTIONS = [
 
 const STREAM_BITRATE_OPTIONS = [500, 1000, 1500, 2500, 4000, 6000, 8000, 10000];
 
-const STREAM_QUALITY_OPTIONS = ['480p 15fps', '720p 30fps', '1080p 30fps', '1080p 60fps', '1440p 30fps'];
+const STREAM_QUALITY_OPTIONS = [
+  '360p 15fps',
+  '360p 30fps',
+  '480p 15fps',
+  '480p 30fps',
+  '720p 15fps',
+  '720p 30fps',
+  '720p 60fps',
+  '900p 30fps',
+  '1080p 30fps',
+  '1080p 60fps',
+  '1440p 30fps',
+  '1440p 60fps',
+  '2160p 30fps',
+];
 
 function formatVoiceBitrateOption(bitrateKbps: number) {
   if (bitrateKbps === 24) {
@@ -130,13 +150,11 @@ const ScreenShareItem = memo(function ScreenShareItem({
   label,
   isMaximized,
   onMaximize,
-  onPopOut,
 }: {
   stream: MediaStream;
   label: string;
   isMaximized: boolean;
   onMaximize: () => void;
-  onPopOut: () => void;
 }) {
   const videoRef = useRef<HTMLVideoElement>(null);
 
@@ -151,16 +169,39 @@ const ScreenShareItem = memo(function ScreenShareItem({
   // To "minimize traffic" effectively in P2P without signaling, we can't do much,
   // but we can ensure we aren't using high-res rendering resources.
 
+  const requestFullscreen = async () => {
+    const video = videoRef.current;
+    if (!video) {
+      return;
+    }
+    try {
+      if (video.requestFullscreen) {
+        await video.requestFullscreen();
+        return;
+      }
+      const legacyVideo = video as HTMLVideoElement & {
+        webkitRequestFullscreen?: () => Promise<void> | void;
+      };
+      legacyVideo.webkitRequestFullscreen?.();
+    } catch {
+      // Best effort only. Some environments or policies block fullscreen.
+    }
+  };
+
   return (
     <div
       className={`voice-screen-share-item ${isMaximized ? 'maximized' : ''}`}
       onClick={onMaximize}
+      onDoubleClick={() => {
+        void requestFullscreen();
+      }}
     >
       <video
         ref={videoRef}
         autoPlay
         playsInline
         muted
+        disablePictureInPicture
         style={{ cursor: 'pointer' }}
       />
       <div className="voice-screen-share-overlay">
@@ -170,12 +211,12 @@ const ScreenShareItem = memo(function ScreenShareItem({
             className="screen-share-control-btn"
             onClick={(e) => {
               e.stopPropagation();
-              onPopOut();
+              void requestFullscreen();
             }}
-            title="Pop out"
-            aria-label="Pop out screen share"
+            title="Fullscreen"
+            aria-label="Open stream in fullscreen"
           >
-            ↗
+            ⛶
           </button>
         </div>
       </div>
@@ -194,32 +235,6 @@ export function VoiceChannelPanel(props: VoiceChannelPanelProps) {
     }
     window.clearTimeout(longPressTimeoutRef.current);
     longPressTimeoutRef.current = null;
-  };
-
-  const handlePopOut = (stream: MediaStream, title: string) => {
-    const win = window.open('', '', 'width=800,height=600,menubar=no,toolbar=no,location=no,status=no,noopener,noreferrer');
-    if (win) {
-      win.opener = null;
-      win.document.title = title;
-      win.document.body.style.margin = '0';
-      win.document.body.style.backgroundColor = '#000';
-      win.document.body.style.display = 'flex';
-      win.document.body.style.justifyContent = 'center';
-      win.document.body.style.alignItems = 'center';
-      win.document.body.style.height = '100vh';
-
-      const video = win.document.createElement('video');
-      video.srcObject = stream;
-      video.autoplay = true;
-      video.playsInline = true;
-      video.muted = true;
-      video.controls = true;
-      video.style.width = '100%';
-      video.style.height = '100%';
-      video.style.objectFit = 'contain';
-
-      win.document.body.appendChild(video);
-    }
   };
 
   const hasScreenShares = props.localScreenShareStream || Object.keys(props.remoteScreenShares).length > 0;
@@ -358,12 +373,6 @@ export function VoiceChannelPanel(props: VoiceChannelPanelProps) {
               label={localShareTitle}
               isMaximized={maximizedStreamId === 'local'}
               onMaximize={() => setMaximizedStreamId(maximizedStreamId === 'local' ? null : 'local')}
-              onPopOut={() =>
-                handlePopOut(
-                  props.localScreenShareStream!,
-                  props.localStreamSource === 'camera' ? 'My Camera Stream' : 'My Screen Share',
-                )
-              }
             />
           ) : null}
           {Object.entries(props.remoteScreenShares).map(([userId, stream]) => {
@@ -376,7 +385,6 @@ export function VoiceChannelPanel(props: VoiceChannelPanelProps) {
                 label={`${name}'s Stream`}
                 isMaximized={maximizedStreamId === userId}
                 onMaximize={() => setMaximizedStreamId(maximizedStreamId === userId ? null : userId)}
-                onPopOut={() => handlePopOut(stream, `${name}'s Stream`)}
               />
             );
           })}
@@ -474,6 +482,15 @@ export function VoiceChannelPanel(props: VoiceChannelPanelProps) {
           const isSpeaking = props.showVoiceActivity && speakingSet.has(participant.userId);
           const localAudioState = !isSelf ? props.getParticipantAudioState?.(participant.userId) : null;
           const avatarUrl = resolveMediaUrl(participant.avatarUrl);
+          const remoteVoiceState = participant.deafened
+            ? 'Deafened'
+            : participant.muted
+              ? 'Muted'
+              : hasAudio
+                ? isSpeaking
+                  ? 'Speaking'
+                  : 'Audio Connected'
+                : 'Signaling';
           return (
             <div
               key={participant.userId}
@@ -539,11 +556,7 @@ export function VoiceChannelPanel(props: VoiceChannelPanelProps) {
                           : 'You (Mic Active)'
                       : 'You (Connecting)'
                     : 'You'
-                  : hasAudio
-                    ? isSpeaking
-                      ? 'Speaking'
-                      : 'Audio Connected'
-                    : 'Signaling'}
+                  : remoteVoiceState}
                 {!isSelf && localAudioState
                   ? localAudioState.muted
                     ? ' • Muted locally'

@@ -37,7 +37,6 @@ function stringToColor(str: string) {
 
 export function ChatView(props: ChatViewProps) {
   const { recentEmojis, addRecentEmoji } = useRecentEmojis();
-  const apiBaseUrl = import.meta.env.VITE_API_URL ?? 'http://localhost:4000';
   const messageListRef = useRef<HTMLDivElement | null>(null);
   const previousLastMessageIdRef = useRef<string | null>(null);
   const previousMessageCountRef = useRef(0);
@@ -252,14 +251,10 @@ export function ChatView(props: ChatViewProps) {
 
         {props.messages.map((message) => (
           (() => {
-            const attachmentUrl = message.attachment?.url?.startsWith('http')
-              ? message.attachment.url
-              : message.attachment?.url
-                ? `${apiBaseUrl}${message.attachment.url}`
-                : null;
+            const attachmentUrl = resolveMediaUrl(message.attachment?.url) ?? null;
             const avatarUrl = resolveMediaUrl(message.user.avatarUrl);
             const isImageAttachment = Boolean(
-              message.attachment?.type.toLowerCase().startsWith('image/') && attachmentUrl,
+              message.attachment?.type?.toLowerCase().startsWith('image/') && attachmentUrl,
             );
             const hasReactions = message.reactions.length > 0;
 
