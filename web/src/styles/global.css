@@ -2883,6 +2883,7 @@ body.font-scale-lg {
   width: 100%;
   max-width: 300px;
   z-index: 40;
+  height: auto;
 }
 
 .select-button {
@@ -2936,16 +2937,15 @@ body.font-scale-lg {
 }
 
 .select-arrow::after {
-  content: "〈";
-  font-size: 16px;
+  content: "^";
+  font-size: 14px;
   font-weight: 700;
   display: inline-block;
   transition: transform 0.3s ease;
-  transform: rotate(-90deg);
 }
 
 .select-button.open .select-arrow::after {
-  transform: rotate(-90deg) scaleX(-1);
+  transform: scaleY(-1);
 }
 
 .select-options {
