@@ -1491,12 +1491,19 @@ export function ChatPage() {
       if (!auth.token) {
         return;
       }
+      const normalizedUsername = username.trim().replace(/^@/, '');
+      if (!normalizedUsername) {
+        return;
+      }
       setSubmittingFriendRequest(true);
       try {
-        await chatApi.sendFriendRequest(auth.token, username);
+        await chatApi.sendFriendRequest(auth.token, normalizedUsername);
         await loadFriendData();
+        setFriendsError(null);
+        setNotice(`Friend request sent to ${normalizedUsername}.`);
       } catch (err) {
         setFriendsError(getErrorMessage(err, 'Could not send friend request'));
+        setNotice(null);
       } finally {
         setSubmittingFriendRequest(false);
       }
@@ -2400,6 +2407,7 @@ export function ChatPage() {
         currentUser={auth.user}
         friendRequestState={selectedUserFriendRequestState}
         sendingFriendRequest={submittingFriendRequest}
+        friendRequestError={friendsError}
         onSendFriendRequest={sendFriendRequest}
       />
 

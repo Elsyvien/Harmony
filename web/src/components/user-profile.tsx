@@ -4,6 +4,7 @@ interface UserProfileProps {
   currentUser?: { id: string };
   friendRequestState?: 'self' | 'none' | 'friends' | 'outgoing' | 'incoming';
   sendingFriendRequest?: boolean;
+  friendRequestError?: string | null;
   onSendFriendRequest?: (username: string) => Promise<void> | void;
 }
 
@@ -13,6 +14,7 @@ export function UserProfile({
   currentUser,
   friendRequestState = 'none',
   sendingFriendRequest = false,
+  friendRequestError = null,
   onSendFriendRequest,
 }: UserProfileProps) {
   if (!user) return null;
@@ -66,6 +68,7 @@ export function UserProfile({
               >
                 {actionLabel}
               </button>
+              {friendRequestError ? <p className="error-banner compact">{friendRequestError}</p> : null}
             </div>
           ) : null}
           
