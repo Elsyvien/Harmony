@@ -15,3 +15,4 @@ Reference files:
 - `docs/API.md`: API quick reference
 - `docs/SETUP.md`: setup and environment quick reference
 - `docs/ROADMAP.md`: product roadmap notes
+- `docs/structure.md`: repository structure and feature-to-file map
