@@ -199,10 +199,11 @@ function isVoiceSignalData(value: unknown): value is VoiceSignalData {
   return false;
 }
 
-function getVoiceIceServers(): RTCIceServer[] {
+function getVoiceIceConfig(): RTCConfiguration {
   const turnUrlsRaw = import.meta.env.VITE_TURN_URLS as string | undefined;
   const turnUsername = import.meta.env.VITE_TURN_USERNAME as string | undefined;
   const turnCredential = import.meta.env.VITE_TURN_CREDENTIAL as string | undefined;
+  const forceRelay = (import.meta.env.VITE_FORCE_RELAY as string | undefined) === 'true';
   const parsedUrls = Array.from(
     new Set(
       (turnUrlsRaw
@@ -210,48 +211,37 @@ function getVoiceIceServers(): RTCIceServer[] {
         .map((entry) => entry.trim())
         .filter(Boolean) ?? []),
     ),
-  ).slice(0, 4);
+  ).slice(0, 6);
   const stunUrls = parsedUrls.filter((url) => url.startsWith('stun:'));
   const turnRelayUrls = parsedUrls.filter((url) => url.startsWith('turn:') || url.startsWith('turns:'));
 
-  const servers: RTCIceServer[] = [
+  const iceServers: RTCIceServer[] = [
     {
-      urls: [
-        'stun:stun.l.google.com:19302',
-        'stun:stun1.l.google.com:19302',
-      ],
+      urls: ['stun:stun.l.google.com:19302'],
     },
   ];
 
   if (stunUrls.length > 0) {
-    servers.push({ urls: stunUrls });
+    iceServers.push({ urls: stunUrls.slice(0, 1) });
   }
 
   const hasValidTurnCredentials = Boolean(turnUsername && turnCredential);
   if (turnRelayUrls.length > 0 && hasValidTurnCredentials) {
-    const turnServer: RTCIceServer = { urls: turnRelayUrls };
+    const turnServer: RTCIceServer = { urls: turnRelayUrls.slice(0, 1) };
     turnServer.username = turnUsername;
     turnServer.credential = turnCredential;
-    servers.push(turnServer);
-  } else {
-    // Development fallback to avoid complete ICE failure behind strict NATs.
-    // For production reliability, configure a dedicated TURN service via env.
-    servers.push({
-      urls: [
-        'turn:openrelay.metered.ca:80',
-        'turn:openrelay.metered.ca:443',
-        'turns:openrelay.metered.ca:443',
-      ],
-      username: 'openrelayproject',
-      credential: 'openrelayproject',
-    });
+    iceServers.push(turnServer);
   }
 
-  return servers;
+  return {
+    iceServers: iceServers.slice(0, 3),
+    iceCandidatePoolSize: 2,
+    iceTransportPolicy: forceRelay ? 'relay' : 'all',
+  } satisfies RTCConfiguration;
 }
 
-function isPolitePeer(localUserId: string, remoteUserId: string) {
-  return localUserId > remoteUserId;
+function shouldInitiateOffer(localUserId: string, remoteUserId: string) {
+  return localUserId < remoteUserId;
 }
 
 export function ChatPage() {
@@ -1313,7 +1303,7 @@ export function ChatPage() {
 
       const stream = await getLocalVoiceStream();
       const connection = new RTCPeerConnection({
-        iceServers: getVoiceIceServers(),
+        ...getVoiceIceConfig(),
       });
 
       for (const track of stream.getTracks()) {
@@ -1408,7 +1398,16 @@ export function ChatPage() {
           return;
         }
         if (connection.connectionState === 'failed') {
-          // Attempt ICE restart before giving up
+          const localUserId = auth.user?.id;
+          if (!localUserId) {
+            closePeerConnection(peerUserId);
+            return;
+          }
+          if (!shouldInitiateOffer(localUserId, peerUserId)) {
+            return;
+          }
+
+          // Deterministic side performs ICE restart
           const activeChannelId = activeVoiceChannelIdRef.current;
           if (activeChannelId) {
             connection.restartIce();
@@ -1437,6 +1436,7 @@ export function ChatPage() {
       return connection;
     },
     [
+      auth.user,
       applyAudioBitrateToConnection,
       applyVideoBitrateToConnection,
       closePeerConnection,
@@ -1451,6 +1451,9 @@ export function ChatPage() {
   const createOfferForPeer = useCallback(
     async (peerUserId: string, channelId: string) => {
       if (!auth.user) {
+        return;
+      }
+      if (!shouldInitiateOffer(auth.user.id, peerUserId)) {
         return;
       }
       const connection = await ensurePeerConnection(peerUserId, channelId);
@@ -1526,9 +1529,6 @@ export function ChatPage() {
       }
 
       if (signal.kind === 'ice') {
-        if (ignoreOfferByPeerRef.current.get(payload.fromUserId)) {
-          return;
-        }
         const connection = peerConnectionsRef.current.get(payload.fromUserId);
         if (!connection || !connection.remoteDescription) {
           const queue = pendingIceRef.current.get(payload.fromUserId) ?? [];
@@ -1545,28 +1545,25 @@ export function ChatPage() {
       }
 
       const connection = await ensurePeerConnection(payload.fromUserId, payload.channelId);
+      const localUserId = auth.user.id;
 
       if (signal.kind === 'offer') {
-        const offerCollision =
-          makingOfferByPeerRef.current.get(payload.fromUserId) === true ||
-          connection.signalingState !== 'stable';
-        const polite = isPolitePeer(auth.user.id, payload.fromUserId);
-
-        if (!polite && offerCollision) {
-          ignoreOfferByPeerRef.current.set(payload.fromUserId, true);
+        if (shouldInitiateOffer(localUserId, payload.fromUserId)) {
+          // Deterministic initiator should not receive offers in steady state.
           return;
         }
 
-        ignoreOfferByPeerRef.current.set(payload.fromUserId, false);
-
-        if (offerCollision && connection.signalingState === 'have-local-offer') {
+        if (connection.signalingState === 'have-local-offer') {
           try {
             await connection.setLocalDescription({ type: 'rollback' });
           } catch {
             pendingVideoRenegotiationByPeerRef.current.add(payload.fromUserId);
             return;
           }
+        } else if (connection.signalingState !== 'stable') {
+          return;
         }
+
         try {
           await connection.setRemoteDescription(signal.sdp);
         } catch (err) {
@@ -1594,10 +1591,11 @@ export function ChatPage() {
         return;
       }
 
-      if (
-        ignoreOfferByPeerRef.current.get(payload.fromUserId) ||
-        connection.signalingState !== 'have-local-offer'
-      ) {
+      if (!shouldInitiateOffer(localUserId, payload.fromUserId)) {
+        return;
+      }
+
+      if (connection.signalingState !== 'have-local-offer') {
         return;
       }
 
