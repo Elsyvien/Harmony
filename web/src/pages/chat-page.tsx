@@ -250,6 +250,16 @@ function normalizeVoiceIceConfig(value: unknown): RTCConfiguration {
   };
 }
 
+function hasTurnRelayInIceConfig(config: RTCConfiguration) {
+  for (const server of config.iceServers ?? []) {
+    const urls = Array.isArray(server.urls) ? server.urls : [server.urls];
+    if (urls.some((url) => typeof url === 'string' && (url.startsWith('turn:') || url.startsWith('turns:')))) {
+      return true;
+    }
+  }
+  return false;
+}
+
 function shouldInitiateOffer(localUserId: string, remoteUserId: string) {
   return localUserId < remoteUserId;
 }
@@ -364,10 +374,32 @@ export function ChatPage() {
   const drainingVoiceSignalsRef = useRef(false);
   const localVoiceAcquirePromiseRef = useRef<Promise<MediaStream> | null>(null);
   const voiceTransportEpochRef = useRef(0);
+  const voiceDebugEnabledRef = useRef(false);
   const sendVoiceSignalRef = useRef((() => false) as (channelId: string, targetUserId: string, data: unknown) => boolean);
   const createOfferForPeerRef = useRef((() => Promise.resolve()) as (peerUserId: string, channelId: string) => Promise<void>);
   const leaveVoiceRef = useRef((() => false) as (channelId?: string) => boolean);
   const messageSearchInputRef = useRef<HTMLInputElement | null>(null);
+  const hasTurnRelayConfigured = useMemo(() => hasTurnRelayInIceConfig(voiceIceConfig), [voiceIceConfig]);
+
+  const logVoiceDebug = useCallback((event: string, details?: Record<string, unknown>) => {
+    if (!voiceDebugEnabledRef.current) {
+      return;
+    }
+    const payload = {
+      ts: new Date().toISOString(),
+      event,
+      ...(details ?? {}),
+    };
+    const serialized = JSON.stringify(payload);
+    const win = window as typeof window & { __harmonyVoiceLogs?: string[] };
+    const logs = win.__harmonyVoiceLogs ?? [];
+    logs.push(serialized);
+    if (logs.length > 300) {
+      logs.splice(0, logs.length - 300);
+    }
+    win.__harmonyVoiceLogs = logs;
+    console.debug('[voice-debug]', payload);
+  }, []);
 
   const activeChannel = useMemo(
     () => channels.find((channel) => channel.id === activeChannelId) ?? null,
@@ -1311,12 +1343,19 @@ export function ChatPage() {
     async (peerUserId: string, channelId: string) => {
       const existing = peerConnectionsRef.current.get(peerUserId);
       if (existing) {
+        logVoiceDebug('peer_connection_reuse', { peerUserId, channelId });
         return existing;
       }
 
       const stream = await getLocalVoiceStream();
       const connection = new RTCPeerConnection({
         ...voiceIceConfig,
+      });
+      logVoiceDebug('peer_connection_create', {
+        peerUserId,
+        channelId,
+        hasTurnRelayConfigured,
+        iceTransportPolicy: voiceIceConfig.iceTransportPolicy ?? 'all',
       });
 
       for (const track of stream.getTracks()) {
@@ -1406,11 +1445,23 @@ export function ChatPage() {
       };
 
       connection.onconnectionstatechange = () => {
+        logVoiceDebug('peer_connection_state', {
+          peerUserId,
+          channelId,
+          connectionState: connection.connectionState,
+          iceConnectionState: connection.iceConnectionState,
+          signalingState: connection.signalingState,
+        });
         if (connection.connectionState === 'closed') {
           closePeerConnection(peerUserId);
           return;
         }
         if (connection.connectionState === 'failed') {
+          if (!hasTurnRelayConfigured) {
+            setError(
+              'Voice P2P connection failed (no TURN configured). This usually happens on strict/mobile/company NAT networks.',
+            );
+          }
           const localUserId = auth.user?.id;
           if (!localUserId) {
             closePeerConnection(peerUserId);
@@ -1434,8 +1485,10 @@ export function ChatPage() {
                     kind: 'offer',
                     sdp: ld,
                   } satisfies VoiceSignalData);
+                  logVoiceDebug('ice_restart_offer_sent', { peerUserId, channelId: activeChannelId });
                 }
               } catch {
+                logVoiceDebug('ice_restart_offer_failed', { peerUserId, channelId: activeChannelId });
                 closePeerConnection(peerUserId);
               }
             })();
@@ -1459,6 +1512,8 @@ export function ChatPage() {
       getOrCreateVideoSender,
       localStreamSource,
       voiceIceConfig,
+      hasTurnRelayConfigured,
+      logVoiceDebug,
     ],
   );
 
@@ -1684,16 +1739,27 @@ export function ChatPage() {
       if (!canProcessVoiceSignalsForChannel(payload.channelId)) {
         const queue = queuedVoiceSignalsRef.current;
         queue.push(normalizedPayload);
+        logVoiceDebug('voice_signal_queued', {
+          fromUserId: payload.fromUserId,
+          channelId: payload.channelId,
+          kind: payload.data.kind,
+          queueSize: queue.length,
+        });
         if (queue.length > 300) {
           queue.splice(0, queue.length - 300);
         }
         return;
       }
 
+      logVoiceDebug('voice_signal_process', {
+        fromUserId: payload.fromUserId,
+        channelId: payload.channelId,
+        kind: payload.data.kind,
+      });
       await processVoiceSignal(normalizedPayload);
       await drainQueuedVoiceSignals();
     },
-    [auth.user, canProcessVoiceSignalsForChannel, drainQueuedVoiceSignals, processVoiceSignal],
+    [auth.user, canProcessVoiceSignalsForChannel, drainQueuedVoiceSignals, logVoiceDebug, processVoiceSignal],
   );
 
   const handleVoiceState = useCallback(
@@ -1994,6 +2060,15 @@ export function ChatPage() {
     }
     updatePreferences({ voiceInputDeviceId: null });
   }, [audioInputDevices, preferences.voiceInputDeviceId, updatePreferences]);
+
+  useEffect(() => {
+    try {
+      const enabled = localStorage.getItem('harmony_voice_debug') === '1';
+      voiceDebugEnabledRef.current = enabled;
+    } catch {
+      voiceDebugEnabledRef.current = false;
+    }
+  }, []);
 
   useEffect(() => {
     if (!notice) {

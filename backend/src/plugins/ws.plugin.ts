@@ -78,6 +78,14 @@ const wsPluginImpl: FastifyPluginAsync<WsPluginOptions> = async (fastify, option
     }
   };
 
+  const logVoiceEvent = (
+    level: 'info' | 'warn' | 'error',
+    event: string,
+    details: Record<string, unknown>,
+  ) => {
+    fastify.log[level]({ event, ...details }, 'voice-event');
+  };
+
   const leaveChannel = (ctx: ClientContext, channelId: string) => {
     const subscribers = channelSubscribers.get(channelId);
     if (!subscribers) {
@@ -485,6 +493,9 @@ const wsPluginImpl: FastifyPluginAsync<WsPluginOptions> = async (fastify, option
             deafened?: boolean;
           };
           if (!payload?.channelId) {
+            logVoiceEvent('warn', 'voice_join_invalid_channel', {
+              userId: ctx.userId,
+            });
             throw new AppError('INVALID_CHANNEL', 400, 'Missing channelId');
           }
           if (!ctx.username) {
@@ -496,9 +507,17 @@ const wsPluginImpl: FastifyPluginAsync<WsPluginOptions> = async (fastify, option
             ctx.userId,
           );
           if (!channel) {
+            logVoiceEvent('warn', 'voice_join_channel_not_found', {
+              userId: ctx.userId,
+              channelId: payload.channelId,
+            });
             throw new AppError('CHANNEL_NOT_FOUND', 404, 'Channel not found');
           }
           if (!channel.isVoice) {
+            logVoiceEvent('warn', 'voice_join_not_voice_channel', {
+              userId: ctx.userId,
+              channelId: payload.channelId,
+            });
             throw new AppError('INVALID_VOICE_CHANNEL', 400, 'Channel is not a voice channel');
           }
 
@@ -536,6 +555,13 @@ const wsPluginImpl: FastifyPluginAsync<WsPluginOptions> = async (fastify, option
           });
           voiceParticipants.set(payload.channelId, participants);
           activeVoiceChannelByUser.set(ctx.userId, payload.channelId);
+          logVoiceEvent('info', 'voice_join_ok', {
+            userId: ctx.userId,
+            channelId: payload.channelId,
+            muted,
+            deafened,
+            participants: participants.size,
+          });
           broadcastVoiceState(payload.channelId);
           return;
         }
@@ -544,6 +570,10 @@ const wsPluginImpl: FastifyPluginAsync<WsPluginOptions> = async (fastify, option
           const payload = parsed.payload as { channelId?: string } | undefined;
           const targetChannelId = payload?.channelId ?? ctx.activeVoiceChannelId ?? undefined;
           leaveVoiceChannel(ctx.userId, targetChannelId);
+          logVoiceEvent('info', 'voice_leave_ok', {
+            userId: ctx.userId,
+            channelId: targetChannelId ?? null,
+          });
           if (!payload?.channelId || payload.channelId === ctx.activeVoiceChannelId) {
             ctx.activeVoiceChannelId = null;
           }
@@ -558,6 +588,10 @@ const wsPluginImpl: FastifyPluginAsync<WsPluginOptions> = async (fastify, option
           };
           const activeChannelId = ctx.activeVoiceChannelId ?? activeVoiceChannelByUser.get(ctx.userId);
           if (!activeChannelId) {
+            logVoiceEvent('warn', 'voice_self_state_not_joined', {
+              userId: ctx.userId,
+              requestedChannelId: payload?.channelId ?? null,
+            });
             throw new AppError('VOICE_NOT_JOINED', 403, 'Join the voice channel first');
           }
           if (payload?.channelId && payload.channelId !== activeChannelId) {
@@ -573,6 +607,12 @@ const wsPluginImpl: FastifyPluginAsync<WsPluginOptions> = async (fastify, option
           const muted = deafened ? true : Boolean(payload?.muted);
           participants.set(ctx.userId, {
             ...currentParticipant,
+            muted,
+            deafened,
+          });
+          logVoiceEvent('info', 'voice_self_state_ok', {
+            userId: ctx.userId,
+            channelId: activeChannelId,
             muted,
             deafened,
           });
@@ -592,13 +632,34 @@ const wsPluginImpl: FastifyPluginAsync<WsPluginOptions> = async (fastify, option
 
           const senderVoiceChannel = ctx.activeVoiceChannelId ?? activeVoiceChannelByUser.get(ctx.userId);
           if (senderVoiceChannel !== payload.channelId) {
+            logVoiceEvent('warn', 'voice_signal_sender_not_joined', {
+              userId: ctx.userId,
+              senderVoiceChannel: senderVoiceChannel ?? null,
+              requestedChannelId: payload.channelId,
+              targetUserId: payload.targetUserId,
+            });
             throw new AppError('VOICE_NOT_JOINED', 403, 'Join the voice channel first');
           }
           const participants = voiceParticipants.get(payload.channelId);
           if (!participants?.has(payload.targetUserId)) {
+            logVoiceEvent('warn', 'voice_signal_target_not_available', {
+              userId: ctx.userId,
+              channelId: payload.channelId,
+              targetUserId: payload.targetUserId,
+            });
             throw new AppError('VOICE_TARGET_NOT_AVAILABLE', 404, 'Target user is not in this voice channel');
           }
 
+          const signalKind =
+            payload.data && typeof payload.data === 'object' && 'kind' in payload.data
+              ? String((payload.data as { kind?: unknown }).kind ?? 'unknown')
+              : 'unknown';
+          logVoiceEvent('info', 'voice_signal_forwarded', {
+            userId: ctx.userId,
+            channelId: payload.channelId,
+            targetUserId: payload.targetUserId,
+            signalKind,
+          });
           fastify.wsGateway.notifyUsers([payload.targetUserId], 'voice:signal', {
             channelId: payload.channelId,
             fromUserId: ctx.userId,
