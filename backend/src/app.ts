@@ -33,6 +33,15 @@ export async function buildApp() {
   const uploadsDir = path.resolve(process.cwd(), 'uploads');
   await mkdir(uploadsDir, { recursive: true });
 
+  const configuredOrigins = env.CLIENT_ORIGIN.split(',')
+    .map((origin) => origin.trim())
+    .filter(Boolean);
+  const wildcardToRegex = (pattern: string) =>
+    new RegExp(`^${pattern.replace(/[.+?^${}()|[\]\\]/g, '\\$&').replace(/\*/g, '.*')}$`);
+  const corsOrigins = configuredOrigins.map((origin) =>
+    origin.includes('*') ? wildcardToRegex(origin) : origin,
+  );
+
   const app = Fastify({
     logger: {
       level: env.NODE_ENV === 'development' ? 'debug' : 'info',
@@ -41,9 +50,7 @@ export async function buildApp() {
   });
 
   await app.register(cors, {
-    origin: env.CLIENT_ORIGIN.includes(',') 
-      ? env.CLIENT_ORIGIN.split(',').map(o => o.trim())
-      : env.CLIENT_ORIGIN,
+    origin: corsOrigins.length === 1 ? corsOrigins[0] : corsOrigins,
     methods: ['GET', 'HEAD', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
     allowedHeaders: ['Content-Type', 'Authorization'],
     credentials: true,
