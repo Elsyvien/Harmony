@@ -103,8 +103,9 @@ export function VoiceChannelPanel(props: VoiceChannelPanelProps) {
   };
 
   const handlePopOut = (stream: MediaStream, title: string) => {
-    const win = window.open('', '', 'width=800,height=600,menubar=no,toolbar=no,location=no,status=no');
+    const win = window.open('', '', 'width=800,height=600,menubar=no,toolbar=no,location=no,status=no,noopener,noreferrer');
     if (win) {
+      win.opener = null;
       win.document.title = title;
       win.document.body.style.margin = '0';
       win.document.body.style.backgroundColor = '#000';
