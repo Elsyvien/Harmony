@@ -195,6 +195,7 @@ export function ChatPage() {
   const localVoiceStreamRef = useRef<MediaStream | null>(null);
   const peerConnectionsRef = useRef<Map<string, RTCPeerConnection>>(new Map());
   const pendingIceRef = useRef<Map<string, RTCIceCandidateInit[]>>(new Map());
+  const voiceParticipantIdsByChannelRef = useRef<Map<string, Set<string>>>(new Map());
   const activeVoiceChannelIdRef = useRef<string | null>(null);
   const sendVoiceSignalRef = useRef((() => false) as (channelId: string, targetUserId: string, data: unknown) => boolean);
   const leaveVoiceRef = useRef((() => false) as (channelId?: string) => boolean);
@@ -351,6 +352,34 @@ export function ChatPage() {
       // Best effort only.
     }
   }, [preferences.playMessageSound]);
+
+  const playVoiceStateSound = useCallback((kind: 'join' | 'leave') => {
+    try {
+      const AudioContextClass =
+        window.AudioContext ||
+        (window as typeof window & { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
+      if (!AudioContextClass) {
+        return;
+      }
+      const ctx = new AudioContextClass();
+      const oscillator = ctx.createOscillator();
+      const gain = ctx.createGain();
+      oscillator.type = 'sine';
+      oscillator.frequency.value = kind === 'join' ? 700 : 460;
+      gain.gain.setValueAtTime(0.001, ctx.currentTime);
+      gain.gain.exponentialRampToValueAtTime(0.05, ctx.currentTime + 0.01);
+      gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.12);
+      oscillator.connect(gain);
+      gain.connect(ctx.destination);
+      oscillator.start();
+      oscillator.stop(ctx.currentTime + 0.13);
+      window.setTimeout(() => {
+        void ctx.close();
+      }, 220);
+    } catch {
+      // Best effort only.
+    }
+  }, []);
 
   const clearPendingSignature = useCallback((signature: string) => {
     pendingSignaturesRef.current.delete(signature);
@@ -632,6 +661,35 @@ export function ChatPage() {
 
   const handleVoiceState = useCallback(
     (payload: VoiceStatePayload) => {
+      const nextParticipantIds = new Set(payload.participants.map((participant) => participant.userId));
+      const previousParticipantIds = voiceParticipantIdsByChannelRef.current.get(payload.channelId);
+      if (auth.user && previousParticipantIds) {
+        const selfUserId = auth.user.id;
+        const previousHadSelf = previousParticipantIds.has(selfUserId);
+        const nextHasSelf = nextParticipantIds.has(selfUserId);
+        const relevantToCurrentVoiceSession =
+          activeVoiceChannelIdRef.current === payload.channelId || previousHadSelf || nextHasSelf;
+
+        if (relevantToCurrentVoiceSession) {
+          const someoneElseJoined = [...nextParticipantIds].some(
+            (participantId) =>
+              participantId !== selfUserId && !previousParticipantIds.has(participantId),
+          );
+          const someoneElseLeft = [...previousParticipantIds].some(
+            (participantId) =>
+              participantId !== selfUserId && !nextParticipantIds.has(participantId),
+          );
+
+          if (someoneElseJoined) {
+            playVoiceStateSound('join');
+          }
+          if (someoneElseLeft) {
+            playVoiceStateSound('leave');
+          }
+        }
+      }
+      voiceParticipantIdsByChannelRef.current.set(payload.channelId, nextParticipantIds);
+
       setVoiceParticipantsByChannel((prev) => ({
         ...prev,
         [payload.channelId]: payload.participants,
@@ -661,7 +719,7 @@ export function ChatPage() {
         setVoiceBusyChannelId((current) => (current === payload.channelId ? null : current));
       }
     },
-    [auth.user, voiceBusyChannelId],
+    [auth.user, voiceBusyChannelId, playVoiceStateSound],
   );
 
   const ws = useChatSocket({
@@ -790,6 +848,7 @@ export function ChatPage() {
       setOnlineUsers([]);
       setUnreadChannelCounts({});
       setVoiceParticipantsByChannel({});
+      voiceParticipantIdsByChannelRef.current.clear();
       setActiveVoiceChannelId(null);
       setVoiceBusyChannelId(null);
       teardownVoiceTransport();
@@ -1239,6 +1298,7 @@ export function ChatPage() {
     if (ws.connected) {
       return;
     }
+    voiceParticipantIdsByChannelRef.current.clear();
     setActiveVoiceChannelId(null);
     setVoiceBusyChannelId(null);
     teardownVoiceTransport();
