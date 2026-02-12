@@ -184,18 +184,15 @@ export function SettingsPanel(props: SettingsPanelProps) {
                 <strong>Color theme</strong>
                 <small>Switch between dark and light mode.</small>
               </span>
-              <select
-                className="settings-select"
-                value={props.preferences.theme}
-                onChange={(event) =>
+              <DropdownSelect
+                options={['Dark', 'Light']}
+                value={props.preferences.theme === 'dark' ? 'Dark' : 'Light'}
+                onChange={(value) => {
                   props.onUpdatePreferences({
-                    theme: event.target.value as UserPreferences['theme'],
-                  })
-                }
-              >
-                <option value="dark">Dark</option>
-                <option value="light">Light</option>
-              </select>
+                    theme: value === 'Dark' ? 'dark' : 'light',
+                  });
+                }}
+              />
             </label>
 
             <label className="settings-row">
@@ -394,22 +391,29 @@ export function SettingsPanel(props: SettingsPanelProps) {
                 <strong>Input device</strong>
                 <small>Select which microphone is used for voice chat.</small>
               </span>
-              <select
-                className="settings-select"
-                value={props.preferences.voiceInputDeviceId ?? ''}
-                onChange={(event) =>
-                  props.onUpdatePreferences({
-                    voiceInputDeviceId: event.target.value || null,
-                  })
+              <DropdownSelect
+                options={[
+                  'System default microphone',
+                  ...props.audioInputDevices.map((device) => device.label),
+                ]}
+                value={
+                  props.preferences.voiceInputDeviceId
+                    ? props.audioInputDevices.find(
+                        (device) => device.deviceId === props.preferences.voiceInputDeviceId
+                      )?.label || 'System default microphone'
+                    : 'System default microphone'
                 }
-              >
-                <option value="">System default microphone</option>
-                {props.audioInputDevices.map((device) => (
-                  <option key={device.deviceId} value={device.deviceId}>
-                    {device.label}
-                  </option>
-                ))}
-              </select>
+                onChange={(value) => {
+                  if (value === 'System default microphone') {
+                    props.onUpdatePreferences({ voiceInputDeviceId: null });
+                  } else {
+                    const device = props.audioInputDevices.find((d) => d.label === value);
+                    if (device) {
+                      props.onUpdatePreferences({ voiceInputDeviceId: device.deviceId });
+                    }
+                  }
+                }}
+              />
             </label>
 
             <div className="settings-row">
