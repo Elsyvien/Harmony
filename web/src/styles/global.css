@@ -789,7 +789,8 @@ button {
   /* Allow clicks to pass through to video unless on buttons */
 }
 
-.voice-screen-share-item:hover .voice-screen-share-overlay {
+.voice-screen-share-item:hover .voice-screen-share-overlay,
+.voice-screen-share-item:focus-within .voice-screen-share-overlay {
   opacity: 1;
 }
 
