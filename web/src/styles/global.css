@@ -807,6 +807,12 @@ button {
   font-size: 11px;
 }
 
+.voice-audio-sinks {
+  width: 0;
+  height: 0;
+  overflow: hidden;
+}
+
 .admin-stats-grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));

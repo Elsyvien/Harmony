@@ -121,6 +121,25 @@ function upsertChannel(existing: Channel[], incoming: Channel) {
   return next.sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
 }
 
+type VoiceSignalData =
+  | { kind: 'offer'; sdp: RTCSessionDescriptionInit }
+  | { kind: 'answer'; sdp: RTCSessionDescriptionInit }
+  | { kind: 'ice'; candidate: RTCIceCandidateInit };
+
+function isVoiceSignalData(value: unknown): value is VoiceSignalData {
+  if (!value || typeof value !== 'object' || !('kind' in value)) {
+    return false;
+  }
+  const kind = (value as { kind?: unknown }).kind;
+  if (kind === 'offer' || kind === 'answer') {
+    return Boolean((value as { sdp?: unknown }).sdp);
+  }
+  if (kind === 'ice') {
+    return Boolean((value as { candidate?: unknown }).candidate);
+  }
+  return false;
+}
+
 export function ChatPage() {
   const auth = useAuth();
   const { preferences, updatePreferences, resetPreferences } = useUserPreferences();
@@ -162,11 +181,19 @@ export function ChatPage() {
   >({});
   const [activeVoiceChannelId, setActiveVoiceChannelId] = useState<string | null>(null);
   const [voiceBusyChannelId, setVoiceBusyChannelId] = useState<string | null>(null);
+  const [localAudioReady, setLocalAudioReady] = useState(false);
+  const [remoteAudioStreams, setRemoteAudioStreams] = useState<Record<string, MediaStream>>({});
 
   const [selectedUser, setSelectedUser] = useState<{ id: string; username: string } | null>(null);
   const [hiddenUnreadCount, setHiddenUnreadCount] = useState(0);
   const pendingSignaturesRef = useRef(new Set<string>());
   const pendingTimeoutsRef = useRef(new Map<string, number>());
+  const localVoiceStreamRef = useRef<MediaStream | null>(null);
+  const peerConnectionsRef = useRef<Map<string, RTCPeerConnection>>(new Map());
+  const pendingIceRef = useRef<Map<string, RTCIceCandidateInit[]>>(new Map());
+  const activeVoiceChannelIdRef = useRef<string | null>(null);
+  const sendVoiceSignalRef = useRef((() => false) as (channelId: string, targetUserId: string, data: unknown) => boolean);
+  const leaveVoiceRef = useRef((() => false) as (channelId?: string) => boolean);
 
   const activeChannel = useMemo(
     () => channels.find((channel) => channel.id === activeChannelId) ?? null,
@@ -187,6 +214,23 @@ export function ChatPage() {
     }
     return voiceParticipantsByChannel[activeChannelId] ?? [];
   }, [activeChannelId, voiceParticipantsByChannel]);
+
+  const activeRemoteAudioUsers = useMemo(() => {
+    if (!auth.user) {
+      return [];
+    }
+    return activeVoiceParticipants
+      .filter((participant) => participant.userId !== auth.user?.id)
+      .map((participant) => ({
+        userId: participant.userId,
+        username: participant.username,
+        stream: remoteAudioStreams[participant.userId],
+      }))
+      .filter(
+        (entry): entry is { userId: string; username: string; stream: MediaStream } =>
+          Boolean(entry.stream),
+      );
+  }, [activeVoiceParticipants, remoteAudioStreams, auth.user]);
 
   const filteredMessages = useMemo(() => {
     const query = messageQuery.trim().toLowerCase();
@@ -293,6 +337,206 @@ export function ChatPage() {
     [clearPendingSignature],
   );
 
+  const closePeerConnection = useCallback((peerUserId: string) => {
+    const connection = peerConnectionsRef.current.get(peerUserId);
+    if (connection) {
+      connection.onicecandidate = null;
+      connection.ontrack = null;
+      connection.onconnectionstatechange = null;
+      connection.close();
+      peerConnectionsRef.current.delete(peerUserId);
+    }
+    pendingIceRef.current.delete(peerUserId);
+    setRemoteAudioStreams((prev) => {
+      if (!prev[peerUserId]) {
+        return prev;
+      }
+      const next = { ...prev };
+      delete next[peerUserId];
+      return next;
+    });
+  }, []);
+
+  const teardownVoiceTransport = useCallback(() => {
+    for (const peerUserId of peerConnectionsRef.current.keys()) {
+      closePeerConnection(peerUserId);
+    }
+    peerConnectionsRef.current.clear();
+    pendingIceRef.current.clear();
+    if (localVoiceStreamRef.current) {
+      for (const track of localVoiceStreamRef.current.getTracks()) {
+        track.stop();
+      }
+      localVoiceStreamRef.current = null;
+    }
+    setLocalAudioReady(false);
+    setRemoteAudioStreams({});
+  }, [closePeerConnection]);
+
+  const getLocalVoiceStream = useCallback(async () => {
+    if (localVoiceStreamRef.current) {
+      return localVoiceStreamRef.current;
+    }
+    if (!navigator.mediaDevices?.getUserMedia) {
+      throw new Error('Voice is not supported in this browser');
+    }
+    const stream = await navigator.mediaDevices.getUserMedia({
+      audio: {
+        echoCancellation: true,
+        noiseSuppression: true,
+        autoGainControl: true,
+      },
+      video: false,
+    });
+    localVoiceStreamRef.current = stream;
+    setLocalAudioReady(true);
+    return stream;
+  }, []);
+
+  const flushPendingIceCandidates = useCallback(async (peerUserId: string, connection: RTCPeerConnection) => {
+    const queued = pendingIceRef.current.get(peerUserId);
+    if (!queued?.length || !connection.remoteDescription) {
+      return;
+    }
+    pendingIceRef.current.delete(peerUserId);
+    for (const candidate of queued) {
+      try {
+        await connection.addIceCandidate(candidate);
+      } catch {
+        // Ignore invalid/stale ICE candidates.
+      }
+    }
+  }, []);
+
+  const ensurePeerConnection = useCallback(
+    async (peerUserId: string, channelId: string) => {
+      const existing = peerConnectionsRef.current.get(peerUserId);
+      if (existing) {
+        return existing;
+      }
+
+      const stream = await getLocalVoiceStream();
+      const connection = new RTCPeerConnection({
+        iceServers: [{ urls: 'stun:stun.l.google.com:19302' }],
+      });
+
+      for (const track of stream.getTracks()) {
+        connection.addTrack(track, stream);
+      }
+
+      connection.onicecandidate = (event) => {
+        if (!event.candidate) {
+          return;
+        }
+        sendVoiceSignalRef.current(channelId, peerUserId, {
+          kind: 'ice',
+          candidate: event.candidate.toJSON(),
+        } satisfies VoiceSignalData);
+      };
+
+      connection.ontrack = (event) => {
+        const streamFromTrack = event.streams[0];
+        if (!streamFromTrack) {
+          return;
+        }
+        setRemoteAudioStreams((prev) => ({
+          ...prev,
+          [peerUserId]: streamFromTrack,
+        }));
+      };
+
+      connection.onconnectionstatechange = () => {
+        if (
+          connection.connectionState === 'closed' ||
+          connection.connectionState === 'failed'
+        ) {
+          closePeerConnection(peerUserId);
+        }
+      };
+
+      peerConnectionsRef.current.set(peerUserId, connection);
+      return connection;
+    },
+    [closePeerConnection, getLocalVoiceStream],
+  );
+
+  const createOfferForPeer = useCallback(
+    async (peerUserId: string, channelId: string) => {
+      if (!auth.user || auth.user.id > peerUserId) {
+        return;
+      }
+      const connection = await ensurePeerConnection(peerUserId, channelId);
+      if (connection.signalingState !== 'stable') {
+        return;
+      }
+      const offer = await connection.createOffer({
+        offerToReceiveAudio: true,
+      });
+      await connection.setLocalDescription(offer);
+      sendVoiceSignalRef.current(channelId, peerUserId, {
+        kind: 'offer',
+        sdp: offer,
+      } satisfies VoiceSignalData);
+    },
+    [auth.user, ensurePeerConnection],
+  );
+
+  const handleVoiceSignal = useCallback(
+    async (payload: { channelId: string; fromUserId: string; data: unknown }) => {
+      if (!auth.user || payload.fromUserId === auth.user.id) {
+        return;
+      }
+      if (!activeVoiceChannelIdRef.current || activeVoiceChannelIdRef.current !== payload.channelId) {
+        return;
+      }
+      if (!isVoiceSignalData(payload.data)) {
+        return;
+      }
+
+      const signal = payload.data;
+      if (signal.kind === 'ice') {
+        const connection = peerConnectionsRef.current.get(payload.fromUserId);
+        if (!connection || !connection.remoteDescription) {
+          const queue = pendingIceRef.current.get(payload.fromUserId) ?? [];
+          queue.push(signal.candidate);
+          pendingIceRef.current.set(payload.fromUserId, queue);
+          return;
+        }
+        try {
+          await connection.addIceCandidate(signal.candidate);
+        } catch {
+          // Ignore invalid/stale ICE candidates.
+        }
+        return;
+      }
+
+      const connection = await ensurePeerConnection(payload.fromUserId, payload.channelId);
+
+      if (signal.kind === 'offer') {
+        if (connection.signalingState !== 'stable') {
+          try {
+            await connection.setLocalDescription({ type: 'rollback' });
+          } catch {
+            // Ignore rollback issues and continue best effort.
+          }
+        }
+        await connection.setRemoteDescription(signal.sdp);
+        await flushPendingIceCandidates(payload.fromUserId, connection);
+        const answer = await connection.createAnswer();
+        await connection.setLocalDescription(answer);
+        sendVoiceSignalRef.current(payload.channelId, payload.fromUserId, {
+          kind: 'answer',
+          sdp: answer,
+        } satisfies VoiceSignalData);
+        return;
+      }
+
+      await connection.setRemoteDescription(signal.sdp);
+      await flushPendingIceCandidates(payload.fromUserId, connection);
+    },
+    [auth.user, ensurePeerConnection, flushPendingIceCandidates],
+  );
+
   const handleVoiceState = useCallback(
     (payload: VoiceStatePayload) => {
       setVoiceParticipantsByChannel((prev) => ({
@@ -353,10 +597,28 @@ export function ChatPage() {
       setOnlineUsers(users);
     },
     onVoiceState: handleVoiceState,
-    onVoiceSignal: () => {
-      // WebRTC media exchange will use this event in the next phase.
+    onVoiceSignal: (payload) => {
+      void handleVoiceSignal(payload);
     },
   });
+
+  useEffect(() => {
+    sendVoiceSignalRef.current = ws.sendVoiceSignal;
+  }, [ws.sendVoiceSignal]);
+
+  useEffect(() => {
+    leaveVoiceRef.current = ws.leaveVoice;
+  }, [ws.leaveVoice]);
+
+  useEffect(() => {
+    activeVoiceChannelIdRef.current = activeVoiceChannelId;
+  }, [activeVoiceChannelId]);
+
+  useEffect(() => {
+    return () => {
+      teardownVoiceTransport();
+    };
+  }, [teardownVoiceTransport]);
 
   useEffect(() => {
     const timeoutMap = pendingTimeoutsRef.current;
@@ -405,6 +667,7 @@ export function ChatPage() {
       setOnlineUsers([]);
       setVoiceParticipantsByChannel({});
       setActiveVoiceChannelId(null);
+      teardownVoiceTransport();
       return;
     }
     let disposed = false;
@@ -427,7 +690,7 @@ export function ChatPage() {
     return () => {
       disposed = true;
     };
-  }, [auth.token]);
+  }, [auth.token, teardownVoiceTransport]);
 
   useEffect(() => {
     if (!auth.token) {
@@ -449,6 +712,72 @@ export function ChatPage() {
     setMessageQuery('');
     void loadMessages(activeChannelId);
   }, [activeChannelId, activeChannel?.isVoice, loadMessages]);
+
+  useEffect(() => {
+    if (!ws.connected || !activeVoiceChannelId || !auth.user) {
+      teardownVoiceTransport();
+      return;
+    }
+
+    const participants = voiceParticipantsByChannel[activeVoiceChannelId] ?? [];
+    const selfInChannel = participants.some((participant) => participant.userId === auth.user?.id);
+    if (!selfInChannel) {
+      teardownVoiceTransport();
+      return;
+    }
+
+    let cancelled = false;
+    const syncVoiceTransport = async () => {
+      try {
+        await getLocalVoiceStream();
+      } catch (err) {
+        if (!cancelled) {
+          leaveVoiceRef.current(activeVoiceChannelId);
+          setError(getErrorMessage(err, 'Could not access microphone for voice channel'));
+          setActiveVoiceChannelId(null);
+        }
+        return;
+      }
+
+      if (cancelled) {
+        return;
+      }
+
+      const peerUserIds = participants
+        .map((participant) => participant.userId)
+        .filter((userId) => userId !== auth.user?.id);
+
+      for (const existingPeerUserId of Array.from(peerConnectionsRef.current.keys())) {
+        if (!peerUserIds.includes(existingPeerUserId)) {
+          closePeerConnection(existingPeerUserId);
+        }
+      }
+
+      for (const peerUserId of peerUserIds) {
+        try {
+          await ensurePeerConnection(peerUserId, activeVoiceChannelId);
+          await createOfferForPeer(peerUserId, activeVoiceChannelId);
+        } catch {
+          // Best effort: peer transport can recover on next state update.
+        }
+      }
+    };
+
+    void syncVoiceTransport();
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    ws.connected,
+    activeVoiceChannelId,
+    auth.user,
+    voiceParticipantsByChannel,
+    teardownVoiceTransport,
+    getLocalVoiceStream,
+    closePeerConnection,
+    ensurePeerConnection,
+    createOfferForPeer,
+  ]);
 
   const loadAdminStats = useCallback(async () => {
     if (!auth.token || !auth.user?.isAdmin) {
@@ -758,7 +1087,8 @@ export function ChatPage() {
       return;
     }
     setActiveVoiceChannelId(null);
-  }, [ws.connected]);
+    teardownVoiceTransport();
+  }, [ws.connected, teardownVoiceTransport]);
 
   if (!auth.token || !auth.user) {
     if (auth.token && auth.hydrating) {
@@ -1009,6 +1339,9 @@ export function ChatPage() {
               <VoiceChannelPanel
                 channelName={activeChannel.name}
                 participants={activeVoiceParticipants}
+                currentUserId={auth.user.id}
+                localAudioReady={localAudioReady}
+                remoteAudioUsers={activeRemoteAudioUsers}
                 joined={activeVoiceChannelId === activeChannel.id}
                 busy={voiceBusyChannelId === activeChannel.id}
                 wsConnected={ws.connected}

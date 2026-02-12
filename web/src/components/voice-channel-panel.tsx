@@ -1,6 +1,9 @@
 interface VoiceChannelPanelProps {
   channelName: string;
   participants: Array<{ userId: string; username: string }>;
+  currentUserId: string;
+  localAudioReady: boolean;
+  remoteAudioUsers: Array<{ userId: string; username: string; stream: MediaStream }>;
   joined: boolean;
   busy: boolean;
   wsConnected: boolean;
@@ -29,7 +32,11 @@ export function VoiceChannelPanel(props: VoiceChannelPanelProps) {
       </header>
 
       <p className="setting-hint">
-        Voice signaling is enabled. Full audio transport/WebRTC media is the next step.
+        {props.joined
+          ? props.localAudioReady
+            ? 'Mic stream active. WebRTC peer transport is running.'
+            : 'Joining voice... requesting microphone access.'
+          : 'Join the channel to establish WebRTC voice transport.'}
       </p>
 
       <div className="voice-participant-list">
@@ -37,8 +44,36 @@ export function VoiceChannelPanel(props: VoiceChannelPanelProps) {
         {props.participants.map((participant) => (
           <div key={participant.userId} className="voice-participant-item">
             <span>{participant.username}</span>
-            <small>Connected</small>
+            <small>
+              {participant.userId === props.currentUserId
+                ? props.joined
+                  ? props.localAudioReady
+                    ? 'You (Mic Active)'
+                    : 'You (Connecting)'
+                  : 'You'
+                : props.remoteAudioUsers.some((user) => user.userId === participant.userId)
+                  ? 'Audio Connected'
+                  : 'Signaling'}
+            </small>
           </div>
+        ))}
+      </div>
+
+      <div className="voice-audio-sinks" aria-hidden="true">
+        {props.remoteAudioUsers.map((user) => (
+          <audio
+            key={user.userId}
+            autoPlay
+            playsInline
+            ref={(node) => {
+              if (!node) {
+                return;
+              }
+              if (node.srcObject !== user.stream) {
+                node.srcObject = user.stream;
+              }
+            }}
+          />
         ))}
       </div>
     </section>
