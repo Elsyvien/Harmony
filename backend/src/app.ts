@@ -23,6 +23,8 @@ import { AdminService } from './services/admin.service.js';
 import { AdminSettingsService } from './services/admin-settings.service.js';
 import { AdminUserService } from './services/admin-user.service.js';
 import { AuthService } from './services/auth.service.js';
+import { UserService } from './services/user.service.js';
+import { userRoutes } from './routes/user.routes.js';
 import { ChannelService } from './services/channel.service.js';
 import { MessageService } from './services/message.service.js';
 import { FriendService } from './services/friend.service.js';
@@ -92,6 +94,7 @@ export async function buildApp() {
     adminSettingsService,
   );
   const friendService = new FriendService(friendshipRepo, userRepo);
+  const userService = new UserService();
   const adminService = new AdminService();
   const adminUserService = new AdminUserService();
 
@@ -122,6 +125,7 @@ export async function buildApp() {
   await app.register(authRoutes, { authService, env });
   await app.register(channelRoutes, { channelService, messageService });
   await app.register(friendRoutes, { friendService });
+  await app.register(userRoutes, { userService });
   await app.register(adminRoutes, { adminService, adminSettingsService, adminUserService });
 
   app.get('/health', async () => ({ ok: true }));

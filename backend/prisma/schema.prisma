@@ -3,7 +3,7 @@ generator client {
 }
 
 datasource db {
-  provider = "postgresql"
+  provider = "sqlite"
   url      = env("DATABASE_URL")
 }
 
@@ -35,6 +35,7 @@ model User {
   isSuspended    Boolean   @default(false)
   suspendedUntil DateTime?
   createdAt      DateTime  @default(now())
+  avatarUrl      String?
 
   messages       Message[]
   messageReactions MessageReaction[]

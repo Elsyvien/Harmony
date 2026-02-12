@@ -25,6 +25,7 @@ interface ChannelSidebarProps {
   onToggleDeafen: () => void;
   joiningVoiceChannelId: string | null;
   incomingFriendRequests: number;
+  avatarUrl?: string;
 }
 
 export function ChannelSidebar(props: ChannelSidebarProps) {
@@ -184,7 +185,7 @@ export function ChannelSidebar(props: ChannelSidebarProps) {
                       return;
                     }
                     const confirmed = window.confirm(
-                      `Delete #${channel.name}? This will remove all channel messages.`,
+                      `Delete #${channel.name}? This will remove all channel messages.`
                     );
                     if (!confirmed) {
                       return;
@@ -244,7 +245,7 @@ export function ChannelSidebar(props: ChannelSidebarProps) {
                       return;
                     }
                     const confirmed = window.confirm(
-                      `Delete ~${channel.name}? This will remove the voice channel.`,
+                      `Delete ~${channel.name}? This will remove the voice channel.`
                     );
                     if (!confirmed) {
                       return;
@@ -264,14 +265,18 @@ export function ChannelSidebar(props: ChannelSidebarProps) {
       <footer>
         <div className="user-panel">
           <div className="user-info">
-             <div className="user-avatar-small">
-               {props.username.slice(0, 1).toUpperCase()}
-               <div className="status-dot online"></div>
-             </div>
-             <div className="name-tag">
-               <span className="username">{props.username}</span>
-               <span className="user-id">#{userTag}</span>
-             </div>
+            <div className="user-avatar-small">
+              {props.avatarUrl ? (
+                <img src={props.avatarUrl} alt={props.username} />
+              ) : (
+                props.username.slice(0, 1).toUpperCase()
+              )}
+              <div className="status-dot online"></div>
+            </div>
+            <div className="name-tag">
+              <span className="username">{props.username}</span>
+              <span className="user-id">#{userTag}</span>
+            </div>
           </div>
           <div className="user-controls">
             <button

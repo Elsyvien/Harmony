@@ -219,7 +219,11 @@ export function ChatPage() {
   const [localScreenShareStream, setLocalScreenShareStream] = useState<MediaStream | null>(null);
   const [savingVoiceBitrateChannelId, setSavingVoiceBitrateChannelId] = useState<string | null>(null);
 
-  const [selectedUser, setSelectedUser] = useState<{ id: string; username: string } | null>(null);
+  const [selectedUser, setSelectedUser] = useState<{
+    id: string;
+    username: string;
+    avatarUrl?: string;
+  } | null>(null);
   const [composerInsertRequest, setComposerInsertRequest] = useState<{
     key: number;
     text: string;
@@ -2235,6 +2239,7 @@ export function ChatPage() {
         onToggleDeafen={toggleSelfDeafen}
         joiningVoiceChannelId={voiceBusyChannelId}
         incomingFriendRequests={incomingRequests.length}
+        avatarUrl={auth.user.avatarUrl}
       />
 
       <section className="chat-panel">

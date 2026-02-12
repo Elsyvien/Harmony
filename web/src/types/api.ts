@@ -12,6 +12,7 @@ export interface User {
   role: UserRole;
   isAdmin: boolean;
   createdAt: string;
+  avatarUrl?: string;
 }
 
 export interface Channel {
@@ -45,6 +46,7 @@ export interface Message {
     user: {
       id: string;
       username: string;
+      avatarUrl?: string;
     };
   } | null;
   reactions: Array<{
@@ -57,6 +59,7 @@ export interface Message {
   user: {
     id: string;
     username: string;
+    avatarUrl?: string;
   };
 }
 
@@ -122,6 +125,7 @@ export interface FriendSummary {
   user: {
     id: string;
     username: string;
+    avatarUrl?: string;
   };
   friendsSince: string;
 }
@@ -132,10 +136,12 @@ export interface FriendRequestSummary {
   from: {
     id: string;
     username: string;
+    avatarUrl?: string;
   };
   to: {
     id: string;
     username: string;
+    avatarUrl?: string;
   };
   requestedById: string;
   createdAt: string;
