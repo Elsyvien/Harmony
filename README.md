@@ -1,4 +1,4 @@
-# DiscordClone
+# Harmony
 
 Discord-like chat app with:
 - JWT auth (register/login/logout)
