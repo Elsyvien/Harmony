@@ -11,7 +11,7 @@ import { UserProfile } from '../components/user-profile';
 import { UserSidebar } from '../components/user-sidebar';
 import { VoiceChannelPanel } from '../components/voice-channel-panel';
 import { useChatSocket } from '../hooks/use-chat-socket';
-import type { PresenceUser, VoiceParticipant, VoiceStatePayload } from '../hooks/use-chat-socket';
+import type { PresenceState, PresenceUser, VoiceParticipant, VoiceStatePayload } from '../hooks/use-chat-socket';
 import { useUserPreferences } from '../hooks/use-user-preferences';
 import {
   mergeMessages,
@@ -2663,6 +2663,33 @@ export function ChatPage() {
   ]
     .filter(Boolean)
     .join(' ');
+  const currentUserId = auth.user?.id ?? '';
+  const currentPresenceState: PresenceState =
+    onlineUsers.find((user) => user.id === currentUserId)?.state ?? 'online';
+  const setPresenceState = useCallback(
+    (nextState: string) => {
+      if (!currentUserId) {
+        return;
+      }
+      const normalizedState: PresenceState =
+        nextState === 'dnd' || nextState === 'idle' ? nextState : 'online';
+      setOnlineUsers((prev) => {
+        const currentUserIndex = prev.findIndex((user) => user.id === currentUserId);
+        if (currentUserIndex < 0) {
+          return prev;
+        }
+        const currentUser = prev[currentUserIndex];
+        if (currentUser.state === normalizedState) {
+          return prev;
+        }
+        const next = [...prev];
+        next[currentUserIndex] = { ...currentUser, state: normalizedState };
+        return next;
+      });
+      ws.sendPresence(normalizedState);
+    },
+    [currentUserId, ws],
+  );
 
   return (
     <main className={chatLayoutClassName}>
@@ -2707,6 +2734,7 @@ export function ChatPage() {
         incomingFriendRequests={incomingRequests.length}
         avatarUrl={auth.user.avatarUrl}
         ping={ws.ping}
+        state={currentPresenceState}
       />
 
       <section className="chat-panel">
@@ -2917,6 +2945,8 @@ export function ChatPage() {
             onResetPreferences={resetPreferences}
             onRequestMicrophonePermission={requestMicrophonePermission}
             onLogout={logout}
+            state={currentPresenceState}
+            onSetState={setPresenceState}
           />
         ) : null}
 
