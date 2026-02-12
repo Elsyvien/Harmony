@@ -30,6 +30,7 @@ export interface Message {
   channelId: string;
   userId: string;
   content: string;
+  attachment: MessageAttachment | null;
   createdAt: string;
   optimistic?: boolean;
   failed?: boolean;
@@ -37,6 +38,13 @@ export interface Message {
     id: string;
     username: string;
   };
+}
+
+export interface MessageAttachment {
+  url: string;
+  name: string;
+  type: string;
+  size: number;
 }
 
 export interface AdminStats {

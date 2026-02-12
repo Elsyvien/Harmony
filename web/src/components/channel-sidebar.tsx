@@ -11,6 +11,8 @@ interface ChannelSidebarProps {
   username: string;
   isAdmin: boolean;
   onCreateChannel: (name: string) => Promise<void>;
+  onDeleteChannel: (channelId: string) => Promise<void>;
+  deletingChannelId: string | null;
   incomingFriendRequests: number;
 }
 
@@ -127,20 +129,47 @@ export function ChannelSidebar(props: ChannelSidebarProps) {
             }
             onClick={() => props.onSelect(channel.id)}
           >
-            @ {channel.directUser?.username ?? channel.name}
+            @{channel.directUser?.username ?? channel.name}
           </button>
         ))}
 
         {publicChannels.length > 0 ? <p className="channel-group-label">Channels</p> : null}
-        {publicChannels.map((channel) => (
-          <button
-            key={channel.id}
-            className={channel.id === props.activeChannelId ? 'channel-item active' : 'channel-item'}
-            onClick={() => props.onSelect(channel.id)}
-          >
-            # {channel.name}
-          </button>
-        ))}
+        {publicChannels.map((channel) => {
+          const isDeleting = props.deletingChannelId === channel.id;
+          const canDelete = props.isAdmin && channel.name !== 'global';
+          return (
+            <div key={channel.id} className="channel-row">
+              <button
+                className={channel.id === props.activeChannelId ? 'channel-item active' : 'channel-item'}
+                onClick={() => props.onSelect(channel.id)}
+              >
+                #{channel.name}
+              </button>
+              {canDelete ? (
+                <button
+                  className="channel-delete-btn"
+                  title={`Delete #${channel.name}`}
+                  aria-label={`Delete #${channel.name}`}
+                  disabled={Boolean(props.deletingChannelId)}
+                  onClick={async () => {
+                    if (props.deletingChannelId) {
+                      return;
+                    }
+                    const confirmed = window.confirm(
+                      `Delete #${channel.name}? This will remove all channel messages.`,
+                    );
+                    if (!confirmed) {
+                      return;
+                    }
+                    await props.onDeleteChannel(channel.id);
+                  }}
+                >
+                  {isDeleting ? '...' : 'x'}
+                </button>
+              ) : null}
+            </div>
+          );
+        })}
         {filteredChannels.length === 0 ? <p className="muted">No channels match.</p> : null}
       </nav>
 

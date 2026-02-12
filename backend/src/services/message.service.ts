@@ -17,6 +17,12 @@ export interface CreateMessageInput {
   channelId: string;
   userId: string;
   content: string;
+  attachment?: {
+    url: string;
+    name: string;
+    type: string;
+    size: number;
+  };
   userIsAdmin?: boolean;
 }
 
@@ -68,7 +74,8 @@ export class MessageService {
     }
 
     const trimmed = input.content.trim();
-    if (!trimmed) {
+    const hasAttachment = Boolean(input.attachment);
+    if (!trimmed && !hasAttachment) {
       throw new AppError('EMPTY_MESSAGE', 400, 'Message content cannot be empty');
     }
     if (trimmed.length > this.maxLength) {
@@ -83,6 +90,7 @@ export class MessageService {
       channelId: input.channelId,
       userId: input.userId,
       content: trimmed,
+      attachment: input.attachment,
     });
 
     if (settings && settings.slowModeSeconds > 0 && !input.userIsAdmin) {

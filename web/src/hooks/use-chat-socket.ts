@@ -16,12 +16,18 @@ export interface DmNewEventPayload {
   };
 }
 
+export interface PresenceUser {
+  id: string;
+  username: string;
+}
+
 export function useChatSocket(params: {
   token: string | null;
   activeChannelId: string | null;
   onMessageNew: (message: Message) => void;
   onFriendEvent?: () => void;
   onDmEvent?: (payload: DmNewEventPayload) => void;
+  onPresenceUpdate?: (users: PresenceUser[]) => void;
 }) {
   const socketRef = useRef<WebSocket | null>(null);
   const reconnectTimerRef = useRef<number | null>(null);
@@ -30,11 +36,13 @@ export function useChatSocket(params: {
   const onMessageNewRef = useRef(params.onMessageNew);
   const onFriendEventRef = useRef(params.onFriendEvent);
   const onDmEventRef = useRef(params.onDmEvent);
+  const onPresenceUpdateRef = useRef(params.onPresenceUpdate);
   const [connected, setConnected] = useState(false);
 
   onMessageNewRef.current = params.onMessageNew;
   onFriendEventRef.current = params.onFriendEvent;
   onDmEventRef.current = params.onDmEvent;
+  onPresenceUpdateRef.current = params.onPresenceUpdate;
   activeChannelIdRef.current = params.activeChannelId;
 
   const sendEvent = useCallback((type: string, payload: unknown) => {
@@ -91,6 +99,14 @@ export function useChatSocket(params: {
             if (payload?.channel?.id && payload.from?.id) {
               onDmEventRef.current?.(payload);
             }
+            return;
+          }
+
+          if (parsed.type === 'presence:update') {
+            const payload = parsed.payload as { users?: PresenceUser[] } | undefined;
+            onPresenceUpdateRef.current?.(
+              Array.isArray(payload?.users) ? payload.users : [],
+            );
           }
         } catch {
           // Ignore malformed event payloads from the server.

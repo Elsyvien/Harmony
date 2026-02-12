@@ -82,6 +82,27 @@ export class ChannelService {
     return this.toSummary(created, '');
   }
 
+  async deleteChannel(channelId: string) {
+    const channel = await this.channelRepo.findById(channelId);
+    if (!channel) {
+      throw new AppError('CHANNEL_NOT_FOUND', 404, 'Channel not found');
+    }
+    if (channel.type !== 'PUBLIC') {
+      throw new AppError('CHANNEL_DELETE_FORBIDDEN', 400, 'Only public channels can be deleted');
+    }
+    if (channel.name === 'global') {
+      throw new AppError('CHANNEL_DELETE_FORBIDDEN', 400, 'The global channel cannot be deleted');
+    }
+
+    const publicChannels = await this.channelRepo.countPublicChannels();
+    if (publicChannels <= 1) {
+      throw new AppError('CHANNEL_DELETE_FORBIDDEN', 400, 'At least one public channel must remain');
+    }
+
+    await this.channelRepo.deleteById(channelId);
+    return { deletedChannelId: channelId };
+  }
+
   async ensureChannelExists(channelId: string) {
     const channel = await this.channelRepo.findById(channelId);
     return Boolean(channel);

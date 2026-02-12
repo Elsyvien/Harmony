@@ -3,7 +3,7 @@ generator client {
 }
 
 datasource db {
-  provider = "postgresql"
+  provider = "sqlite"
   url      = env("DATABASE_URL")
 }
 
@@ -70,6 +70,10 @@ model ChannelMember {
 model Message {
   id        String   @id @default(uuid())
   content   String
+  attachmentUrl  String?
+  attachmentName String?
+  attachmentType String?
+  attachmentSize Int?
   createdAt DateTime @default(now())
 
   channelId String

@@ -10,6 +10,7 @@ import { SettingsPanel } from '../components/settings-panel';
 import { UserProfile } from '../components/user-profile';
 import { UserSidebar } from '../components/user-sidebar';
 import { useChatSocket } from '../hooks/use-chat-socket';
+import type { PresenceUser } from '../hooks/use-chat-socket';
 import { useUserPreferences } from '../hooks/use-user-preferences';
 import { useAuth } from '../store/auth-store';
 import type {
@@ -20,6 +21,7 @@ import type {
   FriendRequestSummary,
   FriendSummary,
   Message,
+  MessageAttachment,
   UserRole,
 } from '../types/api';
 import { getErrorMessage } from '../utils/error-message';
@@ -36,8 +38,13 @@ function mergeMessages(existing: Message[], incoming: Message[]) {
   );
 }
 
-function messageSignature(channelId: string, userId: string, content: string) {
-  return `${channelId}:${userId}:${content.trim().toLowerCase()}`;
+function messageSignature(
+  channelId: string,
+  userId: string,
+  content: string,
+  attachmentUrl?: string,
+) {
+  return `${channelId}:${userId}:${content.trim().toLowerCase()}:${attachmentUrl ?? ''}`;
 }
 
 function isLogicalSameMessage(a: Message, b: Message) {
@@ -45,6 +52,11 @@ function isLogicalSameMessage(a: Message, b: Message) {
     return false;
   }
   if (a.content.trim() !== b.content.trim()) {
+    return false;
+  }
+  const aAttachmentUrl = a.attachment?.url ?? null;
+  const bAttachmentUrl = b.attachment?.url ?? null;
+  if (aAttachmentUrl !== bAttachmentUrl) {
     return false;
   }
   const aTime = new Date(a.createdAt).getTime();
@@ -142,6 +154,8 @@ export function ChatPage() {
   const [friendActionBusyId, setFriendActionBusyId] = useState<string | null>(null);
   const [submittingFriendRequest, setSubmittingFriendRequest] = useState(false);
   const [openingDmUserId, setOpeningDmUserId] = useState<string | null>(null);
+  const [deletingChannelId, setDeletingChannelId] = useState<string | null>(null);
+  const [onlineUsers, setOnlineUsers] = useState<PresenceUser[]>([]);
 
   const [selectedUser, setSelectedUser] = useState<{ id: string; username: string } | null>(null);
   const [hiddenUnreadCount, setHiddenUnreadCount] = useState(0);
@@ -164,17 +178,6 @@ export function ChatPage() {
         message.user.username.toLowerCase().includes(query),
     );
   }, [messages, messageQuery]);
-
-  const uniqueUsers = useMemo(() => {
-    const userMap = new Map<string, { id: string; username: string }>();
-    if (auth.user) {
-      userMap.set(auth.user.id, { id: auth.user.id, username: auth.user.username });
-    }
-    messages.forEach((msg) => {
-      userMap.set(msg.user.id, msg.user);
-    });
-    return Array.from(userMap.values());
-  }, [messages, auth.user]);
 
   const loadMessages = useCallback(
     async (channelId: string, before?: string, prepend = false) => {
@@ -277,7 +280,12 @@ export function ChatPage() {
         return;
       }
       if (auth.user) {
-        const signature = messageSignature(message.channelId, auth.user.id, message.content);
+        const signature = messageSignature(
+          message.channelId,
+          auth.user.id,
+          message.content,
+          message.attachment?.url,
+        );
         clearPendingSignature(signature);
         if (message.userId !== auth.user.id) {
           playIncomingMessageSound();
@@ -297,6 +305,9 @@ export function ChatPage() {
       if (document.hidden) {
         setHiddenUnreadCount((count) => count + 1);
       }
+    },
+    onPresenceUpdate: (users) => {
+      setOnlineUsers(users);
     },
   });
 
@@ -344,6 +355,7 @@ export function ChatPage() {
 
   useEffect(() => {
     if (!auth.token) {
+      setOnlineUsers([]);
       return;
     }
     let disposed = false;
@@ -659,11 +671,22 @@ export function ChatPage() {
     return <Navigate to="/login" replace />;
   }
 
-  const sendMessage = async (content: string) => {
+  const sendMessage = async (payload: { content: string; attachment?: MessageAttachment }) => {
     if (!auth.token || !activeChannelId || !auth.user) {
       return;
     }
-    const signature = messageSignature(activeChannelId, auth.user.id, content);
+    const trimmedContent = payload.content.trim();
+    const attachment = payload.attachment;
+    if (!trimmedContent && !attachment) {
+      return;
+    }
+
+    const signature = messageSignature(
+      activeChannelId,
+      auth.user.id,
+      trimmedContent,
+      attachment?.url,
+    );
     if (pendingSignaturesRef.current.has(signature)) {
       return;
     }
@@ -674,20 +697,29 @@ export function ChatPage() {
       id: `tmp-${crypto.randomUUID()}`,
       channelId: activeChannelId,
       userId: auth.user.id,
-      content,
+      content: trimmedContent,
+      attachment: attachment ?? null,
       createdAt: new Date().toISOString(),
       optimistic: true,
       user: { id: auth.user.id, username: auth.user.username },
     };
     setMessages((prev) => mergeMessages(prev, [optimisticMessage]));
 
-    const wsSent = ws.connected ? ws.sendMessage(activeChannelId, content) : false;
+    const wsSent =
+      !attachment && trimmedContent && ws.connected
+        ? ws.sendMessage(activeChannelId, trimmedContent)
+        : false;
     if (wsSent) {
       return;
     }
 
     try {
-      const response = await chatApi.sendMessage(auth.token, activeChannelId, content);
+      const response = await chatApi.sendMessage(
+        auth.token,
+        activeChannelId,
+        trimmedContent,
+        attachment,
+      );
       clearPendingSignature(signature);
       setMessages((prev) => {
         const replaced = prev.map((item) => (item.id === optimisticMessage.id ? response.message : item));
@@ -754,12 +786,49 @@ export function ChatPage() {
     }
   };
 
+  const uploadAttachment = async (file: File) => {
+    if (!auth.token) {
+      throw new Error('Not authenticated');
+    }
+    try {
+      const response = await chatApi.uploadAttachment(auth.token, file);
+      setError(null);
+      return response.attachment;
+    } catch (err) {
+      setError(getErrorMessage(err, 'Could not upload attachment'));
+      throw err;
+    }
+  };
+
+  const deleteChannel = async (channelId: string) => {
+    if (!auth.token || !auth.user?.isAdmin) {
+      return;
+    }
+    setDeletingChannelId(channelId);
+    try {
+      await chatApi.deleteChannel(auth.token, channelId);
+      setChannels((prev) => {
+        const nextChannels = prev.filter((channel) => channel.id !== channelId);
+        if (activeChannelId === channelId) {
+          const fallback = nextChannels.find((channel) => !channel.isDirect) ?? nextChannels[0] ?? null;
+          setActiveChannelId(fallback?.id ?? null);
+        }
+        return nextChannels;
+      });
+      setError(null);
+    } catch (err) {
+      setError(getErrorMessage(err, 'Could not delete channel'));
+    } finally {
+      setDeletingChannelId(null);
+    }
+  };
+
   const panelTitle =
     activeView === 'chat'
       ? activeChannel
         ? activeChannel.isDirect
-          ? `@ ${activeChannel.directUser?.username ?? 'Direct Message'}`
-          : `# ${activeChannel.name}`
+          ? `@${activeChannel.directUser?.username ?? 'Direct Message'}`
+          : `#${activeChannel.name}`
         : 'Select channel'
       : activeView === 'friends'
         ? 'Friends'
@@ -782,6 +851,8 @@ export function ChatPage() {
         username={auth.user.username}
         isAdmin={auth.user.isAdmin}
         onCreateChannel={createChannel}
+        onDeleteChannel={deleteChannel}
+        deletingChannelId={deletingChannelId}
         incomingFriendRequests={incomingRequests.length}
       />
 
@@ -825,6 +896,7 @@ export function ChatPage() {
               disabled={!activeChannelId}
               enterToSend={preferences.enterToSend}
               onSend={sendMessage}
+              onUploadAttachment={uploadAttachment}
             />
           </>
         ) : null}
@@ -884,7 +956,7 @@ export function ChatPage() {
         ) : null}
       </section>
 
-      {activeView === 'chat' ? <UserSidebar users={uniqueUsers} onUserClick={setSelectedUser} /> : null}
+      {activeView === 'chat' ? <UserSidebar users={onlineUsers} onUserClick={setSelectedUser} /> : null}
 
       <UserProfile user={selectedUser} onClose={() => setSelectedUser(null)} currentUser={auth.user} />
     </main>

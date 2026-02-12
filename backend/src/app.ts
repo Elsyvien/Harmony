@@ -1,8 +1,12 @@
 import cors from '@fastify/cors';
 import jwt from '@fastify/jwt';
+import multipart from '@fastify/multipart';
 import rateLimit from '@fastify/rate-limit';
+import fastifyStatic from '@fastify/static';
 import { Prisma } from '@prisma/client';
 import Fastify from 'fastify';
+import { mkdir } from 'node:fs/promises';
+import path from 'node:path';
 import { ZodError } from 'zod';
 import { loadEnv } from './config/env.js';
 import { wsPlugin } from './plugins/ws.plugin.js';
@@ -26,6 +30,8 @@ import { AppError } from './utils/app-error.js';
 
 export async function buildApp() {
   const env = loadEnv();
+  const uploadsDir = path.resolve(process.cwd(), 'uploads');
+  await mkdir(uploadsDir, { recursive: true });
 
   const app = Fastify({
     logger: {
@@ -50,6 +56,18 @@ export async function buildApp() {
 
   await app.register(jwt, {
     secret: env.JWT_SECRET,
+  });
+
+  await app.register(multipart, {
+    limits: {
+      fileSize: 8 * 1024 * 1024,
+      files: 1,
+    },
+  });
+
+  await app.register(fastifyStatic, {
+    root: uploadsDir,
+    prefix: '/uploads/',
   });
 
   const userRepo = new PrismaUserRepository();

@@ -18,6 +18,8 @@ export interface ChannelRepository {
   findById(id: string): Promise<ChannelWithMembers | null>;
   findByIdForUser(id: string, userId: string): Promise<ChannelWithMembers | null>;
   findByName(name: string): Promise<ChannelWithMembers | null>;
+  countPublicChannels(): Promise<number>;
+  deleteById(id: string): Promise<void>;
   createPublic(params: { name: string }): Promise<ChannelWithMembers>;
   ensurePublicByName(name: string): Promise<ChannelWithMembers>;
   findDirectByDmKey(dmKey: string): Promise<ChannelWithMembers | null>;
@@ -74,6 +76,18 @@ export class PrismaChannelRepository implements ChannelRepository {
     return prisma.channel.findUnique({
       where: { name },
       include: includeMembers,
+    });
+  }
+
+  countPublicChannels() {
+    return prisma.channel.count({
+      where: { type: 'PUBLIC' },
+    });
+  }
+
+  async deleteById(id: string) {
+    await prisma.channel.delete({
+      where: { id },
     });
   }
 

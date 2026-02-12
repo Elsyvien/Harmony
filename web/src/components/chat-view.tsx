@@ -22,6 +22,7 @@ function stringToColor(str: string) {
 }
 
 export function ChatView(props: ChatViewProps) {
+  const apiBaseUrl = import.meta.env.VITE_API_URL ?? 'http://localhost:4000';
   const messageListRef = useRef<HTMLDivElement | null>(null);
   const previousLastMessageIdRef = useRef<string | null>(null);
   const previousMessageCountRef = useRef(0);
@@ -94,6 +95,16 @@ export function ChatView(props: ChatViewProps) {
       ...(props.showSeconds ? { second: '2-digit' as const } : {}),
     });
 
+  const formatAttachmentSize = (size: number) => {
+    if (size < 1024) {
+      return `${size} B`;
+    }
+    if (size < 1024 * 1024) {
+      return `${(size / 1024).toFixed(1)} KB`;
+    }
+    return `${(size / (1024 * 1024)).toFixed(1)} MB`;
+  };
+
   return (
     <section className="chat-view">
       <div className="chat-header">
@@ -124,6 +135,18 @@ export function ChatView(props: ChatViewProps) {
         ) : null}
 
         {props.messages.map((message) => (
+          (() => {
+            const attachmentUrl =
+              message.attachment?.url?.startsWith('http')
+                ? message.attachment.url
+                : message.attachment?.url
+                  ? `${apiBaseUrl}${message.attachment.url}`
+                  : null;
+            const isImageAttachment = Boolean(
+              message.attachment?.type.toLowerCase().startsWith('image/') && attachmentUrl,
+            );
+
+            return (
           <article
             key={message.id}
             className={`message-item${message.optimistic ? ' pending' : ''}${message.failed ? ' failed' : ''}`}
@@ -148,9 +171,27 @@ export function ChatView(props: ChatViewProps) {
                 {message.optimistic ? <span className="pending-tag">Sending...</span> : null}
                 {message.failed ? <span className="pending-tag failed">Failed</span> : null}
               </header>
-              <p>{message.content}</p>
+              {message.content ? <p>{message.content}</p> : null}
+              {message.attachment && attachmentUrl ? (
+                <a
+                  className="message-attachment"
+                  href={attachmentUrl}
+                  target="_blank"
+                  rel="noreferrer"
+                >
+                  {isImageAttachment ? (
+                    <img src={attachmentUrl} alt={message.attachment.name} className="message-attachment-preview" />
+                  ) : null}
+                  <span className="message-attachment-name">{message.attachment.name}</span>
+                  <span className="message-attachment-meta">
+                    {message.attachment.type} • {formatAttachmentSize(message.attachment.size)}
+                  </span>
+                </a>
+              ) : null}
             </div>
           </article>
+            );
+          })()
         ))}
       </div>
 

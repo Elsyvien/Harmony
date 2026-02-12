@@ -15,6 +15,7 @@ interface WsPluginOptions {
 
 interface ClientContext {
   userId: string | null;
+  username: string | null;
   role: 'OWNER' | 'ADMIN' | 'MODERATOR' | 'MEMBER' | null;
   joinedChannels: Set<string>;
   socket: {
@@ -59,16 +60,44 @@ const wsPluginImpl: FastifyPluginAsync<WsPluginOptions> = async (fastify, option
 
   const unregisterUser = (ctx: ClientContext) => {
     if (!ctx.userId) {
-      return;
+      return false;
     }
 
     const subscribers = userSubscribers.get(ctx.userId);
     if (!subscribers) {
-      return;
+      return false;
     }
     subscribers.delete(ctx);
     if (subscribers.size === 0) {
       userSubscribers.delete(ctx.userId);
+    }
+    return true;
+  };
+
+  const getOnlineUsers = () => {
+    const users: Array<{ id: string; username: string }> = [];
+    for (const [userId, subscribers] of userSubscribers) {
+      const username = [...subscribers]
+        .map((client) => client.username)
+        .find((value): value is string => Boolean(value));
+      if (username) {
+        users.push({ id: userId, username });
+      }
+    }
+    return users.sort((a, b) => a.username.localeCompare(b.username));
+  };
+
+  const broadcastPresence = () => {
+    const payload = { users: getOnlineUsers() };
+    const delivered = new Set<ClientContext>();
+    for (const subscribers of userSubscribers.values()) {
+      for (const client of subscribers) {
+        if (delivered.has(client)) {
+          continue;
+        }
+        send(client, 'presence:update', payload);
+        delivered.add(client);
+      }
     }
   };
 
@@ -99,6 +128,7 @@ const wsPluginImpl: FastifyPluginAsync<WsPluginOptions> = async (fastify, option
   fastify.get('/ws', { websocket: true }, (socket) => {
     const ctx: ClientContext = {
       userId: null,
+      username: null,
       role: null,
       joinedChannels: new Set<string>(),
       socket: socket,
@@ -134,11 +164,13 @@ const wsPluginImpl: FastifyPluginAsync<WsPluginOptions> = async (fastify, option
             throw new AppError('ACCOUNT_SUSPENDED', 403, 'Your account is currently suspended');
           }
           ctx.userId = user.userId;
+          ctx.username = user.username;
           ctx.role = dbUser.role;
           const subscribers = userSubscribers.get(user.userId) ?? new Set<ClientContext>();
           subscribers.add(ctx);
           userSubscribers.set(user.userId, subscribers);
           send(ctx, 'auth:ok', { userId: user.userId });
+          broadcastPresence();
           return;
         }
 
@@ -207,7 +239,10 @@ const wsPluginImpl: FastifyPluginAsync<WsPluginOptions> = async (fastify, option
 
     socket.on('close', () => {
       leaveAllChannels(ctx);
-      unregisterUser(ctx);
+      const changed = unregisterUser(ctx);
+      if (changed) {
+        broadcastPresence();
+      }
     });
   });
 };

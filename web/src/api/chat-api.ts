@@ -7,6 +7,7 @@ import type {
   FriendRequestSummary,
   FriendSummary,
   Message,
+  MessageAttachment,
   User,
   UserRole,
 } from '../types/api';
@@ -60,11 +61,34 @@ export const chatApi = {
     );
   },
 
+  deleteChannel(token: string, channelId: string) {
+    return apiRequest<{ deletedChannelId: string }>(
+      `/channels/${channelId}`,
+      {
+        method: 'DELETE',
+      },
+      token,
+    );
+  },
+
   createDirectChannel(token: string, userId: string) {
     return apiRequest<{ channel: Channel }>(
       `/channels/direct/${userId}`,
       {
         method: 'POST',
+      },
+      token,
+    );
+  },
+
+  uploadAttachment(token: string, file: File) {
+    const formData = new FormData();
+    formData.append('file', file);
+    return apiRequest<{ attachment: MessageAttachment }>(
+      '/uploads',
+      {
+        method: 'POST',
+        body: formData,
       },
       token,
     );
@@ -196,12 +220,17 @@ export const chatApi = {
     return apiRequest<{ messages: Message[] }>(`/channels/${channelId}/messages${suffix}`, {}, token);
   },
 
-  sendMessage(token: string, channelId: string, content: string) {
+  sendMessage(
+    token: string,
+    channelId: string,
+    content: string,
+    attachment?: MessageAttachment,
+  ) {
     return apiRequest<{ message: Message }>(
       `/channels/${channelId}/messages`,
       {
         method: 'POST',
-        body: JSON.stringify({ content }),
+        body: JSON.stringify({ content, attachment }),
       },
       token,
     );

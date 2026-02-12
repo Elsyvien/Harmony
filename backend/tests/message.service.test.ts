@@ -18,12 +18,23 @@ class InMemoryMessageRepo implements MessageRepository {
       .slice(0, params.limit);
   }
 
-  async create(params: { channelId: string; userId: string; content: string }) {
+  async create(params: {
+    channelId: string;
+    userId: string;
+    content: string;
+    attachment?: {
+      url: string;
+      name: string;
+      type: string;
+      size: number;
+    };
+  }) {
     const message: MessageWithAuthor = {
       id: randomUUID(),
       channelId: params.channelId,
       userId: params.userId,
       content: params.content,
+      attachment: params.attachment ?? null,
       createdAt: new Date(),
       user: {
         id: params.userId,
@@ -67,6 +78,23 @@ describe('MessageService', () => {
         content: '   ',
       }),
     ).rejects.toMatchObject({ code: 'EMPTY_MESSAGE' } satisfies Partial<AppError>);
+  });
+
+  it('allows attachments without text', async () => {
+    const message = await service.createMessage({
+      channelId: 'known-channel',
+      userId: 'user-1',
+      content: '   ',
+      attachment: {
+        url: '/uploads/demo.png',
+        name: 'demo.png',
+        type: 'image/png',
+        size: 1234,
+      },
+    });
+
+    expect(message.content).toBe('');
+    expect(message.attachment?.url).toBe('/uploads/demo.png');
   });
 
   it('rejects messages for unknown channels', async () => {

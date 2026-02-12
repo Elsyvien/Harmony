@@ -1,3 +1,8 @@
+import { randomUUID } from 'node:crypto';
+import { createWriteStream } from 'node:fs';
+import { mkdir } from 'node:fs/promises';
+import path from 'node:path';
+import { pipeline } from 'node:stream/promises';
 import type { FastifyPluginAsync } from 'fastify';
 import type { FastifyRequest } from 'fastify';
 import type { ChannelService } from '../services/channel.service.js';
@@ -20,6 +25,8 @@ interface ChannelRoutesOptions {
 }
 
 export const channelRoutes: FastifyPluginAsync<ChannelRoutesOptions> = async (fastify, options) => {
+  const uploadsDir = path.resolve(process.cwd(), 'uploads');
+
   const authPreHandler = async (request: FastifyRequest) => {
     await request.jwtVerify();
     const user = await prisma.user.findUnique({
@@ -48,6 +55,64 @@ export const channelRoutes: FastifyPluginAsync<ChannelRoutesOptions> = async (fa
   );
 
   fastify.post(
+    '/uploads',
+    {
+      preHandler: [authPreHandler],
+      config: {
+        rateLimit: { max: 30, timeWindow: 60_000 },
+      },
+    },
+    async (request, reply) => {
+      try {
+        const part = await request.file();
+        if (!part) {
+          throw new AppError('ATTACHMENT_REQUIRED', 400, 'No attachment was uploaded');
+        }
+
+        await mkdir(uploadsDir, { recursive: true });
+
+        const originalName = part.filename?.trim() ? part.filename.trim() : 'attachment';
+        const cleanedOriginal = originalName
+          .replace(/[^\w.\-() ]/g, '_')
+          .slice(0, 120);
+        const extension = path.extname(cleanedOriginal).slice(0, 12);
+        const storedName = `${Date.now()}-${randomUUID()}${extension}`;
+        const filePath = path.join(uploadsDir, storedName);
+
+        let size = 0;
+        part.file.on('data', (chunk: Buffer) => {
+          size += chunk.length;
+        });
+
+        await pipeline(part.file, createWriteStream(filePath));
+
+        if (size <= 0) {
+          throw new AppError('EMPTY_ATTACHMENT', 400, 'Attachment cannot be empty');
+        }
+
+        reply.code(201).send({
+          attachment: {
+            url: `/uploads/${storedName}`,
+            name: cleanedOriginal || 'attachment',
+            type: part.mimetype || 'application/octet-stream',
+            size,
+          },
+        });
+      } catch (error) {
+        if (
+          error &&
+          typeof error === 'object' &&
+          'code' in error &&
+          error.code === 'FST_REQ_FILE_TOO_LARGE'
+        ) {
+          throw new AppError('ATTACHMENT_TOO_LARGE', 400, 'Attachment exceeds the 8MB limit');
+        }
+        throw error;
+      }
+    },
+  );
+
+  fastify.post(
     '/channels',
     {
       preHandler: [authPreHandler],
@@ -63,6 +128,25 @@ export const channelRoutes: FastifyPluginAsync<ChannelRoutesOptions> = async (fa
       const body = createChannelBodySchema.parse(request.body);
       const channel = await options.channelService.createChannel(body.name);
       reply.code(201).send({ channel });
+    },
+  );
+
+  fastify.delete(
+    '/channels/:id',
+    {
+      preHandler: [authPreHandler],
+      config: {
+        rateLimit: { max: 20, timeWindow: 60_000 },
+      },
+    },
+    async (request) => {
+      if (!isAdminRole(request.user.role)) {
+        throw new AppError('FORBIDDEN', 403, 'Admin permission required');
+      }
+
+      const { id: channelId } = channelIdParamsSchema.parse(request.params);
+      const result = await options.channelService.deleteChannel(channelId);
+      return result;
     },
   );
 
@@ -126,6 +210,7 @@ export const channelRoutes: FastifyPluginAsync<ChannelRoutesOptions> = async (fa
       const message = await options.messageService.createMessage({
         channelId,
         content: body.content,
+        attachment: body.attachment,
         userId: request.user.userId,
         userIsAdmin: isAdminRole(request.user.role),
       });

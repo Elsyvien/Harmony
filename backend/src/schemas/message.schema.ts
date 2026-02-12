@@ -12,9 +12,22 @@ export const listMessagesQuerySchema = z.object({
   limit: z.coerce.number().int().min(1).max(100).default(50),
 });
 
-export const createMessageBodySchema = z.object({
-  content: z.string().min(1).max(2000),
+export const messageAttachmentSchema = z.object({
+  url: z.string().min(1).max(500),
+  name: z.string().trim().min(1).max(255),
+  type: z.string().trim().min(1).max(120),
+  size: z.number().int().min(1).max(8 * 1024 * 1024),
 });
+
+export const createMessageBodySchema = z
+  .object({
+    content: z.string().max(2000).default(''),
+    attachment: messageAttachmentSchema.optional(),
+  })
+  .refine((payload) => payload.content.trim().length > 0 || Boolean(payload.attachment), {
+    message: 'Message content cannot be empty',
+    path: ['content'],
+  });
 
 export const createChannelBodySchema = z.object({
   name: z
