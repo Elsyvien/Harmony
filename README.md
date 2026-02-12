@@ -1,10 +1,6 @@
 # Harmony
 
-<p align="left">
-  <img src="web/ressources/logos/logo.png" alt="Harmony logo" width="120" />
-</p>
-
-Discord-like chat app with:
+Harmony chat app with:
 - JWT auth (register/login/logout)
 - Channel-based chat
 - Realtime delivery via WebSocket with polling fallback
@@ -14,7 +10,6 @@ Discord-like chat app with:
 
 ## Documentation
 
-- Full docs website: `docs/index.html`
 - Setup and local development: `docs/SETUP.md`
 - API and websocket contracts: `docs/API.md`
 - Current feature map and next milestones: `docs/ROADMAP.md`
