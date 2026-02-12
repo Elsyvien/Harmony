@@ -25,6 +25,19 @@
   --radius-soft: 6px;
 }
 
+body.theme-light {
+  --bg-darkest: #edf1f7;
+  --bg-darker: #f6f8fc;
+  --bg-dark: #ffffff;
+  --bg-hover: #e9eef8;
+  --panel-border: #d5ddeb;
+  --text-header: #1f2430;
+  --text-normal: #2e3646;
+  --text-muted: #657089;
+  color-scheme: light;
+  background-color: var(--bg-darkest);
+}
+
 * {
   box-sizing: border-box;
 }
@@ -93,6 +106,10 @@ a:hover {
 }
 ::-webkit-scrollbar-track {
   background-color: transparent;
+}
+
+body.theme-light ::-webkit-scrollbar-thumb {
+  background-color: #ccd4e2;
 }
 
 /* Auth Pages */
@@ -981,6 +998,69 @@ button {
 
 .settings-shortcuts p {
   margin: 0;
+}
+
+body.theme-light .auth-page {
+  background-image:
+    linear-gradient(rgba(31, 36, 48, 0.04) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(31, 36, 48, 0.04) 1px, transparent 1px);
+}
+
+body.theme-light .channel-search-box {
+  background-color: #f2f5fb;
+}
+
+body.theme-light .channel-item.active {
+  background-color: #dde5f4;
+}
+
+body.theme-light .channel-sidebar footer {
+  background-color: #e7ecf5;
+}
+
+body.theme-light .status-dot {
+  border-color: #e7ecf5;
+}
+
+body.theme-light .message-item:hover {
+  background-color: rgba(31, 36, 48, 0.06);
+}
+
+body.theme-light .composer form {
+  background-color: #e7ecf5;
+}
+
+body.theme-light .settings-sidebar,
+body.theme-light .settings-section {
+  background-color: rgba(255, 255, 255, 0.86);
+}
+
+body.theme-light .settings-row,
+body.theme-light .settings-account-item {
+  background-color: rgba(31, 36, 48, 0.025);
+  border-color: rgba(31, 36, 48, 0.1);
+}
+
+body.theme-light .user-profile-overlay {
+  background: rgba(32, 40, 58, 0.34);
+}
+
+body.theme-light .user-profile-modal {
+  background: #ffffff;
+  box-shadow: 0 0 0 1px #d8dfed, 0 10px 22px rgba(34, 47, 70, 0.18);
+}
+
+body.theme-light .profile-avatar {
+  background: #ffffff;
+  color: #1f2430;
+}
+
+body.theme-light .profile-body {
+  background: #ffffff;
+}
+
+body.theme-light .role-pill {
+  background: #e7ecf5;
 }
 
 .settings-grid {
@@ -1931,6 +2011,15 @@ body.font-scale-lg {
   border-bottom: 1px solid var(--panel-border);
 }
 .profile-section:last-child { border-bottom: none; }
+
+.profile-actions {
+  display: flex;
+  justify-content: flex-start;
+}
+
+.profile-actions .ghost-btn {
+  min-width: 180px;
+}
 
 .profile-section label {
   font-size: 11px;

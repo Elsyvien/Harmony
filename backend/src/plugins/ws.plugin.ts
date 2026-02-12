@@ -162,6 +162,40 @@ const wsPluginImpl: FastifyPluginAsync<WsPluginOptions> = async (fastify, option
         send(client, 'message:new', { message });
       }
     },
+    broadcastMessageUpdated: (channelId: string, message: unknown) => {
+      const subscribers = channelSubscribers.get(channelId);
+      if (!subscribers) {
+        return;
+      }
+
+      for (const client of subscribers) {
+        send(client, 'message:updated', { message });
+      }
+    },
+    broadcastMessageDeleted: (channelId: string, message: unknown) => {
+      const subscribers = channelSubscribers.get(channelId);
+      if (!subscribers) {
+        return;
+      }
+
+      for (const client of subscribers) {
+        send(client, 'message:deleted', { message });
+      }
+    },
+    broadcastMessageReaction: (
+      channelId: string,
+      message: unknown,
+      meta: { userId: string; emoji: string; reacted: boolean },
+    ) => {
+      const subscribers = channelSubscribers.get(channelId);
+      if (!subscribers) {
+        return;
+      }
+
+      for (const client of subscribers) {
+        send(client, 'message:reaction', { message, ...meta });
+      }
+    },
     notifyUsers: (userIds: string[], type: string, payload: unknown) => {
       for (const userId of userIds) {
         const subscribers = userSubscribers.get(userId);

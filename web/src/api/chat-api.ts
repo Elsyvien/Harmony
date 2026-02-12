@@ -236,12 +236,55 @@ export const chatApi = {
     channelId: string,
     content: string,
     attachment?: MessageAttachment,
+    replyToMessageId?: string,
   ) {
     return apiRequest<{ message: Message }>(
       `/channels/${channelId}/messages`,
       {
         method: 'POST',
-        body: JSON.stringify({ content, attachment }),
+        body: JSON.stringify({ content, attachment, replyToMessageId }),
+      },
+      token,
+    );
+  },
+
+  updateMessage(
+    token: string,
+    channelId: string,
+    messageId: string,
+    content: string,
+  ) {
+    return apiRequest<{ message: Message }>(
+      `/channels/${channelId}/messages/${messageId}`,
+      {
+        method: 'PATCH',
+        body: JSON.stringify({ content }),
+      },
+      token,
+    );
+  },
+
+  deleteMessage(token: string, channelId: string, messageId: string) {
+    return apiRequest<{ message: Message }>(
+      `/channels/${channelId}/messages/${messageId}`,
+      {
+        method: 'DELETE',
+      },
+      token,
+    );
+  },
+
+  toggleMessageReaction(
+    token: string,
+    channelId: string,
+    messageId: string,
+    emoji: string,
+  ) {
+    return apiRequest<{ message: Message; reacted: boolean; emoji: string }>(
+      `/channels/${channelId}/messages/${messageId}/reactions`,
+      {
+        method: 'POST',
+        body: JSON.stringify({ emoji }),
       },
       token,
     );

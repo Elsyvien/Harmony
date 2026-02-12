@@ -127,6 +127,25 @@ export function SettingsPanel(props: SettingsPanelProps) {
             <h3>Appearance</h3>
             <label className="settings-row">
               <span className="settings-row-copy">
+                <strong>Color theme</strong>
+                <small>Switch between dark and light mode.</small>
+              </span>
+              <select
+                className="settings-select"
+                value={props.preferences.theme}
+                onChange={(event) =>
+                  props.onUpdatePreferences({
+                    theme: event.target.value as UserPreferences['theme'],
+                  })
+                }
+              >
+                <option value="dark">Dark</option>
+                <option value="light">Light</option>
+              </select>
+            </label>
+
+            <label className="settings-row">
+              <span className="settings-row-copy">
                 <strong>Compact message spacing</strong>
                 <small>Denser chat layout for high-traffic channels.</small>
               </span>

@@ -173,6 +173,7 @@ export function ChatPage() {
   const [friendsError, setFriendsError] = useState<string | null>(null);
   const [friendActionBusyId, setFriendActionBusyId] = useState<string | null>(null);
   const [submittingFriendRequest, setSubmittingFriendRequest] = useState(false);
+  const [sendingProfileFriendRequest, setSendingProfileFriendRequest] = useState(false);
   const [openingDmUserId, setOpeningDmUserId] = useState<string | null>(null);
   const [deletingChannelId, setDeletingChannelId] = useState<string | null>(null);
   const [unreadChannelCounts, setUnreadChannelCounts] = useState<Record<string, number>>({});
@@ -282,6 +283,27 @@ export function ChatPage() {
         message.user.username.toLowerCase().includes(query),
     );
   }, [messages, messageQuery]);
+
+  const selectedUserFriendRequestState = useMemo<
+    'self' | 'none' | 'friends' | 'outgoing' | 'incoming'
+  >(() => {
+    if (!selectedUser) {
+      return 'none';
+    }
+    if (selectedUser.id === auth.user?.id) {
+      return 'self';
+    }
+    if (friends.some((friend) => friend.user.id === selectedUser.id)) {
+      return 'friends';
+    }
+    if (outgoingRequests.some((request) => request.to.id === selectedUser.id)) {
+      return 'outgoing';
+    }
+    if (incomingRequests.some((request) => request.from.id === selectedUser.id)) {
+      return 'incoming';
+    }
+    return 'none';
+  }, [selectedUser, auth.user?.id, friends, outgoingRequests, incomingRequests]);
 
   const loadMessages = useCallback(
     async (channelId: string, before?: string, prepend = false) => {
@@ -1212,6 +1234,26 @@ export function ChatPage() {
     [auth.token, loadFriendData],
   );
 
+  const sendFriendRequestFromProfile = useCallback(
+    async (username: string) => {
+      if (!auth.token) {
+        return;
+      }
+      setSendingProfileFriendRequest(true);
+      try {
+        await chatApi.sendFriendRequest(auth.token, username);
+        await loadFriendData();
+        setFriendsError(null);
+        setNotice(`Friend request sent to @${username}`);
+      } catch (err) {
+        setFriendsError(getErrorMessage(err, 'Could not send friend request'));
+      } finally {
+        setSendingProfileFriendRequest(false);
+      }
+    },
+    [auth.token, loadFriendData],
+  );
+
   const acceptFriendRequest = useCallback(
     async (requestId: string) => {
       if (!auth.token) {
@@ -1843,7 +1885,16 @@ export function ChatPage() {
         ))}
       </div>
 
-      <UserProfile user={selectedUser} onClose={() => setSelectedUser(null)} currentUser={auth.user} />
+      <UserProfile
+        user={selectedUser}
+        onClose={() => setSelectedUser(null)}
+        currentUser={auth.user}
+        friendRequestState={selectedUserFriendRequestState}
+        sendingFriendRequest={sendingProfileFriendRequest}
+        onSendFriendRequest={(username) => {
+          void sendFriendRequestFromProfile(username);
+        }}
+      />
     </main>
   );
 }

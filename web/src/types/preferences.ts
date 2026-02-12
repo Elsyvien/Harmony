@@ -1,6 +1,8 @@
 export type FontScale = 'sm' | 'md' | 'lg';
+export type ThemeMode = 'dark' | 'light';
 
 export interface UserPreferences {
+  theme: ThemeMode;
   compactMode: boolean;
   reducedMotion: boolean;
   use24HourClock: boolean;
@@ -15,6 +17,7 @@ export interface UserPreferences {
 }
 
 export const DEFAULT_USER_PREFERENCES: UserPreferences = {
+  theme: 'dark',
   compactMode: false,
   reducedMotion: false,
   use24HourClock: false,
