@@ -221,6 +221,7 @@ export function useChatSocket(params: {
 
       socket.onclose = () => {
         setConnected(false);
+        setPing(null);
         socketRef.current = null;
         if (!isClosed) {
           reconnectTimerRef.current = window.setTimeout(connect, 2000);
@@ -233,6 +234,7 @@ export function useChatSocket(params: {
     return () => {
       isClosed = true;
       setConnected(false);
+      setPing(null);
       if (reconnectTimerRef.current) {
         window.clearTimeout(reconnectTimerRef.current);
       }
@@ -308,6 +310,7 @@ export function useChatSocket(params: {
 
   useEffect(() => {
     if (!connected) {
+      setPing(null);
       return;
     }
     const interval = window.setInterval(() => {
