@@ -2,6 +2,7 @@ import { useMemo, useState } from 'react';
 import type { User } from '../types/api';
 import type { UserPreferences } from '../types/preferences';
 import { DropdownSelect } from './dropdown-select';
+import { smoothScrollTo } from '../utils/smooth-scroll';
 
 interface SettingsPanelProps {
   user: User;
