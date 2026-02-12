@@ -50,12 +50,12 @@ export const chatApi = {
     return apiRequest<{ channels: Channel[] }>('/channels', {}, token);
   },
 
-  createChannel(token: string, name: string) {
+  createChannel(token: string, name: string, type: 'TEXT' | 'VOICE' = 'TEXT') {
     return apiRequest<{ channel: Channel }>(
       '/channels',
       {
         method: 'POST',
-        body: JSON.stringify({ name }),
+        body: JSON.stringify({ name, type }),
       },
       token,
     );

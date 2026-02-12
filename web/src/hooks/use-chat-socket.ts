@@ -21,6 +21,22 @@ export interface PresenceUser {
   username: string;
 }
 
+export interface VoiceParticipant {
+  userId: string;
+  username: string;
+}
+
+export interface VoiceStatePayload {
+  channelId: string;
+  participants: VoiceParticipant[];
+}
+
+export interface VoiceSignalPayload {
+  channelId: string;
+  fromUserId: string;
+  data: unknown;
+}
+
 export function useChatSocket(params: {
   token: string | null;
   activeChannelId: string | null;
@@ -28,6 +44,8 @@ export function useChatSocket(params: {
   onFriendEvent?: () => void;
   onDmEvent?: (payload: DmNewEventPayload) => void;
   onPresenceUpdate?: (users: PresenceUser[]) => void;
+  onVoiceState?: (payload: VoiceStatePayload) => void;
+  onVoiceSignal?: (payload: VoiceSignalPayload) => void;
 }) {
   const socketRef = useRef<WebSocket | null>(null);
   const reconnectTimerRef = useRef<number | null>(null);
@@ -37,12 +55,16 @@ export function useChatSocket(params: {
   const onFriendEventRef = useRef(params.onFriendEvent);
   const onDmEventRef = useRef(params.onDmEvent);
   const onPresenceUpdateRef = useRef(params.onPresenceUpdate);
+  const onVoiceStateRef = useRef(params.onVoiceState);
+  const onVoiceSignalRef = useRef(params.onVoiceSignal);
   const [connected, setConnected] = useState(false);
 
   onMessageNewRef.current = params.onMessageNew;
   onFriendEventRef.current = params.onFriendEvent;
   onDmEventRef.current = params.onDmEvent;
   onPresenceUpdateRef.current = params.onPresenceUpdate;
+  onVoiceStateRef.current = params.onVoiceState;
+  onVoiceSignalRef.current = params.onVoiceSignal;
   activeChannelIdRef.current = params.activeChannelId;
 
   const sendEvent = useCallback((type: string, payload: unknown) => {
@@ -107,6 +129,22 @@ export function useChatSocket(params: {
             onPresenceUpdateRef.current?.(
               Array.isArray(payload?.users) ? payload.users : [],
             );
+            return;
+          }
+
+          if (parsed.type === 'voice:state') {
+            const payload = parsed.payload as VoiceStatePayload | undefined;
+            if (payload?.channelId && Array.isArray(payload.participants)) {
+              onVoiceStateRef.current?.(payload);
+            }
+            return;
+          }
+
+          if (parsed.type === 'voice:signal') {
+            const payload = parsed.payload as VoiceSignalPayload | undefined;
+            if (payload?.channelId && payload.fromUserId && payload.data !== undefined) {
+              onVoiceSignalRef.current?.(payload);
+            }
           }
         } catch {
           // Ignore malformed event payloads from the server.
@@ -158,5 +196,26 @@ export function useChatSocket(params: {
     [sendEvent],
   );
 
-  return { connected, sendMessage };
+  const joinVoice = useCallback(
+    (channelId: string) => {
+      return sendEvent('voice:join', { channelId });
+    },
+    [sendEvent],
+  );
+
+  const leaveVoice = useCallback(
+    (channelId?: string) => {
+      return sendEvent('voice:leave', channelId ? { channelId } : {});
+    },
+    [sendEvent],
+  );
+
+  const sendVoiceSignal = useCallback(
+    (channelId: string, targetUserId: string, data: unknown) => {
+      return sendEvent('voice:signal', { channelId, targetUserId, data });
+    },
+    [sendEvent],
+  );
+
+  return { connected, sendMessage, joinVoice, leaveVoice, sendVoiceSignal };
 }

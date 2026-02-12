@@ -32,6 +32,8 @@ const wsPluginImpl: FastifyPluginAsync<WsPluginOptions> = async (fastify, option
 
   const channelSubscribers = new Map<string, Set<ClientContext>>();
   const userSubscribers = new Map<string, Set<ClientContext>>();
+  const voiceParticipants = new Map<string, Map<string, { userId: string; username: string }>>();
+  const activeVoiceChannelByUser = new Map<string, string>();
 
   const send = (ctx: ClientContext, type: string, payload: unknown) => {
     if (ctx.socket.readyState === WS_OPEN_STATE) {
@@ -99,6 +101,60 @@ const wsPluginImpl: FastifyPluginAsync<WsPluginOptions> = async (fastify, option
         delivered.add(client);
       }
     }
+  };
+
+  const broadcastVoiceState = (channelId: string) => {
+    const participants = Array.from(voiceParticipants.get(channelId)?.values() ?? []).sort((a, b) =>
+      a.username.localeCompare(b.username),
+    );
+    const payload = { channelId, participants };
+    const delivered = new Set<ClientContext>();
+
+    for (const participant of participants) {
+      const subscribers = userSubscribers.get(participant.userId);
+      if (!subscribers) {
+        continue;
+      }
+      for (const client of subscribers) {
+        if (delivered.has(client)) {
+          continue;
+        }
+        send(client, 'voice:state', payload);
+        delivered.add(client);
+      }
+    }
+
+    const channelClients = channelSubscribers.get(channelId);
+    if (channelClients) {
+      for (const client of channelClients) {
+        if (delivered.has(client)) {
+          continue;
+        }
+        send(client, 'voice:state', payload);
+        delivered.add(client);
+      }
+    }
+  };
+
+  const leaveVoiceChannel = (userId: string, explicitChannelId?: string) => {
+    const currentChannelId = explicitChannelId ?? activeVoiceChannelByUser.get(userId);
+    if (!currentChannelId) {
+      return;
+    }
+
+    const participants = voiceParticipants.get(currentChannelId);
+    if (!participants) {
+      activeVoiceChannelByUser.delete(userId);
+      return;
+    }
+
+    participants.delete(userId);
+    activeVoiceChannelByUser.delete(userId);
+
+    if (participants.size === 0) {
+      voiceParticipants.delete(currentChannelId);
+    }
+    broadcastVoiceState(currentChannelId);
   };
 
   fastify.decorate('wsGateway', {
@@ -210,6 +266,72 @@ const wsPluginImpl: FastifyPluginAsync<WsPluginOptions> = async (fastify, option
           return;
         }
 
+        if (parsed.type === 'voice:join') {
+          const payload = parsed.payload as { channelId?: string };
+          if (!payload?.channelId) {
+            throw new AppError('INVALID_CHANNEL', 400, 'Missing channelId');
+          }
+          if (!ctx.username) {
+            throw new AppError('INVALID_SESSION', 401, 'Session is no longer valid. Please log in again.');
+          }
+
+          const channel = await options.channelService.getChannelSummaryForUser(
+            payload.channelId,
+            ctx.userId,
+          );
+          if (!channel) {
+            throw new AppError('CHANNEL_NOT_FOUND', 404, 'Channel not found');
+          }
+          if (!channel.isVoice) {
+            throw new AppError('INVALID_VOICE_CHANNEL', 400, 'Channel is not a voice channel');
+          }
+
+          const existingChannelId = activeVoiceChannelByUser.get(ctx.userId);
+          if (existingChannelId && existingChannelId !== payload.channelId) {
+            leaveVoiceChannel(ctx.userId, existingChannelId);
+          }
+
+          const participants = voiceParticipants.get(payload.channelId) ?? new Map();
+          participants.set(ctx.userId, { userId: ctx.userId, username: ctx.username });
+          voiceParticipants.set(payload.channelId, participants);
+          activeVoiceChannelByUser.set(ctx.userId, payload.channelId);
+          broadcastVoiceState(payload.channelId);
+          return;
+        }
+
+        if (parsed.type === 'voice:leave') {
+          const payload = parsed.payload as { channelId?: string } | undefined;
+          leaveVoiceChannel(ctx.userId, payload?.channelId);
+          return;
+        }
+
+        if (parsed.type === 'voice:signal') {
+          const payload = parsed.payload as {
+            channelId?: string;
+            targetUserId?: string;
+            data?: unknown;
+          };
+          if (!payload?.channelId || !payload.targetUserId || payload.data === undefined) {
+            throw new AppError('INVALID_SIGNAL', 400, 'Missing channelId, targetUserId or data');
+          }
+
+          const senderVoiceChannel = activeVoiceChannelByUser.get(ctx.userId);
+          if (senderVoiceChannel !== payload.channelId) {
+            throw new AppError('VOICE_NOT_JOINED', 403, 'Join the voice channel first');
+          }
+          const participants = voiceParticipants.get(payload.channelId);
+          if (!participants?.has(payload.targetUserId)) {
+            throw new AppError('VOICE_TARGET_NOT_AVAILABLE', 404, 'Target user is not in this voice channel');
+          }
+
+          fastify.wsGateway.notifyUsers([payload.targetUserId], 'voice:signal', {
+            channelId: payload.channelId,
+            fromUserId: ctx.userId,
+            data: payload.data,
+          });
+          return;
+        }
+
         if (parsed.type === 'message:send') {
           const payload = parsed.payload as { channelId?: string; content?: string };
           if (!payload?.channelId || typeof payload.content !== 'string') {
@@ -239,6 +361,9 @@ const wsPluginImpl: FastifyPluginAsync<WsPluginOptions> = async (fastify, option
 
     socket.on('close', () => {
       leaveAllChannels(ctx);
+      if (ctx.userId) {
+        leaveVoiceChannel(ctx.userId);
+      }
       const changed = unregisterUser(ctx);
       if (changed) {
         broadcastPresence();

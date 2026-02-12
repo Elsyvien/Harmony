@@ -9,8 +9,9 @@ import { MessageComposer } from '../components/message-composer';
 import { SettingsPanel } from '../components/settings-panel';
 import { UserProfile } from '../components/user-profile';
 import { UserSidebar } from '../components/user-sidebar';
+import { VoiceChannelPanel } from '../components/voice-channel-panel';
 import { useChatSocket } from '../hooks/use-chat-socket';
-import type { PresenceUser } from '../hooks/use-chat-socket';
+import type { PresenceUser, VoiceParticipant, VoiceStatePayload } from '../hooks/use-chat-socket';
 import { useUserPreferences } from '../hooks/use-user-preferences';
 import { useAuth } from '../store/auth-store';
 import type {
@@ -156,6 +157,11 @@ export function ChatPage() {
   const [openingDmUserId, setOpeningDmUserId] = useState<string | null>(null);
   const [deletingChannelId, setDeletingChannelId] = useState<string | null>(null);
   const [onlineUsers, setOnlineUsers] = useState<PresenceUser[]>([]);
+  const [voiceParticipantsByChannel, setVoiceParticipantsByChannel] = useState<
+    Record<string, VoiceParticipant[]>
+  >({});
+  const [activeVoiceChannelId, setActiveVoiceChannelId] = useState<string | null>(null);
+  const [voiceBusyChannelId, setVoiceBusyChannelId] = useState<string | null>(null);
 
   const [selectedUser, setSelectedUser] = useState<{ id: string; username: string } | null>(null);
   const [hiddenUnreadCount, setHiddenUnreadCount] = useState(0);
@@ -166,6 +172,21 @@ export function ChatPage() {
     () => channels.find((channel) => channel.id === activeChannelId) ?? null,
     [channels, activeChannelId],
   );
+
+  const voiceParticipantCounts = useMemo(() => {
+    const counts: Record<string, number> = {};
+    for (const [channelId, participants] of Object.entries(voiceParticipantsByChannel)) {
+      counts[channelId] = participants.length;
+    }
+    return counts;
+  }, [voiceParticipantsByChannel]);
+
+  const activeVoiceParticipants = useMemo(() => {
+    if (!activeChannelId) {
+      return [];
+    }
+    return voiceParticipantsByChannel[activeChannelId] ?? [];
+  }, [activeChannelId, voiceParticipantsByChannel]);
 
   const filteredMessages = useMemo(() => {
     const query = messageQuery.trim().toLowerCase();
@@ -272,6 +293,28 @@ export function ChatPage() {
     [clearPendingSignature],
   );
 
+  const handleVoiceState = useCallback(
+    (payload: VoiceStatePayload) => {
+      setVoiceParticipantsByChannel((prev) => ({
+        ...prev,
+        [payload.channelId]: payload.participants,
+      }));
+
+      if (!auth.user) {
+        return;
+      }
+
+      const selfPresent = payload.participants.some((participant) => participant.userId === auth.user?.id);
+      if (selfPresent) {
+        setActiveVoiceChannelId(payload.channelId);
+        return;
+      }
+
+      setActiveVoiceChannelId((current) => (current === payload.channelId ? null : current));
+    },
+    [auth.user],
+  );
+
   const ws = useChatSocket({
     token: auth.token,
     activeChannelId,
@@ -308,6 +351,10 @@ export function ChatPage() {
     },
     onPresenceUpdate: (users) => {
       setOnlineUsers(users);
+    },
+    onVoiceState: handleVoiceState,
+    onVoiceSignal: () => {
+      // WebRTC media exchange will use this event in the next phase.
     },
   });
 
@@ -356,6 +403,8 @@ export function ChatPage() {
   useEffect(() => {
     if (!auth.token) {
       setOnlineUsers([]);
+      setVoiceParticipantsByChannel({});
+      setActiveVoiceChannelId(null);
       return;
     }
     let disposed = false;
@@ -392,9 +441,14 @@ export function ChatPage() {
       setMessages([]);
       return;
     }
+    if (activeChannel?.isVoice) {
+      setMessages([]);
+      setMessageQuery('');
+      return;
+    }
     setMessageQuery('');
     void loadMessages(activeChannelId);
-  }, [activeChannelId, loadMessages]);
+  }, [activeChannelId, activeChannel?.isVoice, loadMessages]);
 
   const loadAdminStats = useCallback(async () => {
     if (!auth.token || !auth.user?.isAdmin) {
@@ -612,6 +666,52 @@ export function ChatPage() {
     [auth.token],
   );
 
+  const joinVoiceChannel = useCallback(
+    async (channelId: string) => {
+      if (!auth.token) {
+        return;
+      }
+      if (!ws.connected) {
+        setError('Voice requires an active real-time connection');
+        return;
+      }
+      setVoiceBusyChannelId(channelId);
+      try {
+        if (activeVoiceChannelId && activeVoiceChannelId !== channelId) {
+          ws.leaveVoice(activeVoiceChannelId);
+        }
+        const sent = ws.joinVoice(channelId);
+        if (!sent) {
+          throw new Error('VOICE_JOIN_FAILED');
+        }
+        setActiveVoiceChannelId(channelId);
+        setError(null);
+      } catch {
+        setError('Could not join voice channel');
+      } finally {
+        setVoiceBusyChannelId(null);
+      }
+    },
+    [auth.token, ws, activeVoiceChannelId],
+  );
+
+  const leaveVoiceChannel = useCallback(
+    async () => {
+      if (!activeVoiceChannelId) {
+        return;
+      }
+      setVoiceBusyChannelId(activeVoiceChannelId);
+      try {
+        ws.leaveVoice(activeVoiceChannelId);
+        setActiveVoiceChannelId(null);
+        setError(null);
+      } finally {
+        setVoiceBusyChannelId(null);
+      }
+    },
+    [ws, activeVoiceChannelId],
+  );
+
   useEffect(() => {
     if (activeView !== 'admin' || !auth.user?.isAdmin) {
       return;
@@ -652,6 +752,13 @@ export function ChatPage() {
       window.clearInterval(interval);
     };
   }, [auth.token, activeChannelId, loadMessages, ws.connected]);
+
+  useEffect(() => {
+    if (ws.connected) {
+      return;
+    }
+    setActiveVoiceChannelId(null);
+  }, [ws.connected]);
 
   if (!auth.token || !auth.user) {
     if (auth.token && auth.hydrating) {
@@ -768,12 +875,12 @@ export function ChatPage() {
     auth.clearAuth();
   };
 
-  const createChannel = async (name: string) => {
+  const createChannel = async (name: string, type: 'TEXT' | 'VOICE') => {
     if (!auth.token || !auth.user?.isAdmin) {
       return;
     }
     try {
-      const response = await chatApi.createChannel(auth.token, name);
+      const response = await chatApi.createChannel(auth.token, name, type);
       setChannels((prev) => {
         const exists = prev.some((channel) => channel.id === response.channel.id);
         return exists ? prev : [...prev, response.channel];
@@ -806,6 +913,10 @@ export function ChatPage() {
     }
     setDeletingChannelId(channelId);
     try {
+      if (activeVoiceChannelId === channelId) {
+        ws.leaveVoice(channelId);
+        setActiveVoiceChannelId(null);
+      }
       await chatApi.deleteChannel(auth.token, channelId);
       setChannels((prev) => {
         const nextChannels = prev.filter((channel) => channel.id !== channelId);
@@ -814,6 +925,11 @@ export function ChatPage() {
           setActiveChannelId(fallback?.id ?? null);
         }
         return nextChannels;
+      });
+      setVoiceParticipantsByChannel((prev) => {
+        const next = { ...prev };
+        delete next[channelId];
+        return next;
       });
       setError(null);
     } catch (err) {
@@ -828,7 +944,9 @@ export function ChatPage() {
       ? activeChannel
         ? activeChannel.isDirect
           ? `@${activeChannel.directUser?.username ?? 'Direct Message'}`
-          : `#${activeChannel.name}`
+          : activeChannel.isVoice
+            ? `~${activeChannel.name}`
+            : `#${activeChannel.name}`
         : 'Select channel'
       : activeView === 'friends'
         ? 'Friends'
@@ -853,6 +971,11 @@ export function ChatPage() {
         onCreateChannel={createChannel}
         onDeleteChannel={deleteChannel}
         deletingChannelId={deletingChannelId}
+        activeVoiceChannelId={activeVoiceChannelId}
+        voiceParticipantCounts={voiceParticipantCounts}
+        onJoinVoice={joinVoiceChannel}
+        onLeaveVoice={leaveVoiceChannel}
+        joiningVoiceChannelId={voiceBusyChannelId}
         incomingFriendRequests={incomingRequests.length}
       />
 
@@ -863,7 +986,7 @@ export function ChatPage() {
             {error ? <p className="error-banner">{error}</p> : null}
             {!error && notice ? <p className="info-banner">{notice}</p> : null}
           </div>
-          {activeView === 'chat' ? (
+          {activeView === 'chat' && !activeChannel?.isVoice ? (
             <div className="panel-tools">
               <input
                 className="panel-search-input"
@@ -882,22 +1005,36 @@ export function ChatPage() {
 
         {activeView === 'chat' ? (
           <>
-            <ChatView
-              activeChannelId={activeChannelId}
-              loading={loadingMessages}
-              messages={filteredMessages}
-              wsConnected={ws.connected}
-              use24HourClock={preferences.use24HourClock}
-              showSeconds={preferences.showSeconds}
-              onLoadOlder={loadOlder}
-              onUserClick={setSelectedUser}
-            />
-            <MessageComposer
-              disabled={!activeChannelId}
-              enterToSend={preferences.enterToSend}
-              onSend={sendMessage}
-              onUploadAttachment={uploadAttachment}
-            />
+            {activeChannel?.isVoice ? (
+              <VoiceChannelPanel
+                channelName={activeChannel.name}
+                participants={activeVoiceParticipants}
+                joined={activeVoiceChannelId === activeChannel.id}
+                busy={voiceBusyChannelId === activeChannel.id}
+                wsConnected={ws.connected}
+                onJoin={() => joinVoiceChannel(activeChannel.id)}
+                onLeave={leaveVoiceChannel}
+              />
+            ) : (
+              <>
+                <ChatView
+                  activeChannelId={activeChannelId}
+                  loading={loadingMessages}
+                  messages={filteredMessages}
+                  wsConnected={ws.connected}
+                  use24HourClock={preferences.use24HourClock}
+                  showSeconds={preferences.showSeconds}
+                  onLoadOlder={loadOlder}
+                  onUserClick={setSelectedUser}
+                />
+                <MessageComposer
+                  disabled={!activeChannelId}
+                  enterToSend={preferences.enterToSend}
+                  onSend={sendMessage}
+                  onUploadAttachment={uploadAttachment}
+                />
+              </>
+            )}
           </>
         ) : null}
 

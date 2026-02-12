@@ -9,6 +9,7 @@ export interface ChannelSummary {
   name: string;
   createdAt: Date;
   isDirect: boolean;
+  isVoice: boolean;
   directUser: {
     id: string;
     username: string;
@@ -44,6 +45,7 @@ export class ChannelService {
         name: channel.name,
         createdAt: channel.createdAt,
         isDirect: false,
+        isVoice: channel.type === 'VOICE',
         directUser: null,
       };
     }
@@ -54,6 +56,7 @@ export class ChannelService {
       name: channel.name,
       createdAt: channel.createdAt,
       isDirect: true,
+      isVoice: false,
       directUser: directUser
         ? {
             id: directUser.id,
@@ -72,13 +75,16 @@ export class ChannelService {
     return channels.map((channel) => this.toSummary(channel, userId));
   }
 
-  async createChannel(name: string) {
+  async createChannel(name: string, type: 'TEXT' | 'VOICE' = 'TEXT') {
     const normalizedName = name.trim().toLowerCase();
     const existing = await this.channelRepo.findByName(normalizedName);
     if (existing) {
       throw new AppError('CHANNEL_EXISTS', 409, 'Channel already exists');
     }
-    const created = await this.channelRepo.createPublic({ name: normalizedName });
+    const created =
+      type === 'VOICE'
+        ? await this.channelRepo.createVoice({ name: normalizedName })
+        : await this.channelRepo.createPublic({ name: normalizedName });
     return this.toSummary(created, '');
   }
 
@@ -87,16 +93,18 @@ export class ChannelService {
     if (!channel) {
       throw new AppError('CHANNEL_NOT_FOUND', 404, 'Channel not found');
     }
-    if (channel.type !== 'PUBLIC') {
-      throw new AppError('CHANNEL_DELETE_FORBIDDEN', 400, 'Only public channels can be deleted');
+    if (channel.type === 'DIRECT') {
+      throw new AppError('CHANNEL_DELETE_FORBIDDEN', 400, 'Direct channels cannot be deleted');
     }
-    if (channel.name === 'global') {
+    if (channel.type === 'PUBLIC' && channel.name === 'global') {
       throw new AppError('CHANNEL_DELETE_FORBIDDEN', 400, 'The global channel cannot be deleted');
     }
 
-    const publicChannels = await this.channelRepo.countPublicChannels();
-    if (publicChannels <= 1) {
-      throw new AppError('CHANNEL_DELETE_FORBIDDEN', 400, 'At least one public channel must remain');
+    if (channel.type === 'PUBLIC') {
+      const publicChannels = await this.channelRepo.countPublicChannels();
+      if (publicChannels <= 1) {
+        throw new AppError('CHANNEL_DELETE_FORBIDDEN', 400, 'At least one public channel must remain');
+      }
     }
 
     await this.channelRepo.deleteById(channelId);
@@ -111,6 +119,14 @@ export class ChannelService {
   async ensureChannelAccess(channelId: string, userId: string) {
     const channel = await this.channelRepo.findByIdForUser(channelId, userId);
     return Boolean(channel);
+  }
+
+  async getChannelSummaryForUser(channelId: string, userId: string): Promise<ChannelSummary | null> {
+    const channel = await this.channelRepo.findByIdForUser(channelId, userId);
+    if (!channel) {
+      return null;
+    }
+    return this.toSummary(channel, userId);
   }
 
   async openDirectChannel(userId: string, targetUserId: string): Promise<OpenDirectChannelResult> {

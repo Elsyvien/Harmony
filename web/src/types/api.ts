@@ -19,6 +19,7 @@ export interface Channel {
   name: string;
   createdAt: string;
   isDirect: boolean;
+  isVoice: boolean;
   directUser: {
     id: string;
     username: string;

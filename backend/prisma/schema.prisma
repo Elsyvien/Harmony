@@ -21,6 +21,7 @@ enum FriendshipStatus {
 
 enum ChannelType {
   PUBLIC
+  VOICE
   DIRECT
 }
 

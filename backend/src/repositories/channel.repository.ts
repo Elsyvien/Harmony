@@ -21,6 +21,7 @@ export interface ChannelRepository {
   countPublicChannels(): Promise<number>;
   deleteById(id: string): Promise<void>;
   createPublic(params: { name: string }): Promise<ChannelWithMembers>;
+  createVoice(params: { name: string }): Promise<ChannelWithMembers>;
   ensurePublicByName(name: string): Promise<ChannelWithMembers>;
   findDirectByDmKey(dmKey: string): Promise<ChannelWithMembers | null>;
   createDirect(params: {
@@ -48,7 +49,7 @@ export class PrismaChannelRepository implements ChannelRepository {
   listForUser(userId: string) {
     return prisma.channel.findMany({
       where: {
-        OR: [{ type: 'PUBLIC' }, { members: { some: { userId } } }],
+        OR: [{ type: { in: ['PUBLIC', 'VOICE'] } }, { members: { some: { userId } } }],
       },
       orderBy: { createdAt: 'asc' },
       include: includeMembers,
@@ -66,7 +67,7 @@ export class PrismaChannelRepository implements ChannelRepository {
     return prisma.channel.findFirst({
       where: {
         id,
-        OR: [{ type: 'PUBLIC' }, { members: { some: { userId } } }],
+        OR: [{ type: { in: ['PUBLIC', 'VOICE'] } }, { members: { some: { userId } } }],
       },
       include: includeMembers,
     });
@@ -96,6 +97,16 @@ export class PrismaChannelRepository implements ChannelRepository {
       data: {
         name: params.name,
         type: 'PUBLIC',
+      },
+      include: includeMembers,
+    });
+  }
+
+  createVoice(params: { name: string }) {
+    return prisma.channel.create({
+      data: {
+        name: params.name,
+        type: 'VOICE',
       },
       include: includeMembers,
     });

@@ -10,14 +10,20 @@ interface ChannelSidebarProps {
   onLogout: () => Promise<void>;
   username: string;
   isAdmin: boolean;
-  onCreateChannel: (name: string) => Promise<void>;
+  onCreateChannel: (name: string, type: 'TEXT' | 'VOICE') => Promise<void>;
   onDeleteChannel: (channelId: string) => Promise<void>;
   deletingChannelId: string | null;
+  activeVoiceChannelId: string | null;
+  voiceParticipantCounts: Record<string, number>;
+  onJoinVoice: (channelId: string) => Promise<void> | void;
+  onLeaveVoice: () => Promise<void> | void;
+  joiningVoiceChannelId: string | null;
   incomingFriendRequests: number;
 }
 
 export function ChannelSidebar(props: ChannelSidebarProps) {
   const [channelName, setChannelName] = useState('');
+  const [channelType, setChannelType] = useState<'TEXT' | 'VOICE'>('TEXT');
   const [creating, setCreating] = useState(false);
   const [showCreateChannel, setShowCreateChannel] = useState(false);
   const [channelFilter, setChannelFilter] = useState('');
@@ -36,7 +42,8 @@ export function ChannelSidebar(props: ChannelSidebarProps) {
     return searchableLabel.toLowerCase().includes(query);
   });
   const directChannels = filteredChannels.filter((channel) => channel.isDirect);
-  const publicChannels = filteredChannels.filter((channel) => !channel.isDirect);
+  const textChannels = filteredChannels.filter((channel) => !channel.isDirect && !channel.isVoice);
+  const voiceChannels = filteredChannels.filter((channel) => !channel.isDirect && channel.isVoice);
 
   return (
     <aside className="channel-sidebar">
@@ -76,8 +83,9 @@ export function ChannelSidebar(props: ChannelSidebarProps) {
               }
               setCreating(true);
               try {
-                await props.onCreateChannel(trimmed);
+                await props.onCreateChannel(trimmed, channelType);
                 setChannelName('');
+                setChannelType('TEXT');
                 setShowCreateChannel(false);
               } finally {
                 setCreating(false);
@@ -95,6 +103,14 @@ export function ChannelSidebar(props: ChannelSidebarProps) {
             <button className="ghost-btn" type="submit" disabled={creating}>
               {creating ? 'Adding...' : 'Add'}
             </button>
+            <select
+              value={channelType}
+              onChange={(event) => setChannelType(event.target.value as 'TEXT' | 'VOICE')}
+              disabled={creating}
+            >
+              <option value="TEXT">Text</option>
+              <option value="VOICE">Voice</option>
+            </select>
           </form>
         ) : null}
 
@@ -133,8 +149,8 @@ export function ChannelSidebar(props: ChannelSidebarProps) {
           </button>
         ))}
 
-        {publicChannels.length > 0 ? <p className="channel-group-label">Channels</p> : null}
-        {publicChannels.map((channel) => {
+        {textChannels.length > 0 ? <p className="channel-group-label">Text Channels</p> : null}
+        {textChannels.map((channel) => {
           const isDeleting = props.deletingChannelId === channel.id;
           const canDelete = props.isAdmin && channel.name !== 'global';
           return (
@@ -167,6 +183,39 @@ export function ChannelSidebar(props: ChannelSidebarProps) {
                   {isDeleting ? '...' : 'x'}
                 </button>
               ) : null}
+            </div>
+          );
+        })}
+
+        {voiceChannels.length > 0 ? <p className="channel-group-label">Voice Channels</p> : null}
+        {voiceChannels.map((channel) => {
+          const isJoined = props.activeVoiceChannelId === channel.id;
+          const participants = props.voiceParticipantCounts[channel.id] ?? 0;
+          const isTransitioning = props.joiningVoiceChannelId === channel.id;
+          const isOtherTransition =
+            Boolean(props.joiningVoiceChannelId) && props.joiningVoiceChannelId !== channel.id;
+          return (
+            <div key={channel.id} className="channel-row">
+              <button
+                className={channel.id === props.activeChannelId ? 'channel-item active' : 'channel-item'}
+                onClick={() => props.onSelect(channel.id)}
+              >
+                ~{channel.name}
+                <span className="channel-voice-count">{participants}</span>
+              </button>
+              <button
+                className={isJoined ? 'channel-voice-btn leave' : 'channel-voice-btn'}
+                disabled={isTransitioning || isOtherTransition}
+                onClick={async () => {
+                  if (isJoined) {
+                    await props.onLeaveVoice();
+                    return;
+                  }
+                  await props.onJoinVoice(channel.id);
+                }}
+              >
+                {isTransitioning ? '...' : isJoined ? 'Leave' : 'Join'}
+              </button>
             </div>
           );
         })}

@@ -126,7 +126,7 @@ export const channelRoutes: FastifyPluginAsync<ChannelRoutesOptions> = async (fa
       }
 
       const body = createChannelBodySchema.parse(request.body);
-      const channel = await options.channelService.createChannel(body.name);
+      const channel = await options.channelService.createChannel(body.name, body.type);
       reply.code(201).send({ channel });
     },
   );

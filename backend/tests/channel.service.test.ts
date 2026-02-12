@@ -54,6 +54,16 @@ class InMemoryChannelRepo implements ChannelRepository {
     return created;
   }
 
+  async createVoice(params: { name: string }) {
+    const created = buildChannel({
+      id: `channel-${this.channels.length + 1}`,
+      name: params.name,
+      type: 'VOICE',
+    });
+    this.channels.push(created);
+    return created;
+  }
+
   async ensurePublicByName(name: string) {
     const existing = this.channels.find((channel) => channel.name === name && channel.type === 'PUBLIC');
     if (existing) {
@@ -145,6 +155,7 @@ describe('ChannelService deleteChannel', () => {
     repo = new InMemoryChannelRepo([
       buildChannel({ id: 'global-id', name: 'global', type: 'PUBLIC' }),
       buildChannel({ id: 'general-id', name: 'general', type: 'PUBLIC' }),
+      buildChannel({ id: 'voice-id', name: 'party', type: 'VOICE' }),
       buildChannel({ id: 'dm-id', name: 'dm-a-b', type: 'DIRECT', dmKey: 'dm:a:b' }),
     ]);
     service = new ChannelService(repo, noOpUserRepo, noOpFriendshipRepo);
@@ -169,5 +180,10 @@ describe('ChannelService deleteChannel', () => {
     await expect(service.deleteChannel('dm-id')).rejects.toMatchObject({
       code: 'CHANNEL_DELETE_FORBIDDEN',
     } satisfies Partial<AppError>);
+  });
+
+  it('allows deleting voice channels', async () => {
+    const result = await service.deleteChannel('voice-id');
+    expect(result.deletedChannelId).toBe('voice-id');
   });
 });
