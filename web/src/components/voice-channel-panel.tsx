@@ -4,6 +4,8 @@ interface VoiceChannelPanelProps {
   currentUserId: string;
   localAudioReady: boolean;
   remoteAudioUsers: Array<{ userId: string; username: string; stream: MediaStream }>;
+  bitrateKbps: number;
+  onBitrateChange: (bitrateKbps: number) => void;
   joined: boolean;
   busy: boolean;
   wsConnected: boolean;
@@ -39,6 +41,21 @@ export function VoiceChannelPanel(props: VoiceChannelPanelProps) {
           : 'Join the channel to establish WebRTC voice transport.'}
       </p>
 
+      <div className="voice-quality-row">
+        <label htmlFor="voice-quality-select">Voice Quality</label>
+        <select
+          id="voice-quality-select"
+          value={props.bitrateKbps}
+          onChange={(event) => props.onBitrateChange(Number(event.target.value))}
+        >
+          <option value={24}>24 kbps (Low)</option>
+          <option value={40}>40 kbps</option>
+          <option value={64}>64 kbps (Default)</option>
+          <option value={96}>96 kbps</option>
+          <option value={128}>128 kbps (High)</option>
+        </select>
+      </div>
+
       <div className="voice-participant-list">
         {props.participants.length === 0 ? <p className="muted">No one in this voice channel yet.</p> : null}
         {props.participants.map((participant) => (
@@ -56,24 +73,6 @@ export function VoiceChannelPanel(props: VoiceChannelPanelProps) {
                   : 'Signaling'}
             </small>
           </div>
-        ))}
-      </div>
-
-      <div className="voice-audio-sinks" aria-hidden="true">
-        {props.remoteAudioUsers.map((user) => (
-          <audio
-            key={user.userId}
-            autoPlay
-            playsInline
-            ref={(node) => {
-              if (!node) {
-                return;
-              }
-              if (node.srcObject !== user.stream) {
-                node.srcObject = user.stream;
-              }
-            }}
-          />
         ))}
       </div>
     </section>

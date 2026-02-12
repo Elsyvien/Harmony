@@ -759,6 +759,52 @@ button {
   font-size: 11px;
 }
 
+.voice-session-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--panel-border);
+  background: linear-gradient(90deg, rgba(35, 165, 89, 0.12), rgba(35, 165, 89, 0.03));
+}
+
+.voice-session-main {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.voice-session-main strong {
+  color: var(--text-header);
+  font-size: 13px;
+}
+
+.voice-session-main small {
+  color: var(--text-muted);
+  font-size: 11px;
+}
+
+.voice-session-state {
+  display: inline-flex;
+  align-items: center;
+  border-radius: 999px;
+  border: 1px solid rgba(35, 165, 89, 0.45);
+  background-color: rgba(35, 165, 89, 0.14);
+  color: #9ff3be;
+  font-size: 11px;
+  font-weight: 700;
+  padding: 3px 8px;
+}
+
+.voice-session-state.danger {
+  border-color: rgba(242, 63, 67, 0.45);
+  background-color: rgba(242, 63, 67, 0.14);
+  color: #ff9a9b;
+}
+
 .voice-panel {
   flex: 1;
   overflow-y: auto;
@@ -784,6 +830,29 @@ button {
 .voice-participant-list {
   display: grid;
   gap: 8px;
+}
+
+.voice-quality-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.voice-quality-row label {
+  color: var(--text-muted);
+  font-size: 12px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.voice-quality-row select {
+  min-width: 180px;
+  background-color: var(--bg-darkest);
+  border: 1px solid var(--panel-border);
+  color: var(--text-header);
+  border-radius: var(--radius-sharp);
+  padding: 6px 10px;
 }
 
 .voice-participant-item {

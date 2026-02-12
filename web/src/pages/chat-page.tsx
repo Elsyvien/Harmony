@@ -183,6 +183,7 @@ export function ChatPage() {
   const [voiceBusyChannelId, setVoiceBusyChannelId] = useState<string | null>(null);
   const [localAudioReady, setLocalAudioReady] = useState(false);
   const [remoteAudioStreams, setRemoteAudioStreams] = useState<Record<string, MediaStream>>({});
+  const [voiceBitrateKbps, setVoiceBitrateKbps] = useState(64);
 
   const [selectedUser, setSelectedUser] = useState<{ id: string; username: string } | null>(null);
   const [hiddenUnreadCount, setHiddenUnreadCount] = useState(0);
@@ -198,6 +199,10 @@ export function ChatPage() {
   const activeChannel = useMemo(
     () => channels.find((channel) => channel.id === activeChannelId) ?? null,
     [channels, activeChannelId],
+  );
+  const activeVoiceChannel = useMemo(
+    () => channels.find((channel) => channel.id === activeVoiceChannelId) ?? null,
+    [channels, activeVoiceChannelId],
   );
 
   const voiceParticipantCounts = useMemo(() => {
@@ -215,7 +220,31 @@ export function ChatPage() {
     return voiceParticipantsByChannel[activeChannelId] ?? [];
   }, [activeChannelId, voiceParticipantsByChannel]);
 
+  const joinedVoiceParticipants = useMemo(() => {
+    if (!activeVoiceChannelId) {
+      return [];
+    }
+    return voiceParticipantsByChannel[activeVoiceChannelId] ?? [];
+  }, [activeVoiceChannelId, voiceParticipantsByChannel]);
+
   const activeRemoteAudioUsers = useMemo(() => {
+    if (!auth.user) {
+      return [];
+    }
+    return joinedVoiceParticipants
+      .filter((participant) => participant.userId !== auth.user?.id)
+      .map((participant) => ({
+        userId: participant.userId,
+        username: participant.username,
+        stream: remoteAudioStreams[participant.userId],
+      }))
+      .filter(
+        (entry): entry is { userId: string; username: string; stream: MediaStream } =>
+          Boolean(entry.stream),
+      );
+  }, [joinedVoiceParticipants, remoteAudioStreams, auth.user]);
+
+  const viewedRemoteAudioUsers = useMemo(() => {
     if (!auth.user) {
       return [];
     }
@@ -393,6 +422,32 @@ export function ChatPage() {
     return stream;
   }, []);
 
+  const applyAudioBitrateToConnection = useCallback(
+    async (connection: RTCPeerConnection, bitrateKbps: number) => {
+      const bitrateBps = Math.max(8, bitrateKbps) * 1000;
+      for (const sender of connection.getSenders()) {
+        if (!sender.track || sender.track.kind !== 'audio') {
+          continue;
+        }
+        try {
+          const parameters = sender.getParameters();
+          const existingEncodings =
+            parameters.encodings && parameters.encodings.length > 0
+              ? parameters.encodings
+              : [{}];
+          parameters.encodings = existingEncodings.map((encoding) => ({
+            ...encoding,
+            maxBitrate: bitrateBps,
+          }));
+          await sender.setParameters(parameters);
+        } catch {
+          // Browser may not allow dynamic sender parameter updates.
+        }
+      }
+    },
+    [],
+  );
+
   const flushPendingIceCandidates = useCallback(async (peerUserId: string, connection: RTCPeerConnection) => {
     const queued = pendingIceRef.current.get(peerUserId);
     if (!queued?.length || !connection.remoteDescription) {
@@ -423,6 +478,7 @@ export function ChatPage() {
       for (const track of stream.getTracks()) {
         connection.addTrack(track, stream);
       }
+      await applyAudioBitrateToConnection(connection, voiceBitrateKbps);
 
       connection.onicecandidate = (event) => {
         if (!event.candidate) {
@@ -457,7 +513,7 @@ export function ChatPage() {
       peerConnectionsRef.current.set(peerUserId, connection);
       return connection;
     },
-    [closePeerConnection, getLocalVoiceStream],
+    [applyAudioBitrateToConnection, closePeerConnection, getLocalVoiceStream, voiceBitrateKbps],
   );
 
   const createOfferForPeer = useCallback(
@@ -551,10 +607,12 @@ export function ChatPage() {
       const selfPresent = payload.participants.some((participant) => participant.userId === auth.user?.id);
       if (selfPresent) {
         setActiveVoiceChannelId(payload.channelId);
+        setVoiceBusyChannelId((current) => (current === payload.channelId ? null : current));
         return;
       }
 
       setActiveVoiceChannelId((current) => (current === payload.channelId ? null : current));
+      setVoiceBusyChannelId((current) => (current === payload.channelId ? null : current));
     },
     [auth.user],
   );
@@ -667,6 +725,7 @@ export function ChatPage() {
       setOnlineUsers([]);
       setVoiceParticipantsByChannel({});
       setActiveVoiceChannelId(null);
+      setVoiceBusyChannelId(null);
       teardownVoiceTransport();
       return;
     }
@@ -778,6 +837,16 @@ export function ChatPage() {
     ensurePeerConnection,
     createOfferForPeer,
   ]);
+
+  useEffect(() => {
+    const connections = Array.from(peerConnectionsRef.current.values());
+    if (connections.length === 0) {
+      return;
+    }
+    for (const connection of connections) {
+      void applyAudioBitrateToConnection(connection, voiceBitrateKbps);
+    }
+  }, [applyAudioBitrateToConnection, voiceBitrateKbps]);
 
   const loadAdminStats = useCallback(async () => {
     if (!auth.token || !auth.user?.isAdmin) {
@@ -1029,14 +1098,14 @@ export function ChatPage() {
       if (!activeVoiceChannelId) {
         return;
       }
-      setVoiceBusyChannelId(activeVoiceChannelId);
-      try {
-        ws.leaveVoice(activeVoiceChannelId);
-        setActiveVoiceChannelId(null);
-        setError(null);
-      } finally {
-        setVoiceBusyChannelId(null);
-      }
+      const leavingChannelId = activeVoiceChannelId;
+      setVoiceBusyChannelId(leavingChannelId);
+      ws.leaveVoice(leavingChannelId);
+      setError(null);
+      window.setTimeout(() => {
+        setVoiceBusyChannelId((current) => (current === leavingChannelId ? null : current));
+        setActiveVoiceChannelId((current) => (current === leavingChannelId ? null : current));
+      }, 1800);
     },
     [ws, activeVoiceChannelId],
   );
@@ -1087,6 +1156,7 @@ export function ChatPage() {
       return;
     }
     setActiveVoiceChannelId(null);
+    setVoiceBusyChannelId(null);
     teardownVoiceTransport();
   }, [ws.connected, teardownVoiceTransport]);
 
@@ -1283,6 +1353,15 @@ export function ChatPage() {
         : activeView === 'settings'
           ? 'Settings'
           : 'Admin Settings';
+  const isVoiceDisconnecting =
+    Boolean(activeVoiceChannelId) && voiceBusyChannelId === activeVoiceChannelId;
+  const voiceSessionStatus = !ws.connected
+    ? 'Disconnected'
+    : isVoiceDisconnecting
+      ? 'Disconnecting...'
+      : localAudioReady
+        ? 'Connected'
+        : 'Connecting...';
 
   return (
     <main className="chat-layout">
@@ -1333,6 +1412,29 @@ export function ChatPage() {
           ) : null}
         </header>
 
+        {activeVoiceChannel ? (
+          <div className="voice-session-bar" role="status" aria-live="polite">
+            <div className="voice-session-main">
+              <strong>Voice: ~{activeVoiceChannel.name}</strong>
+              <span className={`voice-session-state ${isVoiceDisconnecting ? 'danger' : ''}`}>
+                {voiceSessionStatus}
+              </span>
+              <small>
+                {voiceBitrateKbps} kbps • {activeRemoteAudioUsers.length} remote stream(s)
+              </small>
+            </div>
+            <button
+              className="ghost-btn danger small"
+              disabled={isVoiceDisconnecting}
+              onClick={() => {
+                void leaveVoiceChannel();
+              }}
+            >
+              {isVoiceDisconnecting ? 'Disconnecting...' : 'Disconnect'}
+            </button>
+          </div>
+        ) : null}
+
         {activeView === 'chat' ? (
           <>
             {activeChannel?.isVoice ? (
@@ -1341,7 +1443,9 @@ export function ChatPage() {
                 participants={activeVoiceParticipants}
                 currentUserId={auth.user.id}
                 localAudioReady={localAudioReady}
-                remoteAudioUsers={activeRemoteAudioUsers}
+                remoteAudioUsers={viewedRemoteAudioUsers}
+                bitrateKbps={voiceBitrateKbps}
+                onBitrateChange={setVoiceBitrateKbps}
                 joined={activeVoiceChannelId === activeChannel.id}
                 busy={voiceBusyChannelId === activeChannel.id}
                 wsConnected={ws.connected}
@@ -1427,6 +1531,24 @@ export function ChatPage() {
       </section>
 
       {activeView === 'chat' ? <UserSidebar users={onlineUsers} onUserClick={setSelectedUser} /> : null}
+
+      <div className="voice-audio-sinks" aria-hidden="true">
+        {activeRemoteAudioUsers.map((user) => (
+          <audio
+            key={user.userId}
+            autoPlay
+            playsInline
+            ref={(node) => {
+              if (!node) {
+                return;
+              }
+              if (node.srcObject !== user.stream) {
+                node.srcObject = user.stream;
+              }
+            }}
+          />
+        ))}
+      </div>
 
       <UserProfile user={selectedUser} onClose={() => setSelectedUser(null)} currentUser={auth.user} />
     </main>
