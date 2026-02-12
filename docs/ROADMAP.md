@@ -1,60 +1,91 @@
-# Product Roadmap
+# Product And Engineering Roadmap
 
-This roadmap is based on current code in `backend/` and `web/`.
+This roadmap reflects current repository behavior as of the latest documentation update.
 
 ## Implemented
 
-- Auth: register, login, logout, `GET /me`
-- JWT-protected API and websocket auth handshake
-- Channel list and admin-only channel creation
-- Message history with pagination (`before`, `limit`)
-- Realtime delivery (`message:new`) with frontend polling fallback
-- Optimistic sending UX with server reconciliation
-- Admin runtime controls:
-  - disable registrations
-  - read-only chat mode for non-admin users
-  - slow mode (0-60s) for non-admin users
-- Admin stats dashboard (process/system/database counters)
-- Role-based admin foundation with persisted user roles
-- Admin user management endpoints + frontend controls for role updates and account deletion
-- Friend system:
-  - send friend requests by username
-  - incoming/outgoing request queues
-  - accept, decline, cancel, remove friend
-  - realtime friend updates via websocket events
+### Core Platform
 
-## Priority Next Features
+- JWT auth: register, login, logout, session restore (`/me`).
+- Public channel and voice channel support.
+- Friend-gated direct message channels.
+- Message timeline with pagination (`before`, `limit`).
+- File uploads with attachment metadata and static serving.
+- Message edit, soft delete, and reaction toggling.
 
-1. Database migrations and environment profiles
-- Formalize migration strategy (`db push` -> versioned migrations).
-- Add explicit migration history and deployment-ready DB workflow.
-- Add separate local/dev/test database profiles.
+### Realtime
 
-2. Message quality improvements
-- Edit/delete own messages.
-- Delivery/read receipts states for optimistic + realtime flow.
-- Retry UX for failed optimistic messages.
+- WebSocket auth handshake.
+- Channel subscription events.
+- Realtime message create/update/delete/reaction events.
+- Friend request realtime notifications.
+- Presence updates.
+- Voice participant state updates and signaling relay.
 
-3. Channel moderation and governance
-- Channel archive/lock/delete endpoints.
-- Per-channel slow mode overrides.
-- Basic moderation audit log.
+### Voice
 
-4. Realtime robustness
-- Presence (`user:online`, `user:offline`).
-- Typing indicators.
-- Rejoin/replay strategy after reconnect to avoid missed events.
+- Voice channel join/leave.
+- WebRTC mesh signaling transport.
+- Local mute/deafen and speaking indicators.
+- Configurable channel voice bitrate (admin).
+- Local per-user playback controls (volume/mute).
 
-5. Test coverage expansion
-- Integration tests for auth + channel + message routes.
-- Websocket event flow tests.
-- Admin settings behavior tests (registration lock/read-only/slow mode).
+### Administration
 
-## Later Milestones
+- Runtime settings:
+- registrations on/off
+- chat read-only mode
+- slow mode
 
-- DMs and group DMs (friend graph is already in place)
-- Threads and replies
-- Reactions and mentions
-- File uploads
-- Push notifications
-- Voice/video
+- Server stats dashboard.
+- User role management and account deletion with role hierarchy controls.
+
+### Social
+
+- Friend request send/accept/decline/cancel.
+- Friend removal.
+- DM creation restricted to accepted friends.
+
+## Near-Term Priorities
+
+1. Data workflow hardening
+- Move fully to explicit migration workflow and remove provider/env ambiguity.
+- Add clear environment profiles for local/test/production.
+
+2. Realtime robustness
+- Add event replay/reconciliation strategy after reconnect.
+- Add delivery/read receipt semantics.
+- Add richer presence states (idle/dnd/offline intent).
+
+3. Moderation depth
+- Channel-level moderation controls (lock/archive/delete audit).
+- Expand user moderation actions (suspension UI, audit logs).
+
+4. Frontend maintainability
+- Split `ChatPage` orchestration into domain-specific hooks/modules.
+- Increase component-level and integration test coverage.
+
+## Mid-Term Priorities
+
+1. Messaging quality
+- Retry and resend UX for failed optimistic messages.
+- Advanced composer tooling (emoji picker, richer markdown controls).
+
+2. Voice quality
+- Better peer reconnection behavior.
+- Optional server-assisted media strategy for larger rooms.
+
+3. Security and operations
+- Harden upload validation and storage strategy.
+- Add deployment health checks and metrics instrumentation.
+
+## Long-Term Direction
+
+1. Multi-tenant/guild model
+- Introduce server/guild entity and scoped channels/roles.
+
+2. Advanced collaboration features
+- Threads, mentions expansion, pinned messages, and richer notifications.
+
+3. Enterprise and reliability
+- Formal observability, auditability, and operational SLO targets.
