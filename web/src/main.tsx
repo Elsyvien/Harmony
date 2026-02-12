@@ -26,7 +26,7 @@ function applyFavicon(href: string) {
 
   const appleTouchIcon = upsertHeadLink('apple-touch-icon');
   appleTouchIcon.type = 'image/png';
-  appleTouchIcon.sizes = '180x180';
+  appleTouchIcon.sizes = '64x64';
   appleTouchIcon.href = href;
 }
 
