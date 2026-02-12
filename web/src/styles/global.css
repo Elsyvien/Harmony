@@ -833,15 +833,11 @@ button {
 
 .settings-nav-item {
   display: block;
-  width: 100%;
-  text-align: left;
   color: var(--text-muted);
   padding: 7px 10px;
   border-radius: 6px;
   border: 1px solid transparent;
   font-size: 13px;
-  background: transparent;
-  cursor: pointer;
 }
 
 .settings-nav-item:hover {
@@ -849,12 +845,6 @@ button {
   text-decoration: none;
   background-color: rgba(63, 68, 84, 0.35);
   border-color: rgba(255, 255, 255, 0.05);
-}
-
-.settings-nav-item.active {
-  color: var(--text-header);
-  background-color: rgba(88, 101, 242, 0.18);
-  border-color: rgba(88, 101, 242, 0.45);
 }
 
 .settings-content {
@@ -1410,6 +1400,7 @@ body.theme-light .role-pill {
 
 .toggle-row input[type='checkbox'] {
   margin-top: 3px;
+  color: rgba(0, 0, 0, 0.25);
 }
 
 .toggle-row span {
@@ -2007,7 +1998,7 @@ body.font-scale-lg {
 .message-context-menu {
   position: fixed;
   z-index: 52;
-  min-width: 240px;
+  min-width: 210px;
   border: 1px solid var(--panel-border);
   border-radius: 10px;
   background-color: #15171c;
@@ -2015,30 +2006,6 @@ body.font-scale-lg {
   padding: 6px;
   display: grid;
   gap: 4px;
-}
-
-.message-context-reactions {
-  display: grid;
-  grid-template-columns: repeat(6, minmax(0, 1fr));
-  gap: 4px;
-  margin-bottom: 2px;
-  padding-bottom: 6px;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
-}
-
-.reaction-menu-btn {
-  border: 1px solid var(--panel-border);
-  border-radius: 7px;
-  background: rgba(255, 255, 255, 0.03);
-  color: var(--text-normal);
-  font-size: 16px;
-  line-height: 1;
-  height: 34px;
-}
-
-.reaction-menu-btn:hover:not(:disabled) {
-  border-color: rgba(88, 101, 242, 0.6);
-  background-color: rgba(88, 101, 242, 0.16);
 }
 
 .message-context-menu button {
@@ -2057,15 +2024,6 @@ body.font-scale-lg {
   border-color: var(--panel-border);
   background-color: rgba(88, 101, 242, 0.14);
   color: var(--text-header);
-}
-
-.message-context-menu button.danger {
-  color: #ffb8bb;
-}
-
-.message-context-menu button.danger:hover:not(:disabled) {
-  border-color: rgba(237, 66, 69, 0.5);
-  background-color: rgba(237, 66, 69, 0.16);
 }
 
 .message-context-menu button:disabled {
@@ -2662,4 +2620,44 @@ body.font-scale-lg {
   .delete-confirm-row {
     grid-template-columns: 1fr;
   }
+}
+
+/* Animated Checkbox */
+.checkbox-animated {
+  appearance: none;
+  width: 20px;
+  height: 20px;
+  border: 2px solid var(--panel-border);
+  border-radius: 6px;
+  background-color: var(--bg-darkest);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.2s ease;
+  position: relative;
+}
+
+.checkbox-animated:hover {
+  border-color: var(--accent);
+  background-color: rgba(88, 101, 242, 0.08);
+}
+
+.checkbox-animated:checked {
+  background: linear-gradient(135deg, var(--accent), #7289da);
+  border-color: var(--accent);
+  animation: scaleUp 0.3s ease-out;
+}
+
+.checkbox-animated:checked::after {
+  content: "✓";
+  color: white;
+  font-size: 12px;
+  font-weight: 700;
+  display: block;
+}
+
+.checkbox-animated:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
 }
