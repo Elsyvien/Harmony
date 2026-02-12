@@ -24,6 +24,9 @@ interface VoiceChannelPanelProps {
     position: { x: number; y: number },
   ) => void;
   getParticipantAudioState?: (userId: string) => { volume: number; muted: boolean } | null;
+  localScreenShareStream: MediaStream | null;
+  remoteScreenShares: Record<string, MediaStream>;
+  onToggleScreenShare: () => void;
 }
 
 export function VoiceChannelPanel(props: VoiceChannelPanelProps) {
@@ -63,6 +66,16 @@ export function VoiceChannelPanel(props: VoiceChannelPanelProps) {
           >
             {props.busy ? 'Working...' : props.joined ? 'Leave Voice' : 'Join Voice'}
           </button>
+          {props.joined ? (
+            <button
+              className={props.localScreenShareStream ? 'ghost-btn danger small' : 'ghost-btn small'}
+              onClick={props.onToggleScreenShare}
+              disabled={props.busy || !props.wsConnected}
+              title="Share your screen"
+            >
+              {props.localScreenShareStream ? 'Stop Sharing' : 'Share Screen'}
+            </button>
+          ) : null}
         </div>
       </header>
 
@@ -105,6 +118,47 @@ export function VoiceChannelPanel(props: VoiceChannelPanelProps) {
         </select>
         {props.qualityBusy ? <small>Saving...</small> : null}
       </div>
+
+      {(props.localScreenShareStream || Object.keys(props.remoteScreenShares).length > 0) ? (
+        <div className="voice-screen-shares">
+          {props.localScreenShareStream ? (
+            <div className="voice-screen-share-item">
+              <video
+                autoPlay
+                playsInline
+                muted
+                ref={(node) => {
+                  if (node && node.srcObject !== props.localScreenShareStream) {
+                    node.srcObject = props.localScreenShareStream;
+                  }
+                }}
+              />
+              <div className="voice-screen-share-label">You are sharing</div>
+            </div>
+          ) : null}
+          {Object.entries(props.remoteScreenShares).map(([userId, stream]) => {
+            const participant = props.participants.find((p) => p.userId === userId);
+            const name = participant?.username ?? 'Unknown';
+            return (
+              <div key={userId} className="voice-screen-share-item">
+                <video
+                  autoPlay
+                  playsInline
+                  // Muted to avoid echo/feedback, since audio is handled by the separate voice connection.
+                  // If screen-share audio is needed, it should be mixed or handled explicitly elsewhere.
+                  muted
+                  ref={(node) => {
+                    if (node && node.srcObject !== stream) {
+                      node.srcObject = stream;
+                    }
+                  }}
+                />
+                <div className="voice-screen-share-label">{name}'s Screen</div>
+              </div>
+            );
+          })}
+        </div>
+      ) : null}
 
       <div className="voice-participant-list">
         {props.participants.length === 0 ? <p className="muted">No one in this voice channel yet.</p> : null}
