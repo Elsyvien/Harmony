@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import type { Message } from '../types/api';
+import type { Channel, Message } from '../types/api';
 
 const WS_URL = import.meta.env.VITE_WS_URL ?? 'ws://localhost:4000/ws';
 
@@ -8,11 +8,20 @@ interface ServerEvent {
   payload: unknown;
 }
 
+export interface DmNewEventPayload {
+  channel: Channel;
+  from: {
+    id: string;
+    username: string;
+  };
+}
+
 export function useChatSocket(params: {
   token: string | null;
   activeChannelId: string | null;
   onMessageNew: (message: Message) => void;
   onFriendEvent?: () => void;
+  onDmEvent?: (payload: DmNewEventPayload) => void;
 }) {
   const socketRef = useRef<WebSocket | null>(null);
   const reconnectTimerRef = useRef<number | null>(null);
@@ -20,10 +29,12 @@ export function useChatSocket(params: {
   const activeChannelIdRef = useRef(params.activeChannelId);
   const onMessageNewRef = useRef(params.onMessageNew);
   const onFriendEventRef = useRef(params.onFriendEvent);
+  const onDmEventRef = useRef(params.onDmEvent);
   const [connected, setConnected] = useState(false);
 
   onMessageNewRef.current = params.onMessageNew;
   onFriendEventRef.current = params.onFriendEvent;
+  onDmEventRef.current = params.onDmEvent;
   activeChannelIdRef.current = params.activeChannelId;
 
   const sendEvent = useCallback((type: string, payload: unknown) => {
@@ -72,6 +83,14 @@ export function useChatSocket(params: {
 
           if (parsed.type === 'friend:request:new' || parsed.type === 'friend:request:updated') {
             onFriendEventRef.current?.();
+            return;
+          }
+
+          if (parsed.type === 'dm:new') {
+            const payload = parsed.payload as DmNewEventPayload | undefined;
+            if (payload?.channel?.id && payload.from?.id) {
+              onDmEventRef.current?.(payload);
+            }
           }
         } catch {
           // Ignore malformed event payloads from the server.

@@ -100,6 +100,14 @@ function reconcileIncomingMessage(existing: Message[], incoming: Message) {
   return mergeMessages(existing, [incoming]);
 }
 
+function upsertChannel(existing: Channel[], incoming: Channel) {
+  const next = existing.some((channel) => channel.id === incoming.id)
+    ? existing.map((channel) => (channel.id === incoming.id ? incoming : channel))
+    : [...existing, incoming];
+
+  return next.sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
+}
+
 export function ChatPage() {
   const auth = useAuth();
   const { preferences, updatePreferences, resetPreferences } = useUserPreferences();
@@ -110,6 +118,7 @@ export function ChatPage() {
   const [messageQuery, setMessageQuery] = useState('');
   const [loadingMessages, setLoadingMessages] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
   const [activeView, setActiveView] = useState<MainView>('chat');
 
   const [adminStats, setAdminStats] = useState<AdminStats | null>(null);
@@ -132,6 +141,7 @@ export function ChatPage() {
   const [friendsError, setFriendsError] = useState<string | null>(null);
   const [friendActionBusyId, setFriendActionBusyId] = useState<string | null>(null);
   const [submittingFriendRequest, setSubmittingFriendRequest] = useState(false);
+  const [openingDmUserId, setOpeningDmUserId] = useState<string | null>(null);
 
   const [selectedUser, setSelectedUser] = useState<{ id: string; username: string } | null>(null);
   const [hiddenUnreadCount, setHiddenUnreadCount] = useState(0);
@@ -281,6 +291,13 @@ export function ChatPage() {
     onFriendEvent: () => {
       void loadFriendData();
     },
+    onDmEvent: (payload) => {
+      setChannels((prev) => upsertChannel(prev, payload.channel));
+      setNotice(`New DM from @${payload.from.username}`);
+      if (document.hidden) {
+        setHiddenUnreadCount((count) => count + 1);
+      }
+    },
   });
 
   useEffect(() => {
@@ -314,6 +331,18 @@ export function ChatPage() {
   }, [hiddenUnreadCount]);
 
   useEffect(() => {
+    if (!notice) {
+      return;
+    }
+    const timeout = window.setTimeout(() => {
+      setNotice(null);
+    }, 5000);
+    return () => {
+      window.clearTimeout(timeout);
+    };
+  }, [notice]);
+
+  useEffect(() => {
     if (!auth.token) {
       return;
     }
@@ -325,6 +354,7 @@ export function ChatPage() {
           return;
         }
         setChannels(response.channels);
+        setError(null);
         setActiveChannelId((current) => current ?? response.channels[0]?.id ?? null);
       } catch (err) {
         if (!disposed) {
@@ -549,6 +579,27 @@ export function ChatPage() {
     [auth.token, loadFriendData],
   );
 
+  const openDirectMessage = useCallback(
+    async (targetUserId: string) => {
+      if (!auth.token) {
+        return;
+      }
+      setOpeningDmUserId(targetUserId);
+      try {
+        const response = await chatApi.createDirectChannel(auth.token, targetUserId);
+        setChannels((prev) => upsertChannel(prev, response.channel));
+        setActiveChannelId(response.channel.id);
+        setActiveView('chat');
+        setFriendsError(null);
+      } catch (err) {
+        setFriendsError(getErrorMessage(err, 'Could not open DM'));
+      } finally {
+        setOpeningDmUserId(null);
+      }
+    },
+    [auth.token],
+  );
+
   useEffect(() => {
     if (activeView !== 'admin' || !auth.user?.isAdmin) {
       return;
@@ -706,7 +757,9 @@ export function ChatPage() {
   const panelTitle =
     activeView === 'chat'
       ? activeChannel
-        ? `# ${activeChannel.name}`
+        ? activeChannel.isDirect
+          ? `@ ${activeChannel.directUser?.username ?? 'Direct Message'}`
+          : `# ${activeChannel.name}`
         : 'Select channel'
       : activeView === 'friends'
         ? 'Friends'
@@ -737,6 +790,7 @@ export function ChatPage() {
           <div className="panel-header-main">
             <h1>{panelTitle}</h1>
             {error ? <p className="error-banner">{error}</p> : null}
+            {!error && notice ? <p className="info-banner">{notice}</p> : null}
           </div>
           {activeView === 'chat' ? (
             <div className="panel-tools">
@@ -790,6 +844,8 @@ export function ChatPage() {
             onDecline={declineFriendRequest}
             onCancel={cancelFriendRequest}
             onRemove={removeFriend}
+            onStartDm={openDirectMessage}
+            openingDmUserId={openingDmUserId}
           />
         ) : null}
 

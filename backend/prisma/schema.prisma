@@ -3,7 +3,7 @@ generator client {
 }
 
 datasource db {
-  provider = "postgresql"
+  provider = "sqlite"
   url      = env("DATABASE_URL")
 }
 
@@ -19,6 +19,11 @@ enum FriendshipStatus {
   ACCEPTED
 }
 
+enum ChannelType {
+  PUBLIC
+  DIRECT
+}
+
 model User {
   id             String    @id @default(uuid())
   username       String    @unique
@@ -31,6 +36,7 @@ model User {
   createdAt      DateTime  @default(now())
 
   messages       Message[]
+  channelMembers ChannelMember[]
   friendshipsA   Friendship[] @relation("UserA")
   friendshipsB   Friendship[] @relation("UserB")
   friendRequests Friendship[] @relation("RequestedBy")
@@ -39,9 +45,26 @@ model User {
 model Channel {
   id        String    @id @default(uuid())
   name      String    @unique
+  type      ChannelType @default(PUBLIC)
+  dmKey     String?   @unique
   createdAt DateTime  @default(now())
 
+  members   ChannelMember[]
   messages  Message[]
+}
+
+model ChannelMember {
+  id        String   @id @default(uuid())
+  createdAt DateTime @default(now())
+
+  channelId String
+  channel   Channel  @relation(fields: [channelId], references: [id], onDelete: Cascade)
+
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([channelId, userId])
+  @@index([userId])
 }
 
 model Message {

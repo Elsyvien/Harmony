@@ -59,7 +59,7 @@ export async function buildApp() {
   const adminSettingsService = new AdminSettingsService();
 
   const authService = new AuthService(userRepo, env.BCRYPT_SALT_ROUNDS, adminSettingsService);
-  const channelService = new ChannelService(channelRepo);
+  const channelService = new ChannelService(channelRepo, userRepo, friendshipRepo);
   const messageService = new MessageService(
     messageRepo,
     channelService,

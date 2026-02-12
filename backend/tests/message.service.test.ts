@@ -4,7 +4,7 @@ import type {
   MessageRepository,
   MessageWithAuthor,
 } from '../src/repositories/message.repository.js';
-import type { ChannelService } from '../src/services/channel.service.js';
+import type { ChannelAccessService } from '../src/services/channel.service.js';
 import { MessageService } from '../src/services/message.service.js';
 import { AppError } from '../src/utils/app-error.js';
 
@@ -37,14 +37,14 @@ class InMemoryMessageRepo implements MessageRepository {
 
 describe('MessageService', () => {
   let repo: InMemoryMessageRepo;
-  let channelService: ChannelService;
+  let channelService: ChannelAccessService;
   let service: MessageService;
 
   beforeEach(() => {
     repo = new InMemoryMessageRepo();
     channelService = {
-      ensureChannelExists: async (channelId: string) => channelId === 'known-channel',
-    } as ChannelService;
+      ensureChannelAccess: async (channelId: string) => channelId === 'known-channel',
+    };
     service = new MessageService(repo, channelService, 2000);
   });
 

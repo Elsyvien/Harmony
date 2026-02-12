@@ -2,12 +2,13 @@ import type {
   MessageRepository,
   MessageWithAuthor,
 } from '../repositories/message.repository.js';
-import type { ChannelService } from './channel.service.js';
+import type { ChannelAccessService } from './channel.service.js';
 import type { AdminSettingsService } from './admin-settings.service.js';
 import { AppError } from '../utils/app-error.js';
 
 export interface ListMessagesInput {
   channelId: string;
+  userId: string;
   before?: Date;
   limit: number;
 }
@@ -22,14 +23,14 @@ export interface CreateMessageInput {
 export class MessageService {
   constructor(
     private readonly messageRepo: MessageRepository,
-    private readonly channelService: ChannelService,
+    private readonly channelService: ChannelAccessService,
     private readonly maxLength: number,
     private readonly adminSettingsService?: AdminSettingsService,
   ) {}
 
   async listMessages(input: ListMessagesInput): Promise<MessageWithAuthor[]> {
-    const channelExists = await this.channelService.ensureChannelExists(input.channelId);
-    if (!channelExists) {
+    const canAccessChannel = await this.channelService.ensureChannelAccess(input.channelId, input.userId);
+    if (!canAccessChannel) {
       throw new AppError('CHANNEL_NOT_FOUND', 404, 'Channel not found');
     }
 
@@ -61,8 +62,8 @@ export class MessageService {
       }
     }
 
-    const channelExists = await this.channelService.ensureChannelExists(input.channelId);
-    if (!channelExists) {
+    const canAccessChannel = await this.channelService.ensureChannelAccess(input.channelId, input.userId);
+    if (!canAccessChannel) {
       throw new AppError('CHANNEL_NOT_FOUND', 404, 'Channel not found');
     }
 

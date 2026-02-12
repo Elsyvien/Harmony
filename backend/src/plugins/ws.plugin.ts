@@ -1,4 +1,5 @@
 import websocket from '@fastify/websocket';
+import fp from 'fastify-plugin';
 import type { FastifyPluginAsync } from 'fastify';
 import type { ChannelService } from '../services/channel.service.js';
 import type { MessageService } from '../services/message.service.js';
@@ -25,7 +26,7 @@ interface ClientContext {
 
 const WS_OPEN_STATE = 1;
 
-export const wsPlugin: FastifyPluginAsync<WsPluginOptions> = async (fastify, options) => {
+const wsPluginImpl: FastifyPluginAsync<WsPluginOptions> = async (fastify, options) => {
   await fastify.register(websocket);
 
   const channelSubscribers = new Map<string, Set<ClientContext>>();
@@ -151,8 +152,11 @@ export const wsPlugin: FastifyPluginAsync<WsPluginOptions> = async (fastify, opt
             throw new AppError('INVALID_CHANNEL', 400, 'Missing channelId');
           }
 
-          const exists = await options.channelService.ensureChannelExists(payload.channelId);
-          if (!exists) {
+          const canAccessChannel = await options.channelService.ensureChannelAccess(
+            payload.channelId,
+            ctx.userId,
+          );
+          if (!canAccessChannel) {
             throw new AppError('CHANNEL_NOT_FOUND', 404, 'Channel not found');
           }
 
@@ -207,3 +211,7 @@ export const wsPlugin: FastifyPluginAsync<WsPluginOptions> = async (fastify, opt
     });
   });
 };
+
+export const wsPlugin = fp(wsPluginImpl, {
+  name: 'ws-plugin',
+});

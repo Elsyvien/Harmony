@@ -191,6 +191,17 @@ button {
   border-radius: var(--radius-sharp);
 }
 
+.info-banner {
+  background: rgba(35, 165, 89, 0.1);
+  border: 1px solid rgba(35, 165, 89, 0.55);
+  color: var(--text-header);
+  font-size: 13px;
+  padding: 8px;
+  margin-bottom: 16px;
+  text-align: center;
+  border-radius: var(--radius-sharp);
+}
+
 /* Chat Layout */
 .chat-layout {
   display: grid;
@@ -314,6 +325,14 @@ button {
   text-align: right;
 }
 
+.channel-group-label {
+  margin: 12px 8px 6px;
+  color: var(--text-muted);
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+
 .sidebar-menu {
   padding: 8px;
   border-top: 1px solid var(--panel-border);
@@ -367,11 +386,6 @@ button {
 .channel-item.active {
   background-color: #3f4147;
   color: var(--text-header);
-}
-.channel-item.active::before {
-  content: "#";
-  margin-right: 6px;
-  color: var(--text-muted);
 }
 
 /* User Area Footer */

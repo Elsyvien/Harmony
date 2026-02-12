@@ -18,6 +18,11 @@ export interface Channel {
   id: string;
   name: string;
   createdAt: string;
+  isDirect: boolean;
+  directUser: {
+    id: string;
+    username: string;
+  } | null;
 }
 
 export interface Message {

@@ -7,6 +7,7 @@ import {
   channelIdParamsSchema,
   createChannelBodySchema,
   createMessageBodySchema,
+  directChannelParamsSchema,
   listMessagesQuerySchema,
 } from '../schemas/message.schema.js';
 import { AppError } from '../utils/app-error.js';
@@ -40,8 +41,8 @@ export const channelRoutes: FastifyPluginAsync<ChannelRoutesOptions> = async (fa
     {
       preHandler: [authPreHandler],
     },
-    async () => {
-      const channels = await options.channelService.listChannels();
+    async (request) => {
+      const channels = await options.channelService.listChannels(request.user.userId);
       return { channels };
     },
   );
@@ -65,6 +66,31 @@ export const channelRoutes: FastifyPluginAsync<ChannelRoutesOptions> = async (fa
     },
   );
 
+  fastify.post(
+    '/channels/direct/:userId',
+    {
+      preHandler: [authPreHandler],
+      config: {
+        rateLimit: { max: 30, timeWindow: 60_000 },
+      },
+    },
+    async (request) => {
+      const { userId } = directChannelParamsSchema.parse(request.params);
+      const opened = await options.channelService.openDirectChannel(request.user.userId, userId);
+      if (opened.isNew) {
+        const targetView = await options.channelService.openDirectChannel(userId, request.user.userId);
+        fastify.wsGateway.notifyUsers([userId], 'dm:new', {
+          channel: targetView.channel,
+          from: {
+            id: request.user.userId,
+            username: request.user.username,
+          },
+        });
+      }
+      return { channel: opened.channel };
+    },
+  );
+
   fastify.get(
     '/channels/:id/messages',
     {
@@ -77,6 +103,7 @@ export const channelRoutes: FastifyPluginAsync<ChannelRoutesOptions> = async (fa
 
       const messages = await options.messageService.listMessages({
         channelId,
+        userId: request.user.userId,
         before,
         limit: query.limit,
       });

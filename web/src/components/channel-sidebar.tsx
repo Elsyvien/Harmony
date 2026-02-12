@@ -23,9 +23,18 @@ export function ChannelSidebar(props: ChannelSidebarProps) {
     .split('')
     .reduce((sum, char) => sum + char.charCodeAt(0), 0) % 10000}`
     .padStart(4, '0');
-  const filteredChannels = props.channels.filter((channel) =>
-    channel.name.toLowerCase().includes(channelFilter.trim().toLowerCase()),
-  );
+  const query = channelFilter.trim().toLowerCase();
+  const filteredChannels = props.channels.filter((channel) => {
+    if (!query) {
+      return true;
+    }
+    const searchableLabel = channel.isDirect
+      ? (channel.directUser?.username ?? channel.name)
+      : channel.name;
+    return searchableLabel.toLowerCase().includes(query);
+  });
+  const directChannels = filteredChannels.filter((channel) => channel.isDirect);
+  const publicChannels = filteredChannels.filter((channel) => !channel.isDirect);
 
   return (
     <aside className="channel-sidebar">
@@ -107,7 +116,23 @@ export function ChannelSidebar(props: ChannelSidebarProps) {
           </small>
         </div>
 
-        {filteredChannels.map((channel) => (
+        {directChannels.length > 0 ? <p className="channel-group-label">Direct Messages</p> : null}
+        {directChannels.map((channel) => (
+          <button
+            key={channel.id}
+            className={
+              channel.id === props.activeChannelId
+                ? 'channel-item direct-channel-item active'
+                : 'channel-item direct-channel-item'
+            }
+            onClick={() => props.onSelect(channel.id)}
+          >
+            @ {channel.directUser?.username ?? channel.name}
+          </button>
+        ))}
+
+        {publicChannels.length > 0 ? <p className="channel-group-label">Channels</p> : null}
+        {publicChannels.map((channel) => (
           <button
             key={channel.id}
             className={channel.id === props.activeChannelId ? 'channel-item active' : 'channel-item'}

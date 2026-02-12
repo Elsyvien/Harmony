@@ -60,6 +60,16 @@ export const chatApi = {
     );
   },
 
+  createDirectChannel(token: string, userId: string) {
+    return apiRequest<{ channel: Channel }>(
+      `/channels/direct/${userId}`,
+      {
+        method: 'POST',
+      },
+      token,
+    );
+  },
+
   adminStats(token: string) {
     return apiRequest<{ stats: AdminStats }>('/admin/stats', {}, token);
   },

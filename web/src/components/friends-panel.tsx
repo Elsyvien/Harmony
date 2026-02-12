@@ -17,6 +17,8 @@ interface FriendsPanelProps {
   onDecline: (requestId: string) => Promise<void>;
   onCancel: (requestId: string) => Promise<void>;
   onRemove: (friendshipId: string) => Promise<void>;
+  onStartDm: (userId: string) => Promise<void>;
+  openingDmUserId: string | null;
 }
 
 function formatTime(value: string) {
@@ -135,6 +137,7 @@ export function FriendsPanel(props: FriendsPanelProps) {
         <div className="friends-list">
           {filteredFriends.map((friend) => {
             const busy = props.actionBusyId === friend.id;
+            const openingDm = props.openingDmUserId === friend.user.id;
             return (
               <article key={friend.id} className="friend-card">
                 <div>
@@ -142,8 +145,12 @@ export function FriendsPanel(props: FriendsPanelProps) {
                   <small>Friends since {formatTime(friend.friendsSince)}</small>
                 </div>
                 <div className="friend-card-actions">
-                  <button className="ghost-btn" disabled title="DM feature coming soon">
-                    Start DM (soon)
+                  <button
+                    className="ghost-btn"
+                    disabled={openingDm}
+                    onClick={() => void props.onStartDm(friend.user.id)}
+                  >
+                    {openingDm ? 'Opening...' : 'Start DM'}
                   </button>
                   <button
                     className="danger-btn"

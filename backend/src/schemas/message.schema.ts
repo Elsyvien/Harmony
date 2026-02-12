@@ -24,3 +24,7 @@ export const createChannelBodySchema = z.object({
     .max(64)
     .regex(/^[a-zA-Z0-9_-]+$/, 'Channel name may only contain letters, numbers, - and _'),
 });
+
+export const directChannelParamsSchema = z.object({
+  userId: z.string().uuid(),
+});
