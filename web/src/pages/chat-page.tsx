@@ -306,6 +306,10 @@ export function ChatPage() {
   const pendingTimeoutsRef = useRef(new Map<string, number>());
   const muteStateBeforeDeafenRef = useRef<boolean | null>(null);
   const localVoiceStreamRef = useRef<MediaStream | null>(null);
+  const localVoiceProcessedStreamRef = useRef<MediaStream | null>(null);
+  const localVoiceGainNodeRef = useRef<GainNode | null>(null);
+  const localVoiceGainContextRef = useRef<AudioContext | null>(null);
+  const voiceInputGainRef = useRef(preferences.voiceInputGain);
   const localScreenStreamRef = useRef<MediaStream | null>(null);
   const localAnalyserRef = useRef<AnalyserNode | null>(null);
   const localAnalyserContextRef = useRef<AudioContext | null>(null);
@@ -885,6 +889,15 @@ export function ChatPage() {
       localVoiceStreamRef.current = null;
       localVoiceInputDeviceIdRef.current = null;
     }
+    if (localVoiceGainNodeRef.current) {
+      localVoiceGainNodeRef.current.disconnect();
+      localVoiceGainNodeRef.current = null;
+    }
+    if (localVoiceGainContextRef.current) {
+      void localVoiceGainContextRef.current.close();
+      localVoiceGainContextRef.current = null;
+    }
+    localVoiceProcessedStreamRef.current = null;
     if (localScreenStreamRef.current) {
       for (const track of localScreenStreamRef.current.getTracks()) {
         track.stop();
@@ -1036,7 +1049,7 @@ export function ChatPage() {
       localVoiceInputDeviceIdRef.current === preferredDeviceId
     ) {
       applyLocalVoiceTrackState(localVoiceStreamRef.current);
-      return localVoiceStreamRef.current;
+      return localVoiceProcessedStreamRef.current ?? localVoiceStreamRef.current;
     }
 
     const audioConstraints: MediaTrackConstraints = {
@@ -1073,6 +1086,43 @@ export function ChatPage() {
       throw new Error('No microphone track available');
     }
 
+    // Clean up previous gain pipeline
+    if (localVoiceGainNodeRef.current) {
+      localVoiceGainNodeRef.current.disconnect();
+      localVoiceGainNodeRef.current = null;
+    }
+    if (localVoiceGainContextRef.current) {
+      void localVoiceGainContextRef.current.close();
+      localVoiceGainContextRef.current = null;
+    }
+    localVoiceProcessedStreamRef.current = null;
+
+    // Build gain pipeline: raw mic → gain → destination (processed stream)
+    let processedStream = stream;
+    try {
+      const AudioContextClass =
+        window.AudioContext ||
+        (window as typeof window & { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
+      if (AudioContextClass) {
+        const gainCtx = new AudioContextClass();
+        const source = gainCtx.createMediaStreamSource(stream);
+        const gainNode = gainCtx.createGain();
+        gainNode.gain.value = voiceInputGainRef.current / 100;
+        const destination = gainCtx.createMediaStreamDestination();
+        source.connect(gainNode);
+        gainNode.connect(destination);
+        localVoiceGainContextRef.current = gainCtx;
+        localVoiceGainNodeRef.current = gainNode;
+        localVoiceProcessedStreamRef.current = destination.stream;
+        processedStream = destination.stream;
+      }
+    } catch {
+      // Fall back to raw stream if gain pipeline fails
+      processedStream = stream;
+    }
+
+    const processedTrack = processedStream.getAudioTracks()[0] ?? nextTrack;
+
     const previousStream = localVoiceStreamRef.current;
     localVoiceStreamRef.current = stream;
     localVoiceInputDeviceIdRef.current = resolvedDeviceId;
@@ -1084,7 +1134,7 @@ export function ChatPage() {
             continue;
           }
           try {
-            await sender.replaceTrack(nextTrack);
+            await sender.replaceTrack(processedTrack);
           } catch {
             // Ignore replacement errors; next reconnection cycle can recover.
           }
@@ -1101,7 +1151,7 @@ export function ChatPage() {
     void enumerateAudioInputDevices();
 
     setLocalAudioReady(true);
-    return stream;
+    return processedStream;
   }, [
     applyLocalVoiceTrackState,
     enumerateAudioInputDevices,
@@ -1250,7 +1300,7 @@ export function ChatPage() {
           remoteVideoStreamByPeerRef.current.set(peerUserId, streamFromTrack);
           const setRemoteVideoVisible = () => {
             const currentSource = remoteVideoSourceByPeerRef.current.get(peerUserId) ?? 'screen';
-            if (currentSource !== 'screen') {
+            if (currentSource === null) {
               return;
             }
             setRemoteScreenShares((prev) => ({
@@ -1374,7 +1424,7 @@ export function ChatPage() {
       const signal = payload.data;
       if (signal.kind === 'video-source') {
         remoteVideoSourceByPeerRef.current.set(payload.fromUserId, signal.source);
-        if (signal.source === 'screen') {
+        if (signal.source === 'screen' || signal.source === 'camera') {
           const stream = remoteVideoStreamByPeerRef.current.get(payload.fromUserId);
           if (stream) {
             setRemoteScreenShares((prev) => ({
@@ -1677,6 +1727,14 @@ export function ChatPage() {
   useEffect(() => {
     activeVoiceChannelIdRef.current = activeVoiceChannelId;
   }, [activeVoiceChannelId]);
+
+  // Live-update the input gain node when the preference changes
+  useEffect(() => {
+    voiceInputGainRef.current = preferences.voiceInputGain;
+    if (localVoiceGainNodeRef.current) {
+      localVoiceGainNodeRef.current.gain.value = preferences.voiceInputGain / 100;
+    }
+  }, [preferences.voiceInputGain]);
 
   useEffect(() => {
     if (activeChannel?.isVoice) {
@@ -2113,10 +2171,7 @@ export function ChatPage() {
       if (!renegotiatePeers || !activeVoiceChannelIdRef.current) {
         return;
       }
-      for (const peerUserId of pendingVideoRenegotiationByPeerRef.current) {
-        if (!peerConnectionsRef.current.has(peerUserId)) {
-          continue;
-        }
+      for (const peerUserId of peerConnectionsRef.current.keys()) {
         void createOfferForPeer(peerUserId, activeVoiceChannelIdRef.current);
       }
     },

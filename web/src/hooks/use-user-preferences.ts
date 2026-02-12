@@ -33,6 +33,10 @@ function parsePreferences(raw: string | null): UserPreferences {
         typeof parsed.voiceInputSensitivity === 'number' && Number.isFinite(parsed.voiceInputSensitivity)
           ? Math.min(0.12, Math.max(0.005, parsed.voiceInputSensitivity))
           : DEFAULT_USER_PREFERENCES.voiceInputSensitivity,
+      voiceInputGain:
+        typeof parsed.voiceInputGain === 'number' && Number.isFinite(parsed.voiceInputGain)
+          ? Math.min(200, Math.max(0, Math.round(parsed.voiceInputGain)))
+          : DEFAULT_USER_PREFERENCES.voiceInputGain,
       voiceOutputVolume:
         typeof parsed.voiceOutputVolume === 'number' && Number.isFinite(parsed.voiceOutputVolume)
           ? Math.min(100, Math.max(0, Math.round(parsed.voiceOutputVolume)))

@@ -554,6 +554,27 @@ export function SettingsPanel(props: SettingsPanelProps) {
 
             <div className="settings-row settings-row-stacked">
               <span className="settings-row-copy">
+                <strong>Input gain</strong>
+                <small>Boost or reduce your microphone volume before sending.</small>
+              </span>
+              <div className="settings-range-wrap">
+                <input
+                  className="settings-range"
+                  type="range"
+                  min={0}
+                  max={200}
+                  step={5}
+                  value={props.preferences.voiceInputGain}
+                  onChange={(event) =>
+                    props.onUpdatePreferences({ voiceInputGain: Number(event.target.value) })
+                  }
+                />
+                <span className="settings-value-pill">{props.preferences.voiceInputGain}%</span>
+              </div>
+            </div>
+
+            <div className="settings-row settings-row-stacked">
+              <span className="settings-row-copy">
                 <strong>Output volume</strong>
                 <small>Applies to all incoming voice streams.</small>
               </span>

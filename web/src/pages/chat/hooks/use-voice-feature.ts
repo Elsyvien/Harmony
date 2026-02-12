@@ -107,7 +107,7 @@ export function useVoiceFeature({
       return byChannel;
     }
     const liveUserIds = new Set<string>(Object.keys(remoteScreenShares));
-    if (localStreamSource === 'screen' && localScreenShareStream && authUserId) {
+    if (localStreamSource !== null && localScreenShareStream && authUserId) {
       liveUserIds.add(authUserId);
     }
     byChannel[activeVoiceChannelId] = [...liveUserIds];

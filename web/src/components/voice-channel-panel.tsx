@@ -259,7 +259,7 @@ export function VoiceChannelPanel(props: VoiceChannelPanelProps) {
   };
 
   const hasScreenShares =
-    (props.localStreamSource === 'screen' && props.localScreenShareStream !== null) ||
+    (props.localStreamSource !== null && props.localScreenShareStream !== null) ||
     Object.keys(props.remoteScreenShares).length > 0;
   const canEditBitrates = props.canEditChannelBitrate && !props.qualityBusy;
   const localShareTitle =
@@ -387,10 +387,10 @@ export function VoiceChannelPanel(props: VoiceChannelPanelProps) {
         </div>
       )}
 
-      {/* Screen Share Layout */}
+      {/* Screen & Camera Share Layout */}
       {hasScreenShares && (
         <div className={`voice-screen-shares ${maximizedStreamId ? 'has-maximized' : 'grid-layout'}`}>
-          {props.localStreamSource === 'screen' && props.localScreenShareStream ? (
+          {props.localStreamSource !== null && props.localScreenShareStream ? (
             <ScreenShareItem
               stream={props.localScreenShareStream}
               label={localShareTitle}

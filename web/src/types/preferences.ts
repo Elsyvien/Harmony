@@ -11,6 +11,7 @@ export interface UserPreferences {
   enterToSend: boolean;
   playMessageSound: boolean;
   voiceInputSensitivity: number;
+  voiceInputGain: number;
   voiceOutputVolume: number;
   showVoiceActivity: boolean;
   autoMuteOnJoin: boolean;
@@ -27,6 +28,7 @@ export const DEFAULT_USER_PREFERENCES: UserPreferences = {
   enterToSend: true,
   playMessageSound: false,
   voiceInputSensitivity: 0.01,
+  voiceInputGain: 100,
   voiceOutputVolume: 100,
   showVoiceActivity: true,
   autoMuteOnJoin: false,
