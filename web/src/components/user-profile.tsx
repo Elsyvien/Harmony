@@ -1,5 +1,5 @@
 interface UserProfileProps {
-  user: { id: string; username: string; email?: string; createdAt?: string } | null;
+  user: { id: string; username: string; email?: string; createdAt?: string; avatarUrl?: string } | null;
   onClose: () => void;
   currentUser?: { id: string };
   friendRequestState?: 'self' | 'none' | 'friends' | 'outgoing' | 'incoming';
@@ -51,22 +51,26 @@ export function UserProfile({
       <div className="user-profile-modal" onClick={(e) => e.stopPropagation()}>
         <header className="profile-banner"></header>
         <div className="profile-avatar">
-          {user.username.slice(0, 1).toUpperCase()}
+          {user.avatarUrl ? (
+            <img src={user.avatarUrl} alt={user.username} style={{ width: '100%', height: '100%', borderRadius: '50%', objectFit: 'cover', border: '4px solid var(--modal-bg)' }} />
+          ) : (
+            user.username.slice(0, 1).toUpperCase()
+          )}
         </div>
         <div className="profile-body">
           <div className="profile-header">
             <h3>{user.username}</h3>
             <span className="profile-tag">#{user.id.slice(0, 4)}</span>
           </div>
-          
+
           <div className="profile-section">
             <label>MEMBER SINCE</label>
             <p>{user.createdAt ? new Date(user.createdAt).toLocaleDateString() : 'Unknown'}</p>
           </div>
 
           <div className="profile-section">
-             <label>ROLES</label>
-             <div className="role-pill">Member</div>
+            <label>ROLES</label>
+            <div className="role-pill">Member</div>
           </div>
 
           {!isSelf ? (
@@ -89,12 +93,12 @@ export function UserProfile({
               {friendRequestError ? <p className="error-banner compact">{friendRequestError}</p> : null}
             </div>
           ) : null}
-          
+
           {currentUser && currentUser.id === user.id && (
-             <div className="profile-section">
-               <label>NOTE</label>
-               <textarea placeholder="Click to add a note" className="note-input" rows={2} />
-             </div>
+            <div className="profile-section">
+              <label>NOTE</label>
+              <textarea placeholder="Click to add a note" className="note-input" rows={2} />
+            </div>
           )}
         </div>
       </div>

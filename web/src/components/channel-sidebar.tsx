@@ -1,6 +1,7 @@
 import type { Channel } from '../types/api';
 import { useState } from 'react';
 import harmonyLogo from '../../ressources/logos/logo.png';
+import { resolveMediaUrl } from '../utils/media-url';
 
 interface ChannelSidebarProps {
   channels: Channel[];
@@ -53,6 +54,7 @@ export function ChannelSidebar(props: ChannelSidebarProps) {
   const textChannels = filteredChannels.filter((channel) => !channel.isDirect && !channel.isVoice);
   const voiceChannels = filteredChannels.filter((channel) => !channel.isDirect && channel.isVoice);
   const hasUnread = (channelId: string) => (props.unreadChannelCounts[channelId] ?? 0) > 0;
+  const avatarUrl = resolveMediaUrl(props.avatarUrl);
 
   return (
     <aside className="channel-sidebar">
@@ -186,7 +188,7 @@ export function ChannelSidebar(props: ChannelSidebarProps) {
                       return;
                     }
                     const confirmed = window.confirm(
-                      `Delete #${channel.name}? This will remove all channel messages.`,
+                      `Delete #${channel.name}? This will remove all channel messages.`
                     );
                     if (!confirmed) {
                       return;
@@ -246,7 +248,7 @@ export function ChannelSidebar(props: ChannelSidebarProps) {
                       return;
                     }
                     const confirmed = window.confirm(
-                      `Delete ~${channel.name}? This will remove the voice channel.`,
+                      `Delete ~${channel.name}? This will remove the voice channel.`
                     );
                     if (!confirmed) {
                       return;
@@ -267,7 +269,11 @@ export function ChannelSidebar(props: ChannelSidebarProps) {
         <div className="user-panel">
           <div className="user-info">
             <div className="user-avatar-small">
-              {props.username.slice(0, 1).toUpperCase()}
+              {avatarUrl ? (
+                <img src={avatarUrl} alt={props.username} />
+              ) : (
+                props.username.slice(0, 1).toUpperCase()
+              )}
               <div className="status-dot online"></div>
             </div>
             <div className="name-tag">

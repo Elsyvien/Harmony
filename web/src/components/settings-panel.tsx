@@ -1,6 +1,8 @@
 import { useMemo, useRef, useState } from 'react';
 import type { User } from '../types/api';
 import type { UserPreferences } from '../types/preferences';
+import { chatApi } from '../api/chat-api';
+import { useAuth } from '../store/auth-store';
 import { DropdownSelect } from './dropdown-select';
 import { smoothScrollTo } from '../utils/smooth-scroll';
 import lobsterImage from '../../ressources/logos/images/maxresdefault.jpg';
@@ -12,11 +14,11 @@ interface SettingsPanelProps {
   preferences: UserPreferences;
   audioInputDevices: Array<{ deviceId: string; label: string }>;
   microphonePermission:
-    | 'granted'
-    | 'denied'
-    | 'prompt'
-    | 'unsupported'
-    | 'unknown';
+  | 'granted'
+  | 'denied'
+  | 'prompt'
+  | 'unsupported'
+  | 'unknown';
   requestingMicrophonePermission: boolean;
   onUpdatePreferences: (patch: Partial<UserPreferences>) => void;
   onResetPreferences: () => void;
@@ -41,6 +43,35 @@ export function SettingsPanel(props: SettingsPanelProps) {
   const [lobsterChecked, setLobsterChecked] = useState(false);
   const lobsterAudioRef = useRef<HTMLAudioElement | null>(null);
   const scrollContainerRef = useRef<HTMLElement | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const { token, setAuth } = useAuth();
+  const [uploadingAvatar, setUploadingAvatar] = useState(false);
+
+  const handleAvatarClick = () => {
+    fileInputRef.current?.click();
+  };
+
+  const handleFileChange = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file || !token) {
+      return;
+    }
+
+    setUploadingAvatar(true);
+    try {
+      const response = await chatApi.uploadAvatar(token, file);
+      setAuth(token, response.user);
+    } catch (error) {
+      console.error('Failed to upload avatar:', error);
+      // specific error handling could go here
+    } finally {
+      setUploadingAvatar(false);
+      // Reset input value so same file can be selected again
+      if (fileInputRef.current) {
+        fileInputRef.current.value = '';
+      }
+    }
+  };
 
   const createdAt = useMemo(
     () =>
@@ -100,8 +131,28 @@ export function SettingsPanel(props: SettingsPanelProps) {
       <div className="settings-shell">
         <aside className="settings-sidebar">
           <div className="settings-profile">
-            <div className="settings-avatar">
-              {props.user.username.slice(0, 1).toUpperCase()}
+            <div
+              className={`settings-avatar${uploadingAvatar ? ' uploading' : ''}`}
+              onClick={handleAvatarClick}
+              title="Change Avatar"
+              role="button"
+              tabIndex={0}
+            >
+              {props.user.avatarUrl ? (
+                <img src={props.user.avatarUrl} alt={props.user.username} />
+              ) : (
+                props.user.username.slice(0, 1).toUpperCase()
+              )}
+              <div className="avatar-overlay">
+                <span>Edit</span>
+              </div>
+              <input
+                type="file"
+                ref={fileInputRef}
+                onChange={handleFileChange}
+                accept="image/*"
+                style={{ display: 'none' }}
+              />
             </div>
             <div>
               <strong>{props.user.username}</strong>
@@ -436,8 +487,8 @@ export function SettingsPanel(props: SettingsPanelProps) {
                 value={
                   props.preferences.voiceInputDeviceId
                     ? props.audioInputDevices.find(
-                        (device) => device.deviceId === props.preferences.voiceInputDeviceId
-                      )?.label || 'System default microphone'
+                      (device) => device.deviceId === props.preferences.voiceInputDeviceId
+                    )?.label || 'System default microphone'
                     : 'System default microphone'
                 }
                 onChange={(value) => {

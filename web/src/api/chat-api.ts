@@ -46,6 +46,19 @@ export const chatApi = {
     return apiRequest<{ user: User }>('/me', {}, token);
   },
 
+  uploadAvatar(token: string, file: File) {
+    const formData = new FormData();
+    formData.append('file', file);
+    return apiRequest<{ user: User }>(
+      '/users/me/avatar',
+      {
+        method: 'POST',
+        body: formData,
+      },
+      token,
+    );
+  },
+
   channels(token: string) {
     return apiRequest<{ channels: Channel[] }>('/channels', {}, token);
   },

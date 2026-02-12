@@ -35,6 +35,7 @@ model User {
   isSuspended    Boolean   @default(false)
   suspendedUntil DateTime?
   createdAt      DateTime  @default(now())
+  avatarUrl      String?
 
   messages       Message[]
   messageReactions MessageReaction[]

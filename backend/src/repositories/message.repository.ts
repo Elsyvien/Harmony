@@ -15,6 +15,7 @@ export interface MessageReplyPreview {
   user: {
     id: string;
     username: string;
+    avatarUrl: string | null;
   };
 }
 
@@ -38,6 +39,7 @@ export interface MessageWithAuthor {
   user: {
     id: string;
     username: string;
+    avatarUrl: string | null;
   };
 }
 
@@ -46,6 +48,7 @@ const messageInclude = {
     select: {
       id: true,
       username: true,
+      avatarUrl: true,
     },
   },
   replyTo: {
@@ -59,6 +62,7 @@ const messageInclude = {
         select: {
           id: true,
           username: true,
+          avatarUrl: true,
         },
       },
     },
@@ -96,24 +100,24 @@ function toMessageWithAuthor(row: MessageRow): MessageWithAuthor {
     attachment:
       row.attachmentUrl && row.attachmentName && row.attachmentType && row.attachmentSize
         ? {
-            url: row.attachmentUrl,
-            name: row.attachmentName,
-            type: row.attachmentType,
-            size: row.attachmentSize,
-          }
+          url: row.attachmentUrl,
+          name: row.attachmentName,
+          type: row.attachmentType,
+          size: row.attachmentSize,
+        }
         : null,
     editedAt: row.editedAt,
     deletedAt: row.deletedAt,
     replyToMessageId: row.replyToMessageId,
     replyTo: row.replyTo
       ? {
-          id: row.replyTo.id,
-          userId: row.replyTo.userId,
-          content: row.replyTo.content,
-          createdAt: row.replyTo.createdAt,
-          deletedAt: row.replyTo.deletedAt,
-          user: row.replyTo.user,
-        }
+        id: row.replyTo.id,
+        userId: row.replyTo.userId,
+        content: row.replyTo.content,
+        createdAt: row.replyTo.createdAt,
+        deletedAt: row.replyTo.deletedAt,
+        user: row.replyTo.user,
+      }
       : null,
     reactions,
     createdAt: row.createdAt,

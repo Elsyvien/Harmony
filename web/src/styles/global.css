@@ -225,6 +225,37 @@ body.theme-light ::-webkit-scrollbar-thumb {
   background-color: #ccd4e2;
 }
 
+/* Form Control Legibility */
+input,
+textarea,
+select {
+  color: var(--text-header);
+  caret-color: var(--text-header);
+}
+
+input::placeholder,
+textarea::placeholder {
+  color: #9ca3b7;
+  opacity: 1;
+}
+
+body.theme-light input::placeholder,
+body.theme-light textarea::placeholder {
+  color: #6b7488;
+}
+
+select option,
+select optgroup {
+  color: #eef2ff;
+  background-color: #1b1e25;
+}
+
+body.theme-light select option,
+body.theme-light select optgroup {
+  color: #1f2430;
+  background-color: #ffffff;
+}
+
 /* Auth Pages */
 .auth-page {
   min-height: 100vh;
@@ -3319,12 +3350,14 @@ body.font-scale-lg {
   left: 0;
   right: 0;
   margin-top: 4px;
-  background-color: var(--bg-darker);
-  border: 1px solid var(--panel-border);
+  background-color: #171a21;
+  border: 1px solid #3a3f4b;
   border-radius: var(--radius-soft);
   box-shadow: 0 8px 20px rgba(0, 0, 0, 0.35);
   z-index: 50;
   overflow: hidden;
+  max-height: 280px;
+  overflow-y: auto;
   animation: slideIn 0.35s ease-out;
 }
 
@@ -3333,7 +3366,7 @@ body.font-scale-lg {
   padding: 6px 12px;
   background: transparent;
   border: none;
-  color: var(--text-normal);
+  color: #f1f4ff;
   text-align: left;
   cursor: pointer;
   font-size: 14px;
@@ -3345,8 +3378,21 @@ body.font-scale-lg {
 }
 
 .select-option:hover {
-  background-color: rgba(88, 101, 242, 0.12);
-  color: var(--text-header);
+  background-color: rgba(88, 101, 242, 0.2);
+  color: #ffffff;
+}
+
+body.theme-light .select-options {
+  background-color: #ffffff;
+  border-color: #cdd5e5;
+}
+
+body.theme-light .select-option {
+  color: #1f2430;
+}
+
+body.theme-light .select-option:hover {
+  color: #10141d;
 }
 
 .select-option.selected {
@@ -3479,4 +3525,76 @@ body.font-scale-lg {
 
 .ping-dot.bad {
   background-color: var(--danger);
+
+.settings-avatar {
+  position: relative;
+  overflow: hidden;
+  cursor: pointer;
+}
+
+.settings-avatar img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.avatar-overlay {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0, 0, 0, 0.5);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  opacity: 0;
+  transition: opacity 0.2s;
+  color: white;
+  font-weight: 600;
+  font-size: 14px;
+}
+
+.settings-avatar:hover .avatar-overlay {
+  opacity: 1;
+}
+
+.settings-avatar.uploading {
+  opacity: 0.7;
+  pointer-events: none;
+}
+
+
+.user-avatar-small img {
+  width: 100%;
+  height: 100%;
+  border-radius: 50%;
+  object-fit: cover;
+}
+
+.friend-avatar-small {
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  background-color: var(--accent);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 16px;
+  color: white;
+  font-weight: 700;
+  margin-right: 12px;
+  flex-shrink: 0;
+}
+
+.friend-avatar-small img {
+  width: 100%;
+  height: 100%;
+  border-radius: 50%;
+  object-fit: cover;
+}
+
+.friend-info {
+  display: flex;
+  align-items: center;
 }

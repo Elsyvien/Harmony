@@ -219,7 +219,11 @@ export function ChatPage() {
   const [localScreenShareStream, setLocalScreenShareStream] = useState<MediaStream | null>(null);
   const [savingVoiceBitrateChannelId, setSavingVoiceBitrateChannelId] = useState<string | null>(null);
 
-  const [selectedUser, setSelectedUser] = useState<{ id: string; username: string } | null>(null);
+  const [selectedUser, setSelectedUser] = useState<{
+    id: string;
+    username: string;
+    avatarUrl?: string;
+  } | null>(null);
   const [composerInsertRequest, setComposerInsertRequest] = useState<{
     key: number;
     text: string;
@@ -2256,7 +2260,9 @@ export function ChatPage() {
         incomingFriendRequests={incomingRequests.length}
         avatarUrl={auth.user.avatarUrl}
         ping={ping}
-      /><section className="chat-panel">
+      />
+
+      <section className="chat-panel">
         <header className="panel-header">
           <div className="panel-header-main">
             {activeView === 'chat' ? (

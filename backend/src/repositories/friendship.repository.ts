@@ -5,6 +5,7 @@ interface UserPreview {
   id: string;
   username: string;
   role: UserRole;
+  avatarUrl: string | null;
 }
 
 export interface FriendshipWithUsers extends Friendship {
@@ -30,6 +31,7 @@ const userPreviewSelect = {
   id: true,
   username: true,
   role: true,
+  avatarUrl: true,
 } as const;
 
 const includeUsers = {

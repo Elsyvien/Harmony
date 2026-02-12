@@ -284,10 +284,17 @@ export function ChatView(props: ChatViewProps) {
               >
                 <div
                   className="message-avatar"
-                  style={{ backgroundColor: stringToColor(message.user.username), cursor: 'pointer' }}
+                  style={{
+                    backgroundColor: message.user.avatarUrl ? 'transparent' : stringToColor(message.user.username),
+                    cursor: 'pointer'
+                  }}
                   onClick={() => props.onUserClick?.(message.user)}
                 >
-                  {message.user.username.slice(0, 1).toUpperCase()}
+                  {message.user.avatarUrl ? (
+                    <img src={message.user.avatarUrl} alt={message.user.username} style={{ width: '100%', height: '100%', borderRadius: '50%', objectFit: 'cover' }} />
+                  ) : (
+                    message.user.username.slice(0, 1).toUpperCase()
+                  )}
                 </div>
                 <div className="message-content">
                   <header>

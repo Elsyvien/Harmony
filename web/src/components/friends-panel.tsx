@@ -140,9 +140,18 @@ export function FriendsPanel(props: FriendsPanelProps) {
             const openingDm = props.openingDmUserId === friend.user.id;
             return (
               <article key={friend.id} className="friend-card">
-                <div>
-                  <strong>{friend.user.username}</strong>
-                  <small>Friends since {formatTime(friend.friendsSince)}</small>
+                <div className="friend-info">
+                  <div className="friend-avatar-small">
+                    {friend.user.avatarUrl ? (
+                      <img src={friend.user.avatarUrl} alt={friend.user.username} />
+                    ) : (
+                      friend.user.username.slice(0, 1).toUpperCase()
+                    )}
+                  </div>
+                  <div>
+                    <strong>{friend.user.username}</strong>
+                    <small>Friends since {formatTime(friend.friendsSince)}</small>
+                  </div>
                 </div>
                 <div className="friend-card-actions">
                   <button
