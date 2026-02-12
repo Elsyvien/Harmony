@@ -287,6 +287,7 @@ export function ChatPage() {
   const sendVoiceSignalRef = useRef((() => false) as (channelId: string, targetUserId: string, data: unknown) => boolean);
   const createOfferForPeerRef = useRef((() => Promise.resolve()) as (peerUserId: string, channelId: string) => Promise<void>);
   const leaveVoiceRef = useRef((() => false) as (channelId?: string) => boolean);
+  const messageSearchInputRef = useRef<HTMLInputElement | null>(null);
 
   const activeChannel = useMemo(
     () => channels.find((channel) => channel.id === activeChannelId) ?? null,
@@ -2349,6 +2350,30 @@ export function ChatPage() {
     teardownVoiceTransport();
   }, [ws.connected, teardownVoiceTransport]);
 
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (!event.ctrlKey && !event.metaKey) {
+        return;
+      }
+      if (event.shiftKey || event.altKey) {
+        return;
+      }
+      if (event.key.toLowerCase() !== 'k') {
+        return;
+      }
+      if (activeView !== 'chat' || activeChannel?.isVoice) {
+        return;
+      }
+      event.preventDefault();
+      messageSearchInputRef.current?.focus();
+      messageSearchInputRef.current?.select();
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => {
+      window.removeEventListener('keydown', onKeyDown);
+    };
+  }, [activeView, activeChannel?.isVoice]);
+
   const { toggleMessageReaction } = useReactionsFeature({
     authToken: auth.token,
     activeChannelId,
@@ -2612,11 +2637,14 @@ export function ChatPage() {
           {activeView === 'chat' && !activeChannel?.isVoice ? (
             <div className="panel-tools">
               <input
+                ref={messageSearchInputRef}
                 className="panel-search-input"
                 value={messageQuery}
                 onChange={(event) => setMessageQuery(event.target.value)}
                 placeholder="Search messages"
+                aria-label="Search messages"
               />
+              <span className="panel-search-hint">Ctrl/Cmd+K</span>
               {messageQuery ? (
                 <button className="ghost-btn small" onClick={() => setMessageQuery('')}>
                   Clear
@@ -2732,6 +2760,7 @@ export function ChatPage() {
                 <MessageComposer
                   disabled={!activeChannelId}
                   enterToSend={preferences.enterToSend}
+                  draftScopeKey={activeChannelId}
                   insertRequest={composerInsertRequest}
                   replyTo={
                     replyTarget
@@ -2862,12 +2891,12 @@ export function ChatPage() {
           </header>
           <label className="audio-context-volume">
             <span>Volume</span>
-              <input
-                type="range"
-                min={0}
-                max={100}
-                step={1}
-                value={getUserAudioState(audioContextMenu.userId).volume}
+                <input
+                  type="range"
+                  min={0}
+                  max={200}
+                  step={1}
+                  value={getUserAudioState(audioContextMenu.userId).volume}
                 onChange={(event) => {
                 setUserVolume(audioContextMenu.userId, Number(event.target.value));
               }}

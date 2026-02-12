@@ -12,6 +12,7 @@ type AudioContextMenuState = {
 };
 
 const USER_AUDIO_PREFS_KEY = 'harmony_user_audio_prefs_v1';
+const MAX_USER_AUDIO_VOLUME = 200;
 
 function parseUserAudioPrefs(raw: string | null): Record<string, UserAudioPreference> {
   if (!raw) {
@@ -25,7 +26,9 @@ function parseUserAudioPrefs(raw: string | null): Record<string, UserAudioPrefer
         continue;
       }
       const volume =
-        typeof pref.volume === 'number' ? Math.min(100, Math.max(0, Math.round(pref.volume))) : 100;
+        typeof pref.volume === 'number'
+          ? Math.min(MAX_USER_AUDIO_VOLUME, Math.max(0, Math.round(pref.volume)))
+          : 100;
       const muted = Boolean(pref.muted);
       normalized[userId] = { volume, muted };
     }
@@ -139,11 +142,11 @@ export function useVoiceFeature({
   const setUserVolume = useCallback((userId: string, volume: number) => {
     setUserAudioPrefs((prev) => ({
       ...prev,
-      [userId]: {
-        volume: Math.min(100, Math.max(0, Math.round(volume))),
-        muted: prev[userId]?.muted ?? false,
-      },
-    }));
+        [userId]: {
+          volume: Math.min(MAX_USER_AUDIO_VOLUME, Math.max(0, Math.round(volume))),
+          muted: prev[userId]?.muted ?? false,
+        },
+      }));
   }, []);
 
   const toggleUserMuted = useCallback((userId: string) => {
