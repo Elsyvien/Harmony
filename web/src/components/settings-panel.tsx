@@ -45,6 +45,7 @@ function currentNotificationPermission() {
 }
 
 export function SettingsPanel(props: SettingsPanelProps) {
+  const currentYear = new Date().getFullYear();
   const [notificationPermission, setNotificationPermission] = useState(currentNotificationPermission());
   const [requestingNotifications, setRequestingNotifications] = useState(false);
   const [notificationHint, setNotificationHint] = useState<string | null>(null);
@@ -297,6 +298,13 @@ export function SettingsPanel(props: SettingsPanelProps) {
             >
               Notifications
             </button>
+            <button
+              type="button"
+              className={`settings-nav-item ${activeSection === 'about' ? 'active' : ''}`}
+              onClick={() => jumpToSection('about')}
+            >
+              About
+            </button>
           </nav>
         </aside>
 
@@ -534,7 +542,7 @@ export function SettingsPanel(props: SettingsPanelProps) {
                   className="settings-range"
                   type="range"
                   min={0}
-                  max={200}
+                  max={100}
                   step={5}
                   value={props.preferences.voiceOutputVolume}
                   onChange={(event) =>
@@ -706,6 +714,20 @@ export function SettingsPanel(props: SettingsPanelProps) {
               <p>Search channels in the left sidebar.</p>
               <p>Search messages from the chat header input.</p>
               <p>Compose with Enter/Shift+Enter or Ctrl/Cmd+Enter based on your preference.</p>
+            </div>
+          </section>
+
+          <section id="about" className="settings-section">
+            <h3>About Harmony</h3>
+            <p className="muted">© {currentYear} Harmony. All rights reserved.</p>
+            <div className="settings-shortcuts">
+              <p>Contributors:</p>
+              <p>@Max Staneker</p>
+              <p>@TimoZuski</p>
+              <p>@Frederic-S</p>
+              <p>@PDrexi</p>
+              <p>@tobmu06</p>
+              <p>@TheBergZwerg</p>
             </div>
           </section>
         </div>

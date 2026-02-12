@@ -25,7 +25,7 @@ function parseUserAudioPrefs(raw: string | null): Record<string, UserAudioPrefer
         continue;
       }
       const volume =
-        typeof pref.volume === 'number' ? Math.min(200, Math.max(0, Math.round(pref.volume))) : 100;
+        typeof pref.volume === 'number' ? Math.min(100, Math.max(0, Math.round(pref.volume))) : 100;
       const muted = Boolean(pref.muted);
       normalized[userId] = { volume, muted };
     }
@@ -140,7 +140,7 @@ export function useVoiceFeature({
     setUserAudioPrefs((prev) => ({
       ...prev,
       [userId]: {
-        volume: Math.min(200, Math.max(0, Math.round(volume))),
+        volume: Math.min(100, Math.max(0, Math.round(volume))),
         muted: prev[userId]?.muted ?? false,
       },
     }));

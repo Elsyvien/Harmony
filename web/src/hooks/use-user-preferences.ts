@@ -34,7 +34,7 @@ function parsePreferences(raw: string | null): UserPreferences {
           : DEFAULT_USER_PREFERENCES.voiceInputSensitivity,
       voiceOutputVolume:
         typeof parsed.voiceOutputVolume === 'number'
-          ? Math.min(200, Math.max(0, Math.round(parsed.voiceOutputVolume)))
+          ? Math.min(100, Math.max(0, Math.round(parsed.voiceOutputVolume)))
           : DEFAULT_USER_PREFERENCES.voiceOutputVolume,
       showVoiceActivity:
         typeof parsed.showVoiceActivity === 'boolean'

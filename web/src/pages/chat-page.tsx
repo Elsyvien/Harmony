@@ -90,6 +90,13 @@ function toVideoTrackConstraints(preset: StreamQualityPreset): MediaTrackConstra
   };
 }
 
+function clampMediaElementVolume(value: number) {
+  if (!Number.isFinite(value)) {
+    return 1;
+  }
+  return Math.min(1, Math.max(0, value));
+}
+
 function clampCameraPreset(preset: StreamQualityPreset): StreamQualityPreset {
   return {
     width: Math.min(preset.width, CAMERA_MAX_CAPTURE_CONSTRAINTS.width),
@@ -2222,11 +2229,15 @@ export function ChatPage() {
       }
       setVoiceBusyChannelId(channelId);
       try {
+        const joinMuted = preferences.autoMuteOnJoin || isSelfDeafened;
+        if (isSelfMuted !== joinMuted) {
+          setIsSelfMuted(joinMuted);
+        }
         if (activeVoiceChannelId && activeVoiceChannelId !== channelId) {
           ws.leaveVoice(activeVoiceChannelId);
         }
         const sent = ws.joinVoice(channelId, {
-          muted: isSelfMuted || isSelfDeafened,
+          muted: joinMuted,
           deafened: isSelfDeafened,
         });
         if (!sent) {
@@ -2241,7 +2252,7 @@ export function ChatPage() {
         setVoiceBusyChannelId(null);
       }
     },
-    [auth.token, ws, activeVoiceChannelId, playVoiceStateSound, isSelfMuted, isSelfDeafened],
+    [auth.token, ws, activeVoiceChannelId, playVoiceStateSound, isSelfMuted, isSelfDeafened, preferences.autoMuteOnJoin],
   );
 
   const leaveVoiceChannel = useCallback(
@@ -2545,6 +2556,7 @@ export function ChatPage() {
         activeView={activeView}
         onChangeView={setActiveView}
         onLogout={logout}
+        userId={auth.user.id}
         username={auth.user.username}
         isAdmin={auth.user.isAdmin}
         onCreateChannel={createChannel}
@@ -2827,7 +2839,7 @@ export function ChatPage() {
               const localAudio = getUserAudioState(user.userId);
               const effectiveVolume =
                 (preferences.voiceOutputVolume / 100) * (localAudio.volume / 100);
-              node.volume = Math.min(2, Math.max(0, effectiveVolume));
+              node.volume = clampMediaElementVolume(effectiveVolume);
               node.muted =
                 isSelfDeafened ||
                 localAudio.muted ||
@@ -2850,13 +2862,13 @@ export function ChatPage() {
           </header>
           <label className="audio-context-volume">
             <span>Volume</span>
-            <input
-              type="range"
-              min={0}
-              max={200}
-              step={1}
-              value={getUserAudioState(audioContextMenu.userId).volume}
-              onChange={(event) => {
+              <input
+                type="range"
+                min={0}
+                max={100}
+                step={1}
+                value={getUserAudioState(audioContextMenu.userId).volume}
+                onChange={(event) => {
                 setUserVolume(audioContextMenu.userId, Number(event.target.value));
               }}
             />

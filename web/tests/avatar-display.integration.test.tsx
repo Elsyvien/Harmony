@@ -29,6 +29,7 @@ describe('avatar display integration', () => {
         activeView="chat"
         onChangeView={vi.fn()}
         onLogout={async () => {}}
+        userId="user-1"
         username="max"
         isAdmin={false}
         onCreateChannel={async () => {}}

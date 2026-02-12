@@ -12,6 +12,7 @@ interface ChannelSidebarProps {
   activeView: 'chat' | 'friends' | 'settings' | 'admin';
   onChangeView: (view: 'chat' | 'friends' | 'settings' | 'admin') => void;
   onLogout: () => Promise<void>;
+  userId: string;
   username: string;
   isAdmin: boolean;
   onCreateChannel: (name: string, type: 'TEXT' | 'VOICE') => Promise<void>;
@@ -49,10 +50,7 @@ export function ChannelSidebar(props: ChannelSidebarProps) {
   const [creating, setCreating] = useState(false);
   const [showCreateChannel, setShowCreateChannel] = useState(false);
   const [channelFilter, setChannelFilter] = useState('');
-  const userTag = `${props.username.length}${props.username
-    .split('')
-    .reduce((sum, char) => sum + char.charCodeAt(0), 0) % 10000}`
-    .padStart(4, '0');
+  const userTag = props.userId.slice(0, 4);
   const query = channelFilter.trim().toLowerCase();
   const filteredChannels = props.channels.filter((channel) => {
     if (!query) {
