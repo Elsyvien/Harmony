@@ -199,45 +199,55 @@ function isVoiceSignalData(value: unknown): value is VoiceSignalData {
   return false;
 }
 
-function getVoiceIceConfig(): RTCConfiguration {
-  const turnUrlsRaw = import.meta.env.VITE_TURN_URLS as string | undefined;
-  const turnUsername = import.meta.env.VITE_TURN_USERNAME as string | undefined;
-  const turnCredential = import.meta.env.VITE_TURN_CREDENTIAL as string | undefined;
-  const forceRelay = (import.meta.env.VITE_FORCE_RELAY as string | undefined) === 'true';
-  const parsedUrls = Array.from(
-    new Set(
-      (turnUrlsRaw
-        ?.split(',')
-        .map((entry) => entry.trim())
-        .filter(Boolean) ?? []),
-    ),
-  ).slice(0, 6);
-  const stunUrls = parsedUrls.filter((url) => url.startsWith('stun:'));
-  const turnRelayUrls = parsedUrls.filter((url) => url.startsWith('turn:') || url.startsWith('turns:'));
+function createDefaultVoiceIceConfig(): RTCConfiguration {
+  return {
+    iceServers: [{ urls: ['stun:stun.l.google.com:19302'] }],
+    iceCandidatePoolSize: 2,
+    iceTransportPolicy: 'all',
+  };
+}
 
-  const iceServers: RTCIceServer[] = [
-    {
-      urls: ['stun:stun.l.google.com:19302'],
-    },
-  ];
-
-  if (stunUrls.length > 0) {
-    iceServers.push({ urls: stunUrls.slice(0, 1) });
+function normalizeVoiceIceConfig(value: unknown): RTCConfiguration {
+  const fallback = createDefaultVoiceIceConfig();
+  if (!value || typeof value !== 'object') {
+    return fallback;
   }
 
-  const hasValidTurnCredentials = Boolean(turnUsername && turnCredential);
-  if (turnRelayUrls.length > 0 && hasValidTurnCredentials) {
-    const turnServer: RTCIceServer = { urls: turnRelayUrls.slice(0, 1) };
-    turnServer.username = turnUsername;
-    turnServer.credential = turnCredential;
-    iceServers.push(turnServer);
+  const raw = value as {
+    iceServers?: Array<{ urls?: string | string[]; username?: string; credential?: string }>;
+    iceTransportPolicy?: unknown;
+    iceCandidatePoolSize?: unknown;
+  };
+
+  const parsedServers: RTCIceServer[] = [];
+  for (const server of raw.iceServers ?? []) {
+    const urls = Array.isArray(server.urls)
+      ? server.urls.filter((entry): entry is string => typeof entry === 'string' && entry.length > 0)
+      : typeof server.urls === 'string' && server.urls.length > 0
+        ? [server.urls]
+        : [];
+    if (urls.length === 0) {
+      continue;
+    }
+    parsedServers.push({
+      urls: urls.slice(0, 1),
+      ...(server.username ? { username: server.username } : {}),
+      ...(server.credential ? { credential: server.credential } : {}),
+    });
   }
+
+  const iceTransportPolicy: RTCIceTransportPolicy =
+    raw.iceTransportPolicy === 'relay' ? 'relay' : 'all';
+  const iceCandidatePoolSize =
+    typeof raw.iceCandidatePoolSize === 'number' && Number.isFinite(raw.iceCandidatePoolSize)
+      ? Math.max(0, Math.min(8, Math.round(raw.iceCandidatePoolSize)))
+      : 2;
 
   return {
-    iceServers: iceServers.slice(0, 3),
-    iceCandidatePoolSize: 2,
-    iceTransportPolicy: forceRelay ? 'relay' : 'all',
-  } satisfies RTCConfiguration;
+    iceServers: parsedServers.length > 0 ? parsedServers.slice(0, 3) : fallback.iceServers,
+    iceTransportPolicy,
+    iceCandidatePoolSize,
+  };
 }
 
 function shouldInitiateOffer(localUserId: string, remoteUserId: string) {
@@ -298,6 +308,9 @@ export function ChatPage() {
   const [showDetailedVoiceStats, setShowDetailedVoiceStats] = useState(false);
   const [voiceConnectionStats, setVoiceConnectionStats] = useState<VoiceDetailedConnectionStats[]>([]);
   const [voiceStatsUpdatedAt, setVoiceStatsUpdatedAt] = useState<number | null>(null);
+  const [voiceIceConfig, setVoiceIceConfig] = useState<RTCConfiguration>(() =>
+    createDefaultVoiceIceConfig(),
+  );
   const [savingVoiceSettingsChannelId, setSavingVoiceSettingsChannelId] = useState<string | null>(null);
   const [streamStatusBanner, setStreamStatusBanner] = useState<{
     type: 'error' | 'info';
@@ -1303,7 +1316,7 @@ export function ChatPage() {
 
       const stream = await getLocalVoiceStream();
       const connection = new RTCPeerConnection({
-        ...getVoiceIceConfig(),
+        ...voiceIceConfig,
       });
 
       for (const track of stream.getTracks()) {
@@ -1445,6 +1458,7 @@ export function ChatPage() {
       activeStreamBitrateKbps,
       getOrCreateVideoSender,
       localStreamSource,
+      voiceIceConfig,
     ],
   );
 
@@ -1992,6 +2006,27 @@ export function ChatPage() {
       window.clearTimeout(timeout);
     };
   }, [notice]);
+
+  useEffect(() => {
+    let disposed = false;
+    const loadRtcConfig = async () => {
+      try {
+        const response = await chatApi.rtcConfig();
+        if (disposed) {
+          return;
+        }
+        setVoiceIceConfig(normalizeVoiceIceConfig(response.rtc));
+      } catch {
+        if (!disposed) {
+          setVoiceIceConfig(createDefaultVoiceIceConfig());
+        }
+      }
+    };
+    void loadRtcConfig();
+    return () => {
+      disposed = true;
+    };
+  }, []);
 
   useEffect(() => {
     if (!auth.token) {

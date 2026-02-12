@@ -11,6 +11,11 @@ const envSchema = z.object({
   MESSAGE_MAX_LENGTH: z.coerce.number().int().min(1).max(4000).default(2000),
   RATE_LIMIT_MAX: z.coerce.number().int().min(10).default(120),
   RATE_LIMIT_WINDOW_MS: z.coerce.number().int().min(1000).default(60_000),
+  RTC_STUN_URL: z.string().min(1).default('stun:stun.l.google.com:19302'),
+  TURN_URLS: z.string().default(''),
+  TURN_USERNAME: z.string().default(''),
+  TURN_CREDENTIAL: z.string().default(''),
+  RTC_FORCE_RELAY: z.coerce.boolean().default(false),
 });
 
 export type Env = z.infer<typeof envSchema>;

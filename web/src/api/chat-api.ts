@@ -18,6 +18,16 @@ export interface AuthResponse {
 }
 
 export const chatApi = {
+  rtcConfig() {
+    return apiRequest<{
+      rtc: {
+        iceServers: Array<{ urls: string | string[]; username?: string; credential?: string }>;
+        iceTransportPolicy?: RTCIceTransportPolicy;
+        iceCandidatePoolSize?: number;
+      };
+    }>('/rtc/config');
+  },
+
   register(input: { username: string; email: string; password: string }) {
     return apiRequest<AuthResponse>('/auth/register', {
       method: 'POST',

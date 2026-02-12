@@ -111,6 +111,33 @@ export async function buildApp() {
   await app.register(userRoutes, { userService });
   await app.register(adminRoutes, { adminService, adminSettingsService, adminUserService });
 
+  app.get('/rtc/config', async () => {
+    const turnUrls = env.TURN_URLS.split(',')
+      .map((entry) => entry.trim())
+      .filter((entry) => entry.startsWith('turn:') || entry.startsWith('turns:'))
+      .slice(0, 1);
+
+    const iceServers: Array<{ urls: string | string[]; username?: string; credential?: string }> = [
+      { urls: [env.RTC_STUN_URL] },
+    ];
+
+    if (turnUrls.length > 0 && env.TURN_USERNAME && env.TURN_CREDENTIAL) {
+      iceServers.push({
+        urls: turnUrls,
+        username: env.TURN_USERNAME,
+        credential: env.TURN_CREDENTIAL,
+      });
+    }
+
+    return {
+      rtc: {
+        iceServers,
+        iceTransportPolicy: env.RTC_FORCE_RELAY ? 'relay' : 'all',
+        iceCandidatePoolSize: 2,
+      },
+    };
+  });
+
   app.get('/health', async () => ({ ok: true }));
 
   app.setErrorHandler((error, _, reply) => {
