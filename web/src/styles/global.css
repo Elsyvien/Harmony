@@ -2971,6 +2971,7 @@ body.font-scale-lg {
   justify-content: center;
   color: var(--text-muted);
   flex-shrink: 0;
+  transition: transform 0.3s ease;
 }
 
 .select-arrow::after {
@@ -2978,12 +2979,7 @@ body.font-scale-lg {
   font-size: 14px;
   font-weight: 700;
   display: inline-block;
-  transition: transform 0.3s ease;
   transform-origin: center;
-}
-
-.select-button.open .select-arrow::after {
-  transform: rotate(180deg);
 }
 
 .select-options {
