@@ -115,6 +115,12 @@ a:hover {
   100% { transform: translateY(0) scale(1); }
 }
 
+@keyframes dropDown {
+  0% { transform: translateY(0) scale(1); }
+  50% { transform: translateY(3px) scale(1.02); }
+  100% { transform: translateY(0) scale(1); }
+}
+
 /* Scrollbar */
 ::-webkit-scrollbar {
   width: 8px;
