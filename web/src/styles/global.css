@@ -69,6 +69,11 @@ a:hover {
   to { opacity: 1; transform: scale(1); }
 }
 
+@keyframes spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
 /* Scrollbar */
 ::-webkit-scrollbar {
   width: 8px;
@@ -171,6 +176,19 @@ button {
 .primary-btn:hover {
   filter: brightness(1.1);
   transform: translateY(-1px);
+}
+
+.btn-loader {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+}
+
+.btn-loader img {
+  width: 18px;
+  height: 18px;
+  animation: spin 1.5s linear infinite;
 }
 
 .switch-copy {

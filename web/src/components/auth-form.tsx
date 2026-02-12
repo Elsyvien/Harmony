@@ -73,11 +73,20 @@ export function AuthForm(props: AuthFormProps) {
       {props.error ? <p className="error-banner">{props.error}</p> : null}
 
       <button className="primary-btn" type="submit" disabled={props.loading}>
-        {props.loading
-          ? 'Please wait...'
-          : props.mode === 'login'
-            ? 'Log In'
-            : 'Create Account'}
+        {props.loading ? (
+          <span className="btn-loader">
+            <img
+              src="https://github.com/user-attachments/assets/d95f17bf-855f-4b0f-a15b-a304021981ea"
+              alt=""
+              aria-hidden="true"
+            />
+            <span>Please wait...</span>
+          </span>
+        ) : props.mode === 'login' ? (
+          'Log In'
+        ) : (
+          'Create Account'
+        )}
       </button>
     </form>
   );
