@@ -108,6 +108,7 @@ export interface AdminSettings {
   allowRegistrations: boolean;
   readOnlyMode: boolean;
   slowModeSeconds: number;
+  idleTimeoutMinutes: number;
 }
 
 export interface AdminUserSummary {

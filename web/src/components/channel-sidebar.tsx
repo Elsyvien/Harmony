@@ -33,6 +33,7 @@ interface ChannelSidebarProps {
   incomingFriendRequests: number;
   avatarUrl?: string;
   ping: number | null;
+  state: string; // Add this
 }
 
 function stringToColor(str: string) {
@@ -338,7 +339,7 @@ export function ChannelSidebar(props: ChannelSidebarProps) {
               ) : (
                 props.username.slice(0, 1).toUpperCase()
               )}
-              <div className="status-dot online"></div>
+              <div className={`status-dot ${props.state}`}></div>
             </div>
             <div className="name-tag">
               <span className="username">{props.username}</span>

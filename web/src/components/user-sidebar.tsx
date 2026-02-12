@@ -1,8 +1,9 @@
 import { useCallback, useEffect, useRef } from 'react';
 import { resolveMediaUrl } from '../utils/media-url';
+import type { PresenceState } from '../hooks/use-chat-socket';
 
 interface UserSidebarProps {
-  users: { id: string; username: string; avatarUrl?: string }[];
+  users: { id: string; username: string; avatarUrl?: string; state?: PresenceState }[];
   onUserClick?: (user: { id: string; username: string; avatarUrl?: string }) => void;
   onUserContextMenu?: (
     user: { id: string; username: string; avatarUrl?: string },
@@ -96,7 +97,7 @@ export function UserSidebar({ users, onUserClick, onUserContextMenu }: UserSideb
                     user.username.slice(0, 1).toUpperCase()
                   )}
                 </div>
-                <div className="status-dot-large online"></div>
+                <div className={`status-dot-large ${user.state ?? 'online'}`}></div>
               </div>
               <div className="user-item-info">
                 <span className="username">{user.username}</span>

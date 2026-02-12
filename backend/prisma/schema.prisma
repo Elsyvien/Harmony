@@ -3,7 +3,7 @@ generator client {
 }
 
 datasource db {
-  provider = "postgresql"
+  provider = "sqlite"
   url      = env("DATABASE_URL")
 }
 
@@ -138,4 +138,5 @@ model AppSettings {
   allowRegistrations Boolean @default(true)
   readOnlyMode       Boolean @default(false)
   slowModeSeconds    Int     @default(0)
+  idleTimeoutMinutes Int     @default(15)
 }

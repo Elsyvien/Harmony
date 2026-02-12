@@ -26,6 +26,8 @@ interface SettingsPanelProps {
   onResetPreferences: () => void;
   onRequestMicrophonePermission: () => Promise<void>;
   onLogout: () => Promise<void>;
+  state: string;
+  onSetState: (state: string) => void;
 }
 
 const MAX_AVATAR_FILE_SIZE_BYTES = 5 * 1024 * 1024;
@@ -350,6 +352,24 @@ export function SettingsPanel(props: SettingsPanelProps) {
               <span className={`status-chip ${props.wsConnected ? 'ok' : 'neutral'}`}>
                 {connectionLabel}
               </span>
+            </div>
+
+            <div className="settings-row">
+              <span className="settings-row-copy">
+                <strong>Status & Availability</strong>
+                <small>Set your presence to Do Not Disturb.</small>
+              </span>
+              <label className="settings-row-toggle">
+                <input
+                  className="settings-toggle"
+                  type="checkbox"
+                  checked={props.state === 'dnd'}
+                  onChange={(event) =>
+                    props.onSetState(event.target.checked ? 'dnd' : 'online')
+                  }
+                />
+                <span className="toggle-label">{props.state === 'dnd' ? 'Do Not Disturb' : 'Online'}</span>
+              </label>
             </div>
 
             <div className="settings-danger-zone">

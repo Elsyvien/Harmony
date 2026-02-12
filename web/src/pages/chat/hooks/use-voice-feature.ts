@@ -48,7 +48,7 @@ type UseVoiceFeatureOptions = {
   activeChannelId: string | null;
   activeVoiceChannelId: string | null;
   voiceParticipantsByChannel: Record<string, VoiceParticipant[]>;
-  remoteScreenShares: Record<string, MediaStream>;
+  remoteStreamingUserIds: string[];
   localScreenShareStream: MediaStream | null;
   authUserId: string | undefined;
   authUserRole: UserRole | null | undefined;
@@ -59,7 +59,7 @@ export function useVoiceFeature({
   activeChannelId,
   activeVoiceChannelId,
   voiceParticipantsByChannel,
-  remoteScreenShares,
+  remoteStreamingUserIds,
   localScreenShareStream,
   authUserId,
   authUserRole,
@@ -104,13 +104,13 @@ export function useVoiceFeature({
     if (!activeVoiceChannelId) {
       return byChannel;
     }
-    const liveUserIds = new Set<string>(Object.keys(remoteScreenShares));
+    const liveUserIds = new Set<string>(remoteStreamingUserIds);
     if (localScreenShareStream && authUserId) {
       liveUserIds.add(authUserId);
     }
     byChannel[activeVoiceChannelId] = [...liveUserIds];
     return byChannel;
-  }, [activeVoiceChannelId, remoteScreenShares, localScreenShareStream, authUserId]);
+  }, [activeVoiceChannelId, remoteStreamingUserIds, localScreenShareStream, authUserId]);
 
   const getUserAudioState = useCallback(
     (userId: string): UserAudioPreference => userAudioPrefs[userId] ?? { volume: 100, muted: false },

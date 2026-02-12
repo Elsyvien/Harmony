@@ -109,6 +109,73 @@
   cursor: pointer;
 }
 
+.voice-screen-share-item.preview {
+  background: radial-gradient(circle at 15% 20%, rgba(88, 101, 242, 0.25), transparent 52%),
+    linear-gradient(160deg, rgba(16, 17, 22, 0.92), rgba(8, 9, 12, 0.98));
+  border: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.voice-screen-share-preview-bg {
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(120deg, rgba(0, 0, 0, 0.2), rgba(0, 0, 0, 0.7));
+}
+
+.voice-screen-share-preview-content {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-content: center;
+  gap: 10px;
+  text-align: center;
+  padding: 16px;
+  z-index: 1;
+}
+
+.voice-screen-share-preview-content strong {
+  color: #fff;
+  font-size: 15px;
+}
+
+.voice-screen-share-preview-live {
+  justify-self: center;
+  display: inline-flex;
+  align-items: center;
+  height: 18px;
+  border-radius: 999px;
+  padding: 0 9px;
+  background-color: #ed4245;
+  color: #fff;
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+}
+
+.voice-screen-share-preview-btn {
+  justify-self: center;
+  border-radius: 10px;
+  border: 1px solid rgba(255, 255, 255, 0.24);
+  background-color: rgba(18, 20, 24, 0.82);
+  color: #fff;
+  font-size: 13px;
+  font-weight: 700;
+  padding: 8px 14px;
+  cursor: pointer;
+  transition: background-color 0.14s ease, border-color 0.14s ease, transform 0.14s ease;
+}
+
+.voice-screen-share-preview-btn:hover:not(:disabled) {
+  background-color: rgba(88, 101, 242, 0.32);
+  border-color: rgba(165, 174, 255, 0.85);
+  transform: translateY(-1px);
+}
+
+.voice-screen-share-preview-btn:disabled {
+  opacity: 0.7;
+  cursor: wait;
+}
+
 .voice-screen-share-overlay {
   position: absolute;
   bottom: 0;
@@ -162,6 +229,24 @@
 .screen-share-control-btn:hover {
   background-color: var(--accent);
   border-color: var(--accent);
+}
+
+.screen-share-text-btn {
+  height: 24px;
+  border-radius: 6px;
+  border: 1px solid rgba(242, 63, 67, 0.55);
+  background-color: rgba(242, 63, 67, 0.12);
+  color: #ffd5d6;
+  font-size: 11px;
+  font-weight: 700;
+  padding: 0 8px;
+  cursor: pointer;
+}
+
+.screen-share-text-btn:hover {
+  background-color: rgba(242, 63, 67, 0.25);
+  border-color: rgba(242, 63, 67, 0.85);
+  color: #fff;
 }
 
 /* Quality Select & Controls */

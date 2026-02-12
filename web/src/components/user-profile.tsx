@@ -1,7 +1,7 @@
 import { resolveMediaUrl } from '../utils/media-url';
 
 interface UserProfileProps {
-  user: { id: string; username: string; email?: string; createdAt?: string; avatarUrl?: string } | null;
+  user: { id: string; username: string; email?: string; createdAt?: string; avatarUrl?: string; state?: string } | null;
   onClose: () => void;
   currentUser?: { id: string };
   friendRequestState?: 'self' | 'none' | 'friends' | 'outgoing' | 'incoming';
@@ -60,6 +60,7 @@ export function UserProfile({
           ) : (
             user.username.slice(0, 1).toUpperCase()
           )}
+          <div className={`status-dot-large ${user.state ?? 'online'}`} style={{ border: '4px solid #111214', width: '24px', height: '24px', bottom: '4px', right: '4px' }}></div>
         </div>
         <div className="profile-body">
           <div className="profile-header">

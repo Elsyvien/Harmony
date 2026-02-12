@@ -16,10 +16,13 @@ export interface DmNewEventPayload {
   };
 }
 
+export type PresenceState = 'online' | 'idle' | 'dnd';
+
 export interface PresenceUser {
   id: string;
   username: string;
   avatarUrl?: string;
+  state: PresenceState;
 }
 
 export interface VoiceParticipant {
@@ -308,6 +311,13 @@ export function useChatSocket(params: {
     [sendEvent],
   );
 
+  const sendPresence = useCallback(
+    (state: PresenceState) => {
+      return sendEvent('presence:set', { state });
+    },
+    [sendEvent],
+  );
+
   useEffect(() => {
     if (!connected) {
       setPing(null);
@@ -328,5 +338,5 @@ export function useChatSocket(params: {
 
   const [ping, setPing] = useState<number | null>(null);
 
-  return { connected, sendMessage, joinVoice, leaveVoice, sendVoiceSignal, sendVoiceSelfState, ping };
+  return { connected, sendMessage, joinVoice, leaveVoice, sendVoiceSignal, sendVoiceSelfState, sendPresence, ping };
 }
