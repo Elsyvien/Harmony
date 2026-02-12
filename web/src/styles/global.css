@@ -2624,6 +2624,8 @@ body.font-scale-lg {
 
 /* Animated Checkbox */
 .checkbox-animated {
+  -webkit-appearance: none;
+  -moz-appearance: none;
   appearance: none;
   width: 20px;
   height: 20px;
@@ -2631,11 +2633,14 @@ body.font-scale-lg {
   border-radius: 6px;
   background-color: var(--bg-darkest);
   cursor: pointer;
-  display: flex;
+  display: inline-flex;
   align-items: center;
   justify-content: center;
   transition: all 0.2s ease;
   position: relative;
+  padding: 0;
+  margin: 0;
+  flex-shrink: 0;
 }
 
 .checkbox-animated:hover {
@@ -2655,6 +2660,7 @@ body.font-scale-lg {
   font-size: 12px;
   font-weight: 700;
   display: block;
+  line-height: 1;
 }
 
 .checkbox-animated:disabled {
