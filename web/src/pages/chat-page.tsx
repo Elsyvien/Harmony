@@ -215,6 +215,8 @@ export function ChatPage() {
   const [isSelfDeafened, setIsSelfDeafened] = useState(false);
   const [remoteAudioStreams, setRemoteAudioStreams] = useState<Record<string, MediaStream>>({});
   const [speakingUserIds, setSpeakingUserIds] = useState<string[]>([]);
+  const [remoteScreenShares, setRemoteScreenShares] = useState<Record<string, MediaStream>>({});
+  const [localScreenShareStream, setLocalScreenShareStream] = useState<MediaStream | null>(null);
   const [savingVoiceBitrateChannelId, setSavingVoiceBitrateChannelId] = useState<string | null>(null);
 
   const [selectedUser, setSelectedUser] = useState<{ id: string; username: string } | null>(null);
@@ -243,6 +245,7 @@ export function ChatPage() {
   const pendingTimeoutsRef = useRef(new Map<string, number>());
   const muteStateBeforeDeafenRef = useRef<boolean | null>(null);
   const localVoiceStreamRef = useRef<MediaStream | null>(null);
+  const localScreenStreamRef = useRef<MediaStream | null>(null);
   const localAnalyserRef = useRef<AnalyserNode | null>(null);
   const localAnalyserContextRef = useRef<AudioContext | null>(null);
   const localAnalyserSourceRef = useRef<MediaStreamAudioSourceNode | null>(null);
@@ -584,6 +587,14 @@ export function ChatPage() {
       delete next[peerUserId];
       return next;
     });
+    setRemoteScreenShares((prev) => {
+      if (!prev[peerUserId]) {
+        return prev;
+      }
+      const next = { ...prev };
+      delete next[peerUserId];
+      return next;
+    });
   }, []);
 
   const teardownVoiceTransport = useCallback(() => {
@@ -599,6 +610,13 @@ export function ChatPage() {
       localVoiceStreamRef.current = null;
       localVoiceInputDeviceIdRef.current = null;
     }
+    if (localScreenStreamRef.current) {
+      for (const track of localScreenStreamRef.current.getTracks()) {
+        track.stop();
+      }
+      localScreenStreamRef.current = null;
+      setLocalScreenShareStream(null);
+    }
     if (localAnalyserSourceRef.current) {
       localAnalyserSourceRef.current.disconnect();
       localAnalyserSourceRef.current = null;
@@ -611,6 +629,7 @@ export function ChatPage() {
     setLocalAudioReady(false);
     setSpeakingUserIds([]);
     setRemoteAudioStreams({});
+    setRemoteScreenShares({});
   }, [closePeerConnection]);
 
   const resetLocalAnalyser = useCallback(() => {
@@ -786,6 +805,11 @@ export function ChatPage() {
       for (const track of stream.getTracks()) {
         connection.addTrack(track, stream);
       }
+      if (localScreenStreamRef.current) {
+        for (const track of localScreenStreamRef.current.getTracks()) {
+          connection.addTrack(track, localScreenStreamRef.current);
+        }
+      }
       await applyAudioBitrateToConnection(connection, activeVoiceBitrateKbps);
 
       connection.onicecandidate = (event) => {
@@ -803,10 +827,17 @@ export function ChatPage() {
         if (!streamFromTrack) {
           return;
         }
-        setRemoteAudioStreams((prev) => ({
-          ...prev,
-          [peerUserId]: streamFromTrack,
-        }));
+        if (event.track.kind === 'audio') {
+          setRemoteAudioStreams((prev) => ({
+            ...prev,
+            [peerUserId]: streamFromTrack,
+          }));
+        } else if (event.track.kind === 'video') {
+          setRemoteScreenShares((prev) => ({
+            ...prev,
+            [peerUserId]: streamFromTrack,
+          }));
+        }
       };
 
       connection.onconnectionstatechange = () => {
@@ -999,9 +1030,9 @@ export function ChatPage() {
       setReplyTarget((current) =>
         current && current.id === message.id
           ? {
-              ...current,
-              content: message.deletedAt ? '' : message.content,
-            }
+            ...current,
+            content: message.deletedAt ? '' : message.content,
+          }
           : current,
       );
     },
@@ -1390,6 +1421,65 @@ export function ChatPage() {
       return merged;
     });
   }, [preferences.showVoiceActivity, viewedRemoteAudioUsers, auth.user?.id]);
+
+  const toggleScreenShare = useCallback(async () => {
+    if (localScreenStreamRef.current) {
+      for (const track of localScreenStreamRef.current.getTracks()) {
+        track.stop();
+      }
+      localScreenStreamRef.current = null;
+      setLocalScreenShareStream(null);
+
+      if (activeVoiceChannelIdRef.current) {
+        for (const [peerUserId, connection] of peerConnectionsRef.current) {
+          const senders = connection.getSenders();
+          for (const sender of senders) {
+            if (sender.track?.kind === 'video') {
+              connection.removeTrack(sender);
+            }
+          }
+          void createOfferForPeer(peerUserId, activeVoiceChannelIdRef.current);
+        }
+      }
+    } else {
+      try {
+        const stream = await navigator.mediaDevices.getDisplayMedia({
+          video: true,
+          audio: false,
+        });
+        localScreenStreamRef.current = stream;
+        setLocalScreenShareStream(stream);
+
+        stream.getVideoTracks()[0].onended = () => {
+          localScreenStreamRef.current = null;
+          setLocalScreenShareStream(null);
+          if (activeVoiceChannelIdRef.current) {
+            for (const [peerUserId, connection] of peerConnectionsRef.current) {
+              const senders = connection.getSenders();
+              for (const sender of senders) {
+                if (sender.track?.kind === 'video') {
+                  connection.removeTrack(sender);
+                }
+              }
+              void createOfferForPeer(peerUserId, activeVoiceChannelIdRef.current);
+            }
+          }
+        };
+
+        if (activeVoiceChannelId) {
+          for (const [peerUserId, connection] of peerConnectionsRef.current) {
+            for (const track of stream.getTracks()) {
+              connection.addTrack(track, stream);
+            }
+            void createOfferForPeer(peerUserId, activeVoiceChannelId);
+          }
+        }
+      } catch (err) {
+        // User cancelled or not supported
+        console.error('Failed to get display media', err);
+      }
+    }
+  }, [activeVoiceChannelId, createOfferForPeer]);
 
   const loadAdminStats = useCallback(async () => {
     if (!auth.token || !auth.user?.isAdmin) {
@@ -1880,16 +1970,16 @@ export function ChatPage() {
       replyToMessageId,
       replyTo: outgoingReplyTarget
         ? {
-            id: outgoingReplyTarget.id,
-            userId: outgoingReplyTarget.userId,
-            content: outgoingReplyTarget.content,
-            createdAt: new Date().toISOString(),
-            deletedAt: null,
-            user: {
-              id: outgoingReplyTarget.userId,
-              username: outgoingReplyTarget.username,
-            },
-          }
+          id: outgoingReplyTarget.id,
+          userId: outgoingReplyTarget.userId,
+          content: outgoingReplyTarget.content,
+          createdAt: new Date().toISOString(),
+          deletedAt: null,
+          user: {
+            id: outgoingReplyTarget.userId,
+            username: outgoingReplyTarget.username,
+          },
+        }
         : null,
       reactions: [],
       createdAt: new Date().toISOString(),
@@ -2223,6 +2313,9 @@ export function ChatPage() {
                   )
                 }
                 getParticipantAudioState={(userId) => getUserAudioState(userId)}
+                localScreenShareStream={localScreenShareStream}
+                remoteScreenShares={remoteScreenShares}
+                onToggleScreenShare={toggleScreenShare}
               />
             ) : (
               <>
@@ -2263,9 +2356,9 @@ export function ChatPage() {
                   replyTo={
                     replyTarget
                       ? {
-                          username: replyTarget.username,
-                          content: replyTarget.content,
-                        }
+                        username: replyTarget.username,
+                        content: replyTarget.content,
+                      }
                       : null
                   }
                   replyToMessageId={replyTarget?.id ?? null}
