@@ -116,9 +116,9 @@ body.theme-light ::-webkit-scrollbar-thumb {
 .auth-page {
   min-height: 100vh;
   min-height: 100dvh;
-  display: flex;
-  align-items: center;
-  justify-content: center;
+  display: grid;
+  place-items: center;
+  padding: 24px 16px;
   background-color: var(--bg-darkest);
   background-image: 
     linear-gradient(rgba(255, 255, 255, 0.02) 1px, transparent 1px),
@@ -129,13 +129,15 @@ body.theme-light ::-webkit-scrollbar-thumb {
 .auth-card {
   width: 100%;
   max-width: 420px;
-  padding: 40px;
+  padding: 34px 32px 28px;
   background: var(--bg-dark);
   border: 1px solid var(--panel-border);
   box-shadow: 0 16px 40px rgba(0,0,0,0.4);
   color: var(--text-normal);
   border-radius: var(--radius-soft);
   animation: scaleUp 0.3s ease-out;
+  display: grid;
+  gap: 14px;
 }
 
 .auth-brand {
@@ -149,7 +151,7 @@ body.theme-light ::-webkit-scrollbar-thumb {
 .auth-logo {
   width: 36px;
   height: 36px;
-  object-fit: cover;
+  object-fit: contain;
   border-radius: 8px;
   box-shadow: 0 0 0 1px var(--panel-border);
 }
@@ -170,15 +172,16 @@ body.theme-light ::-webkit-scrollbar-thumb {
 .auth-subtitle {
   text-align: center;
   color: var(--text-muted);
-  margin-bottom: 24px;
+  margin: 0 0 6px;
   font-size: 14px;
 }
 
 .field {
-  margin-bottom: 20px;
+  display: grid;
+  gap: 8px;
 }
 
-.field label {
+.field span {
   display: block;
   color: var(--text-muted);
   font-size: 11px;
@@ -241,11 +244,15 @@ button {
   animation: spin 0.8s linear infinite;
 }
 
-.switch-copy {
-  margin-top: 20px;
+.auth-switch-copy {
+  margin: 2px 0 0;
   font-size: 13px;
   color: var(--text-muted);
   text-align: center;
+}
+
+.auth-switch-copy a {
+  font-weight: 700;
 }
 
 .error-banner {
@@ -332,7 +339,8 @@ button {
   width: 20px;
   height: 20px;
   border-radius: 5px;
-  object-fit: cover;
+  object-fit: contain;
+  background: rgba(255, 255, 255, 0.04);
   box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.08);
 }
 
@@ -676,6 +684,18 @@ button {
   background-color: rgba(88, 101, 242, 0.15);
   color: #8fa0ff;
 }
+
+.control-btn.control-btn-mute.active,
+.control-btn.control-btn-deafen.active {
+  background-color: rgba(237, 66, 69, 0.18);
+  color: #ff9fa2;
+}
+
+.control-btn.control-btn-mute:hover:not(:disabled),
+.control-btn.control-btn-deafen:hover:not(:disabled) {
+  background-color: rgba(237, 66, 69, 0.12);
+  color: #ffc2c4;
+}
 .control-btn:disabled {
   opacity: 0.5;
   cursor: not-allowed;
@@ -833,11 +853,18 @@ button {
 
 .settings-nav-item {
   display: block;
+  width: 100%;
+  text-align: left;
   color: var(--text-muted);
-  padding: 7px 10px;
-  border-radius: 6px;
+  background: transparent;
+  padding: 8px 10px;
+  border-radius: 8px;
   border: 1px solid transparent;
   font-size: 13px;
+  font-weight: 600;
+  appearance: none;
+  -webkit-appearance: none;
+  transition: background-color 0.12s ease, border-color 0.12s ease, color 0.12s ease;
 }
 
 .settings-nav-item:hover {
@@ -845,6 +872,17 @@ button {
   text-decoration: none;
   background-color: rgba(63, 68, 84, 0.35);
   border-color: rgba(255, 255, 255, 0.05);
+}
+
+.settings-nav-item.active {
+  color: var(--text-header);
+  background-color: rgba(88, 101, 242, 0.2);
+  border-color: rgba(88, 101, 242, 0.45);
+}
+
+.settings-nav-item:focus-visible {
+  outline: 2px solid rgba(88, 101, 242, 0.65);
+  outline-offset: 1px;
 }
 
 .settings-content {
@@ -1096,6 +1134,16 @@ body.theme-light .composer form {
 body.theme-light .settings-sidebar,
 body.theme-light .settings-section {
   background-color: rgba(255, 255, 255, 0.86);
+}
+
+body.theme-light .settings-nav-item:hover {
+  background-color: rgba(42, 58, 82, 0.1);
+  border-color: rgba(42, 58, 82, 0.15);
+}
+
+body.theme-light .settings-nav-item.active {
+  background-color: rgba(88, 101, 242, 0.14);
+  border-color: rgba(88, 101, 242, 0.35);
 }
 
 body.theme-light .settings-row,
@@ -2408,11 +2456,20 @@ body.font-scale-lg {
 
 .profile-actions {
   display: flex;
-  justify-content: flex-start;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 10px;
 }
 
 .profile-actions .ghost-btn {
   min-width: 180px;
+}
+
+.profile-actions .error-banner.compact {
+  margin: 0;
+  padding: 6px 8px;
+  font-size: 12px;
+  text-align: left;
 }
 
 .profile-section label {

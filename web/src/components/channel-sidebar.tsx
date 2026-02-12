@@ -275,7 +275,7 @@ export function ChannelSidebar(props: ChannelSidebarProps) {
           </div>
           <div className="user-controls">
             <button
-              className={props.isSelfMuted ? 'control-btn active' : 'control-btn'}
+              className={props.isSelfMuted ? 'control-btn control-btn-mute active' : 'control-btn control-btn-mute'}
               aria-label={props.isSelfMuted ? 'Unmute microphone' : 'Mute microphone'}
               title={props.isSelfMuted ? 'Unmute' : 'Mute'}
               aria-pressed={props.isSelfMuted}
@@ -285,7 +285,7 @@ export function ChannelSidebar(props: ChannelSidebarProps) {
               <svg width="20" height="20" viewBox="0 0 24 24"><path fill="currentColor" d="M12 14c1.66 0 3-1.34 3-3V5c0-1.66-1.34-3-3-3S9 3.34 9 5v6c0 1.66 1.34 3 3 3z"></path><path fill="currentColor" d="M17 11c0 2.76-2.24 5-5 5s-5-2.24-5-5H5c0 3.53 2.61 6.43 6 6.92V21h2v-3.08c3.39-.49 6-3.39 6-6.92h-2z"></path></svg>
             </button>
             <button
-              className={props.isSelfDeafened ? 'control-btn active' : 'control-btn'}
+              className={props.isSelfDeafened ? 'control-btn control-btn-deafen active' : 'control-btn control-btn-deafen'}
               aria-label={props.isSelfDeafened ? 'Undeafen' : 'Deafen'}
               title={props.isSelfDeafened ? 'Undeafen' : 'Deafen'}
               aria-pressed={props.isSelfDeafened}

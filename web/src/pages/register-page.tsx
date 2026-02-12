@@ -1,4 +1,4 @@
-import { Link, Navigate, useNavigate } from 'react-router-dom';
+import { Navigate, useNavigate } from 'react-router-dom';
 import { useEffect, useState } from 'react';
 import { chatApi } from '../api/chat-api';
 import { AuthForm } from '../components/auth-form';
@@ -25,6 +25,9 @@ export function RegisterPage() {
         mode="register"
         loading={loading}
         error={error}
+        switchCopy="Already have an account?"
+        switchHref="/login"
+        switchLabel="Log in"
         onSubmit={async ({ username, email, password }) => {
           try {
             setLoading(true);
@@ -43,9 +46,6 @@ export function RegisterPage() {
           }
         }}
       />
-      <p className="switch-copy">
-        Already have an account? <Link to="/login">Log in</Link>
-      </p>
     </main>
   );
 }

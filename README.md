@@ -14,6 +14,7 @@ Harmony chat app with:
 - Setup and local development: `docs/SETUP.md`
 - API and websocket contracts: `docs/API.md`
 - Current feature map and next milestones: `docs/ROADMAP.md`
+- Repository file/folder structure map: `docs/structure.md`
 - Docs index: `docs/README.md`
 
 ## Quick Start

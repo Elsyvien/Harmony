@@ -3,8 +3,12 @@ interface UserProfileProps {
   onClose: () => void;
   currentUser?: { id: string };
   friendRequestState?: 'self' | 'none' | 'friends' | 'outgoing' | 'incoming';
+  incomingRequestId?: string | null;
   sendingFriendRequest?: boolean;
+  acceptingFriendRequest?: boolean;
+  friendRequestError?: string | null;
   onSendFriendRequest?: (username: string) => Promise<void> | void;
+  onAcceptFriendRequest?: (requestId: string) => Promise<void> | void;
 }
 
 export function UserProfile({
@@ -12,21 +16,34 @@ export function UserProfile({
   onClose,
   currentUser,
   friendRequestState = 'none',
+  incomingRequestId = null,
   sendingFriendRequest = false,
+  acceptingFriendRequest = false,
+  friendRequestError = null,
   onSendFriendRequest,
+  onAcceptFriendRequest,
 }: UserProfileProps) {
   if (!user) return null;
 
   const isSelf = currentUser?.id === user.id || friendRequestState === 'self';
   const canSendFriendRequest = !isSelf && friendRequestState === 'none' && Boolean(onSendFriendRequest);
-  const actionLabel = sendingFriendRequest
-    ? 'Sending...'
+  const canAcceptFriendRequest =
+    !isSelf &&
+    friendRequestState === 'incoming' &&
+    Boolean(incomingRequestId) &&
+    Boolean(onAcceptFriendRequest);
+  const isActionBusy = canAcceptFriendRequest ? acceptingFriendRequest : sendingFriendRequest;
+  const isActionEnabled = canSendFriendRequest || canAcceptFriendRequest;
+  const actionLabel = isActionBusy
+    ? canAcceptFriendRequest
+      ? 'Accepting...'
+      : 'Sending...'
     : friendRequestState === 'friends'
       ? 'Already Friends'
       : friendRequestState === 'outgoing'
         ? 'Request Sent'
         : friendRequestState === 'incoming'
-          ? 'Request Received'
+          ? 'Accept Friend Request'
           : 'Send Friend Request';
 
   return (
@@ -56,16 +73,20 @@ export function UserProfile({
             <div className="profile-section profile-actions">
               <button
                 className="ghost-btn"
-                disabled={!canSendFriendRequest || sendingFriendRequest}
+                disabled={!isActionEnabled || isActionBusy}
                 onClick={() => {
-                  if (!canSendFriendRequest) {
+                  if (canSendFriendRequest) {
+                    void onSendFriendRequest?.(user.username);
                     return;
                   }
-                  void onSendFriendRequest?.(user.username);
+                  if (canAcceptFriendRequest && incomingRequestId) {
+                    void onAcceptFriendRequest?.(incomingRequestId);
+                  }
                 }}
               >
                 {actionLabel}
               </button>
+              {friendRequestError ? <p className="error-banner compact">{friendRequestError}</p> : null}
             </div>
           ) : null}
           

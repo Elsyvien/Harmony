@@ -241,6 +241,7 @@ export function ChatPage() {
   const [hiddenUnreadCount, setHiddenUnreadCount] = useState(0);
   const pendingSignaturesRef = useRef(new Set<string>());
   const pendingTimeoutsRef = useRef(new Map<string, number>());
+  const muteStateBeforeDeafenRef = useRef<boolean | null>(null);
   const localVoiceStreamRef = useRef<MediaStream | null>(null);
   const localAnalyserRef = useRef<AnalyserNode | null>(null);
   const localAnalyserContextRef = useRef<AudioContext | null>(null);
@@ -319,6 +320,42 @@ export function ChatPage() {
           Boolean(entry.stream),
       );
   }, [activeVoiceParticipants, remoteAudioStreams, auth.user]);
+
+  const selectedUserFriendRequestState = useMemo<
+    'self' | 'none' | 'friends' | 'outgoing' | 'incoming'
+  >(() => {
+    if (!selectedUser || !auth.user) {
+      return 'none';
+    }
+
+    if (selectedUser.id === auth.user.id) {
+      return 'self';
+    }
+
+    if (friends.some((friend) => friend.user.id === selectedUser.id)) {
+      return 'friends';
+    }
+
+    if (outgoingRequests.some((request) => request.to.id === selectedUser.id)) {
+      return 'outgoing';
+    }
+
+    if (incomingRequests.some((request) => request.from.id === selectedUser.id)) {
+      return 'incoming';
+    }
+
+    return 'none';
+  }, [selectedUser, auth.user, friends, outgoingRequests, incomingRequests]);
+
+  const selectedUserIncomingRequestId = useMemo(() => {
+    if (!selectedUser) {
+      return null;
+    }
+    return incomingRequests.find((request) => request.from.id === selectedUser.id)?.id ?? null;
+  }, [selectedUser, incomingRequests]);
+
+  const acceptingSelectedUserFriendRequest =
+    selectedUserIncomingRequestId !== null && friendActionBusyId === selectedUserIncomingRequestId;
 
   const filteredMessages = useMemo(() => {
     const query = messageQuery.trim().toLowerCase();
@@ -517,14 +554,17 @@ export function ChatPage() {
   }, [isSelfDeafened]);
 
   const toggleSelfDeafen = useCallback(() => {
-    setIsSelfDeafened((current) => {
-      const next = !current;
-      if (next) {
-        setIsSelfMuted(true);
-      }
-      return next;
-    });
-  }, []);
+    if (!isSelfDeafened) {
+      muteStateBeforeDeafenRef.current = isSelfMuted;
+      setIsSelfMuted(true);
+      setIsSelfDeafened(true);
+      return;
+    }
+    const restoreMutedState = muteStateBeforeDeafenRef.current ?? false;
+    setIsSelfDeafened(false);
+    setIsSelfMuted(restoreMutedState);
+    muteStateBeforeDeafenRef.current = null;
+  }, [isSelfDeafened, isSelfMuted]);
 
   const closePeerConnection = useCallback((peerUserId: string) => {
     const connection = peerConnectionsRef.current.get(peerUserId);
@@ -1191,6 +1231,7 @@ export function ChatPage() {
       setMessageQuery('');
       return;
     }
+    setMessages([]);
     setMessageQuery('');
     void loadMessages(activeChannelId);
   }, [activeChannelId, activeChannel?.isVoice, loadMessages]);
@@ -1460,12 +1501,19 @@ export function ChatPage() {
       if (!auth.token) {
         return;
       }
+      const normalizedUsername = username.trim().replace(/^@/, '');
+      if (!normalizedUsername) {
+        return;
+      }
       setSubmittingFriendRequest(true);
       try {
-        await chatApi.sendFriendRequest(auth.token, username);
+        await chatApi.sendFriendRequest(auth.token, normalizedUsername);
         await loadFriendData();
+        setFriendsError(null);
+        setNotice(`Friend request sent to ${normalizedUsername}.`);
       } catch (err) {
         setFriendsError(getErrorMessage(err, 'Could not send friend request'));
+        setNotice(null);
       } finally {
         setSubmittingFriendRequest(false);
       }
@@ -2363,7 +2411,18 @@ export function ChatPage() {
         </div>
       ) : null}
 
-      <UserProfile user={selectedUser} onClose={() => setSelectedUser(null)} currentUser={auth.user} />
+      <UserProfile
+        user={selectedUser}
+        onClose={() => setSelectedUser(null)}
+        currentUser={auth.user}
+        friendRequestState={selectedUserFriendRequestState}
+        incomingRequestId={selectedUserIncomingRequestId}
+        acceptingFriendRequest={acceptingSelectedUserFriendRequest}
+        sendingFriendRequest={submittingFriendRequest}
+        friendRequestError={friendsError}
+        onSendFriendRequest={sendFriendRequest}
+        onAcceptFriendRequest={acceptFriendRequest}
+      />
 
       {mobilePane !== 'none' ? (
         <button
