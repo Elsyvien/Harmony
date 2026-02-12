@@ -1,3 +1,4 @@
+import { Link } from 'react-router-dom';
 import { useState } from 'react';
 
 interface AuthFormValues {
@@ -10,6 +11,9 @@ interface AuthFormProps {
   mode: 'login' | 'register';
   loading: boolean;
   error: string | null;
+  switchCopy: string;
+  switchHref: string;
+  switchLabel: string;
   onSubmit: (values: AuthFormValues) => Promise<void>;
 }
 
@@ -84,6 +88,10 @@ export function AuthForm(props: AuthFormProps) {
           'Create Account'
         )}
       </button>
+
+      <p className="auth-switch-copy">
+        {props.switchCopy} <Link to={props.switchHref}>{props.switchLabel}</Link>
+      </p>
     </form>
   );
 }
