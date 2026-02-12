@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import type { Message } from '../types/api';
 import { MarkdownMessage } from './markdown-message';
 import { cancelSmoothScroll, smoothScrollTo } from '../utils/smooth-scroll';
+import { useRecentEmojis } from '../hooks/use-recent-emojis';
 
 interface ChatViewProps {
   activeChannelId: string | null;
@@ -32,7 +33,7 @@ function stringToColor(str: string) {
 }
 
 export function ChatView(props: ChatViewProps) {
-  const quickReactions = ['👍', '❤️', '😂', '😮', '😢', '🎉'];
+  const { recentEmojis, addRecentEmoji } = useRecentEmojis();
   const apiBaseUrl = import.meta.env.VITE_API_URL ?? 'http://localhost:4000';
   const messageListRef = useRef<HTMLDivElement | null>(null);
   const previousLastMessageIdRef = useRef<string | null>(null);
@@ -224,107 +225,163 @@ export function ChatView(props: ChatViewProps) {
             const hasReactions = message.reactions.length > 0;
 
             return (
-          <article
-            key={message.id}
-            className={`message-item${message.optimistic ? ' pending' : ''}${message.failed ? ' failed' : ''}`}
-            onContextMenu={(event) => {
-              event.preventDefault();
-              openMessageMenu(message, event.clientX, event.clientY);
-            }}
-            onTouchStart={(event) => {
-              const touch = event.touches[0];
-              if (!touch) {
-                return;
-              }
-              clearLongPress();
-              longPressTimeoutRef.current = window.setTimeout(() => {
-                openMessageMenu(message, touch.clientX, touch.clientY);
-              }, 440);
-            }}
-            onTouchEnd={clearLongPress}
-            onTouchCancel={clearLongPress}
-            onTouchMove={clearLongPress}
-          >
-            <div
-              className="message-avatar"
-              style={{ backgroundColor: stringToColor(message.user.username), cursor: 'pointer' }}
-              onClick={() => props.onUserClick?.(message.user)}
-            >
-              {message.user.username.slice(0, 1).toUpperCase()}
-            </div>
-            <div className="message-content">
-              <header>
-                <strong 
-                   className="message-author" 
-                   style={{ cursor: 'pointer' }}
-                   onClick={() => props.onUserClick?.(message.user)}
+              <article
+                key={message.id}
+                className={`message-item${message.optimistic ? ' pending' : ''}${message.failed ? ' failed' : ''}`}
+                onContextMenu={(event) => {
+                  event.preventDefault();
+                  openMessageMenu(message, event.clientX, event.clientY);
+                }}
+                onTouchStart={(event) => {
+                  const touch = event.touches[0];
+                  if (!touch) {
+                    return;
+                  }
+                  clearLongPress();
+                  longPressTimeoutRef.current = window.setTimeout(() => {
+                    openMessageMenu(message, touch.clientX, touch.clientY);
+                  }, 440);
+                }}
+                onTouchEnd={clearLongPress}
+                onTouchCancel={clearLongPress}
+                onTouchMove={clearLongPress}
+              >
+                <div
+                  className="message-avatar"
+                  style={{ backgroundColor: stringToColor(message.user.username), cursor: 'pointer' }}
+                  onClick={() => props.onUserClick?.(message.user)}
                 >
-                  {message.user.username}
-                </strong>
-                <time>{formatMessageTime(message.createdAt)}</time>
-                {message.optimistic ? <span className="pending-tag">Sending...</span> : null}
-                {message.failed ? <span className="pending-tag failed">Failed</span> : null}
-              </header>
-              {message.replyTo ? (
-                <div className="message-reply-preview">
-                  <span className="message-reply-author">@{message.replyTo.user.username}</span>
-                  <span className="message-reply-content">
-                    {message.replyTo.deletedAt
-                      ? 'Deleted message'
-                      : message.replyTo.content || '(no text)'}
-                  </span>
+                  {message.user.username.slice(0, 1).toUpperCase()}
                 </div>
-              ) : null}
-              {message.deletedAt ? (
-                <p className="message-deleted">Message deleted</p>
-              ) : message.content ? (
-                <MarkdownMessage content={message.content} />
-              ) : null}
-              {message.attachment && attachmentUrl ? (
-                <a
-                  className="message-attachment"
-                  href={attachmentUrl}
-                  target="_blank"
-                  rel="noreferrer"
-                >
-                  {isImageAttachment ? (
-                    <img src={attachmentUrl} alt={message.attachment.name} className="message-attachment-preview" />
+                <div className="message-content">
+                  <header>
+                    <strong
+                      className="message-author"
+                      style={{ cursor: 'pointer' }}
+                      onClick={() => props.onUserClick?.(message.user)}
+                    >
+                      {message.user.username}
+                    </strong>
+                    <time>{formatMessageTime(message.createdAt)}</time>
+                    {message.optimistic ? <span className="pending-tag">Sending...</span> : null}
+                    {message.failed ? <span className="pending-tag failed">Failed</span> : null}
+                  </header>
+                  {message.replyTo ? (
+                    <div className="message-reply-preview">
+                      <span className="message-reply-author">@{message.replyTo.user.username}</span>
+                      <span className="message-reply-content">
+                        {message.replyTo.deletedAt
+                          ? 'Deleted message'
+                          : message.replyTo.content || '(no text)'}
+                      </span>
+                    </div>
                   ) : null}
-                  <span className="message-attachment-name">{message.attachment.name}</span>
-                  <span className="message-attachment-meta">
-                    {message.attachment.type} • {formatAttachmentSize(message.attachment.size)}
-                  </span>
-                </a>
-              ) : null}
-              {hasReactions ? (
-                <div className="message-reactions">
-                  {message.reactions.map((reaction) => {
-                    const reactedByCurrentUser = props.currentUserId
-                      ? reaction.userIds.includes(props.currentUserId)
-                      : false;
-                    return (
+                  {message.deletedAt ? (
+                    <p className="message-deleted">Message deleted</p>
+                  ) : message.content ? (
+                    <MarkdownMessage content={message.content} />
+                  ) : null}
+                  {message.attachment && attachmentUrl ? (
+                    <a
+                      className="message-attachment"
+                      href={attachmentUrl}
+                      target="_blank"
+                      rel="noreferrer"
+                    >
+                      {isImageAttachment ? (
+                        <img src={attachmentUrl} alt={message.attachment.name} className="message-attachment-preview" />
+                      ) : null}
+                      <span className="message-attachment-name">{message.attachment.name}</span>
+                      <span className="message-attachment-meta">
+                        {message.attachment.type} • {formatAttachmentSize(message.attachment.size)}
+                      </span>
+                    </a>
+                  ) : null}
+                  {hasReactions ? (
+                    <div className="message-reactions">
+                      {message.reactions.map((reaction) => {
+                        const reactedByCurrentUser = props.currentUserId
+                          ? reaction.userIds.includes(props.currentUserId)
+                          : false;
+                        return (
+                          <button
+                            key={`${message.id}:${reaction.emoji}`}
+                            type="button"
+                            className={`reaction-chip${reactedByCurrentUser ? ' active' : ''}`}
+                            disabled={!props.onToggleReaction}
+                            onClick={() => {
+                              if (!props.onToggleReaction) {
+                                return;
+                              }
+                              void props.onToggleReaction(message.id, reaction.emoji);
+                            }}
+                            title={`React with ${reaction.emoji}`}
+                          >
+                            <span>{reaction.emoji}</span>
+                            <small>{reaction.userIds.length}</small>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  ) : null}
+                  {/* Message Actions Toolbar */}
+                  <div className="message-actions-toolbar">
+                    <div className="quick-reactions">
+                      {recentEmojis.map((emoji) => (
+                        <button
+                          key={emoji}
+                          className="toolbar-btn emoji"
+                          onClick={() => {
+                            void props.onToggleReaction?.(message.id, emoji);
+                            addRecentEmoji(emoji);
+                          }}
+                          title={`React with ${emoji}`}
+                        >
+                          {emoji}
+                        </button>
+                      ))}
+                    </div>
+                    <div className="toolbar-divider" />
+                    <div className="toolbar-actions">
                       <button
-                        key={`${message.id}:${reaction.emoji}`}
-                        type="button"
-                        className={`reaction-chip${reactedByCurrentUser ? ' active' : ''}`}
-                        disabled={!props.onToggleReaction}
-                        onClick={() => {
-                          if (!props.onToggleReaction) {
-                            return;
-                          }
-                          void props.onToggleReaction(message.id, reaction.emoji);
+                        className="toolbar-btn"
+                        onClick={(e) => {
+                          // For now, open the context menu or just trigger a generic action
+                          // Ideally this would open an emoji picker
+                          openMessageMenu(message, e.clientX, e.clientY);
                         }}
-                        title={`React with ${reaction.emoji}`}
+                        title="Add Reaction"
                       >
-                        <span>{reaction.emoji}</span>
-                        <small>{reaction.userIds.length}</small>
+                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"></circle><path d="M8 14s1.5 2 4 2 4-2 4-2"></path><line x1="9" y1="9" x2="9.01" y2="9"></line><line x1="15" y1="9" x2="15.01" y2="9"></line></svg>
                       </button>
-                    );
-                  })}
+                      <button
+                        className="toolbar-btn"
+                        onClick={() => props.onReplyToMessage?.(message)}
+                        title="Reply"
+                      >
+                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="15 14 20 9 15 4"></polyline><path d="M4 20v-7a4 4 0 0 1 4-4h12"></path></svg>
+                      </button>
+                      <button
+                        className="toolbar-btn"
+                        onClick={() => {
+                          if (!message.content) return;
+                          navigator.clipboard.writeText(message.content).catch(() => { });
+                        }}
+                        title="Copy Text"
+                      >
+                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>
+                      </button>
+                      <button
+                        className="toolbar-btn"
+                        onClick={(e) => openMessageMenu(message, e.clientX, e.clientY)}
+                        title="More"
+                      >
+                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="1"></circle><circle cx="19" cy="12" r="1"></circle><circle cx="5" cy="12" r="1"></circle></svg>
+                      </button>
+                    </div>
+                  </div>
                 </div>
-              ) : null}
-            </div>
-          </article>
+              </article>
             );
           })()
         ))}
@@ -341,112 +398,113 @@ export function ChatView(props: ChatViewProps) {
             Boolean(messageMenu.message.content);
           const canDeleteMessage = canManageMessage && !messageMenu.message.deletedAt && Boolean(props.onDeleteMessage);
           return (
-        <div
-          className="message-context-menu"
-          style={{ left: `${messageMenu.x}px`, top: `${messageMenu.y}px` }}
-          onMouseDown={(event) => event.stopPropagation()}
-        >
-          <div className="message-context-reactions">
-            {quickReactions.map((emoji) => (
+            <div
+              className="message-context-menu"
+              style={{ left: `${messageMenu.x}px`, top: `${messageMenu.y}px` }}
+              onMouseDown={(event) => event.stopPropagation()}
+            >
+              <div className="message-context-reactions">
+                {recentEmojis.map((emoji) => (
+                  <button
+                    key={`menu-reaction:${emoji}`}
+                    type="button"
+                    className="reaction-menu-btn"
+                    disabled={!props.onToggleReaction}
+                    onClick={() => {
+                      if (!props.onToggleReaction) {
+                        return;
+                      }
+                      void props.onToggleReaction(messageMenu.message.id, emoji);
+                      addRecentEmoji(emoji);
+                      setMessageMenu(null);
+                    }}
+                  >
+                    {emoji}
+                  </button>
+                ))}
+              </div>
               <button
-                key={`menu-reaction:${emoji}`}
-                type="button"
-                className="reaction-menu-btn"
-                disabled={!props.onToggleReaction}
                 onClick={() => {
-                  if (!props.onToggleReaction) {
-                    return;
-                  }
-                  void props.onToggleReaction(messageMenu.message.id, emoji);
+                  props.onUserClick?.(messageMenu.message.user);
                   setMessageMenu(null);
                 }}
               >
-                {emoji}
+                Open Profile
               </button>
-            ))}
-          </div>
-          <button
-            onClick={() => {
-              props.onUserClick?.(messageMenu.message.user);
-              setMessageMenu(null);
-            }}
-          >
-            Open Profile
-          </button>
-          <button
-            onClick={() => {
-              props.onMentionUser?.(messageMenu.message.user);
-              setMessageMenu(null);
-            }}
-            disabled={!props.onMentionUser}
-          >
-            Mention User
-          </button>
-          <button
-            onClick={() => {
-              props.onReplyToMessage?.(messageMenu.message);
-              setMessageMenu(null);
-            }}
-            disabled={!props.onReplyToMessage}
-          >
-            Reply
-          </button>
-          <button
-            onClick={() => {
-              if (!canEditMessage || !props.onEditMessage) {
-                return;
-              }
-              const currentContent = messageMenu.message.content;
-              const nextContent = window.prompt('Edit message', currentContent);
-              if (nextContent === null) {
-                return;
-              }
-              const trimmed = nextContent.trim();
-              if (!trimmed || trimmed === currentContent) {
-                setMessageMenu(null);
-                return;
-              }
-              void props.onEditMessage(messageMenu.message.id, trimmed);
-              setMessageMenu(null);
-            }}
-            disabled={!canEditMessage}
-          >
-            Edit Message
-          </button>
-          <button
-            className="danger"
-            onClick={() => {
-              if (!canDeleteMessage || !props.onDeleteMessage) {
-                return;
-              }
-              const confirmed = window.confirm('Delete this message?');
-              if (!confirmed) {
-                return;
-              }
-              void props.onDeleteMessage(messageMenu.message.id);
-              setMessageMenu(null);
-            }}
-            disabled={!canDeleteMessage}
-          >
-            Delete Message
-          </button>
-          <button
-            onClick={async () => {
-              if (!messageMenu.message.content) {
-                return;
-              }
-              try {
-                await navigator.clipboard.writeText(messageMenu.message.content);
-              } catch {
-                // Clipboard access can fail in insecure contexts.
-              }
-              setMessageMenu(null);
-            }}
-            disabled={!messageMenu.message.content}
-          >
-            Copy Message
-          </button>
-        </div>
+              <button
+                onClick={() => {
+                  props.onMentionUser?.(messageMenu.message.user);
+                  setMessageMenu(null);
+                }}
+                disabled={!props.onMentionUser}
+              >
+                Mention User
+              </button>
+              <button
+                onClick={() => {
+                  props.onReplyToMessage?.(messageMenu.message);
+                  setMessageMenu(null);
+                }}
+                disabled={!props.onReplyToMessage}
+              >
+                Reply
+              </button>
+              <button
+                onClick={() => {
+                  if (!canEditMessage || !props.onEditMessage) {
+                    return;
+                  }
+                  const currentContent = messageMenu.message.content;
+                  const nextContent = window.prompt('Edit message', currentContent);
+                  if (nextContent === null) {
+                    return;
+                  }
+                  const trimmed = nextContent.trim();
+                  if (!trimmed || trimmed === currentContent) {
+                    setMessageMenu(null);
+                    return;
+                  }
+                  void props.onEditMessage(messageMenu.message.id, trimmed);
+                  setMessageMenu(null);
+                }}
+                disabled={!canEditMessage}
+              >
+                Edit Message
+              </button>
+              <button
+                className="danger"
+                onClick={() => {
+                  if (!canDeleteMessage || !props.onDeleteMessage) {
+                    return;
+                  }
+                  const confirmed = window.confirm('Delete this message?');
+                  if (!confirmed) {
+                    return;
+                  }
+                  void props.onDeleteMessage(messageMenu.message.id);
+                  setMessageMenu(null);
+                }}
+                disabled={!canDeleteMessage}
+              >
+                Delete Message
+              </button>
+              <button
+                onClick={async () => {
+                  if (!messageMenu.message.content) {
+                    return;
+                  }
+                  try {
+                    await navigator.clipboard.writeText(messageMenu.message.content);
+                  } catch {
+                    // Clipboard access can fail in insecure contexts.
+                  }
+                  setMessageMenu(null);
+                }}
+                disabled={!messageMenu.message.content}
+              >
+                Copy Message
+              </button>
+            </div>
           );
         })()
       ) : null}
