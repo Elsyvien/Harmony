@@ -151,7 +151,7 @@ body.theme-light ::-webkit-scrollbar-thumb {
 .auth-logo {
   width: 36px;
   height: 36px;
-  object-fit: cover;
+  object-fit: contain;
   border-radius: 8px;
   box-shadow: 0 0 0 1px var(--panel-border);
 }
@@ -339,7 +339,8 @@ button {
   width: 20px;
   height: 20px;
   border-radius: 5px;
-  object-fit: cover;
+  object-fit: contain;
+  background: rgba(255, 255, 255, 0.04);
   box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.08);
 }
 
