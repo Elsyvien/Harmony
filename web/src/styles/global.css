@@ -3275,3 +3275,31 @@ body.font-scale-lg {
   background-color: rgba(88, 101, 242, 0.16);
   transform: scale(1.1);
 }
+
+.user-ping {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 11px;
+  color: var(--text-muted);
+  font-weight: 700;
+}
+
+.ping-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background-color: var(--text-muted);
+}
+
+.ping-dot.good {
+  background-color: var(--positive);
+}
+
+.ping-dot.fair {
+  background-color: #f0b232;
+}
+
+.ping-dot.bad {
+  background-color: var(--danger);
+}
