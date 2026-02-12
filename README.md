@@ -1,4 +1,5 @@
 # Harmony
+<img width="1536" height="1024" alt="ChatGPT Image 12  Feb  2026, 14_29_01" src="https://github.com/user-attachments/assets/589403ea-58bd-42ea-b4e8-f8eaa66142fa" />
 
 Harmony chat app with:
 - JWT auth (register/login/logout)
