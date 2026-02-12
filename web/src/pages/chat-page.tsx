@@ -227,6 +227,20 @@ function getVoiceIceServers(): RTCIceServer[] {
     turnServer.username = turnUsername;
     turnServer.credential = turnCredential;
     servers.push(turnServer);
+  } else if (turnUrls.length > 0) {
+    servers.push({ urls: turnUrls });
+  } else {
+    // Development fallback to avoid complete ICE failure behind strict NATs.
+    // For production reliability, configure a dedicated TURN service via env.
+    servers.push({
+      urls: [
+        'turn:openrelay.metered.ca:80',
+        'turn:openrelay.metered.ca:443',
+        'turns:openrelay.metered.ca:443',
+      ],
+      username: 'openrelayproject',
+      credential: 'openrelayproject',
+    });
   }
 
   return servers;
