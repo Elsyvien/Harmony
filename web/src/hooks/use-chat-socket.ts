@@ -101,6 +101,7 @@ export function useChatSocket(params: {
     }
 
     let isClosed = false;
+    const joinedChannelIds = joinedChannelIdsRef.current;
 
     const connect = () => {
       if (isClosed) {
@@ -113,13 +114,13 @@ export function useChatSocket(params: {
       socket.onopen = () => {
         setConnected(true);
         sendEvent('auth', { token: params.token });
-        joinedChannelIdsRef.current.clear();
+        joinedChannelIds.clear();
         for (const channelId of subscribedChannelIdsRef.current) {
           if (!channelId) {
             continue;
           }
           sendEvent('channel:join', { channelId });
-          joinedChannelIdsRef.current.add(channelId);
+          joinedChannelIds.add(channelId);
         }
       };
 
@@ -223,7 +224,7 @@ export function useChatSocket(params: {
       if (reconnectTimerRef.current) {
         window.clearTimeout(reconnectTimerRef.current);
       }
-      joinedChannelIdsRef.current.clear();
+      joinedChannelIds.clear();
       socketRef.current?.close();
       socketRef.current = null;
     };
