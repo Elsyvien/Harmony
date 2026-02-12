@@ -203,44 +203,30 @@ function getVoiceIceServers(): RTCIceServer[] {
   const turnUrlsRaw = import.meta.env.VITE_TURN_URLS as string | undefined;
   const turnUsername = import.meta.env.VITE_TURN_USERNAME as string | undefined;
   const turnCredential = import.meta.env.VITE_TURN_CREDENTIAL as string | undefined;
-  const turnUrls =
-    turnUrlsRaw
-      ?.split(',')
-      .map((entry) => entry.trim())
-      .filter(Boolean) ?? [];
+  const turnUrls = Array.from(
+    new Set(
+      (turnUrlsRaw
+        ?.split(',')
+        .map((entry) => entry.trim())
+        .filter(Boolean) ?? []),
+    ),
+  ).slice(0, 2);
 
   const servers: RTCIceServer[] = [
     {
       urls: [
         'stun:stun.l.google.com:19302',
         'stun:stun1.l.google.com:19302',
-        'stun:stun2.l.google.com:19302',
       ],
     },
   ];
 
-  if (turnUrls.length > 0) {
+  const hasValidTurnCredentials = Boolean(turnUsername && turnCredential);
+  if (turnUrls.length > 0 && hasValidTurnCredentials) {
     const turnServer: RTCIceServer = { urls: turnUrls };
-    if (turnUsername) {
-      turnServer.username = turnUsername;
-    }
-    if (turnCredential) {
-      turnServer.credential = turnCredential;
-    }
+    turnServer.username = turnUsername;
+    turnServer.credential = turnCredential;
     servers.push(turnServer);
-  } else {
-    // Free Open Relay TURN server as fallback.
-    // This is meant for development and testing only.
-    // For production, configure VITE_TURN_URLS with a dedicated TURN service.
-    servers.push({
-      urls: [
-        'turn:openrelay.metered.ca:80',
-        'turn:openrelay.metered.ca:443',
-        'turns:openrelay.metered.ca:443',
-      ],
-      username: 'openrelayproject',
-      credential: 'openrelayproject',
-    });
   }
 
   return servers;
