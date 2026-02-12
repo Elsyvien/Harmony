@@ -1,4 +1,5 @@
 import { useState, useCallback } from 'react';
+import { getStorageItem, setStorageItem } from '../utils/safe-storage';
 
 const STORAGE_KEY = 'harmony_recent_reactions';
 const MAX_RECENT = 3;
@@ -7,15 +8,17 @@ const DEFAULT_REACTIONS = ['👍', '❤️', '😂'];
 export function useRecentEmojis() {
   const [recentEmojis, setRecentEmojis] = useState<string[]>(() => {
     try {
-      const stored = localStorage.getItem(STORAGE_KEY);
+      const stored = getStorageItem(STORAGE_KEY);
       if (stored) {
-        const parsed = JSON.parse(stored);
+        const parsed = JSON.parse(stored) as unknown;
         if (Array.isArray(parsed) && parsed.length > 0) {
-          return parsed.slice(0, MAX_RECENT);
+          return parsed
+            .filter((emoji): emoji is string => typeof emoji === 'string' && emoji.length > 0)
+            .slice(0, MAX_RECENT);
         }
       }
-    } catch (e) {
-      console.warn('Failed to load recent emojis', e);
+    } catch {
+      // Ignore malformed local data and use defaults.
     }
     return DEFAULT_REACTIONS;
   });
@@ -26,11 +29,7 @@ export function useRecentEmojis() {
       const filtered = prev.filter((e) => e !== emoji);
       const next = [emoji, ...filtered].slice(0, MAX_RECENT);
 
-      try {
-        localStorage.setItem(STORAGE_KEY, JSON.stringify(next));
-      } catch (e) {
-        console.warn('Failed to save recent emojis', e);
-      }
+      setStorageItem(STORAGE_KEY, JSON.stringify(next));
 
       return next;
     });

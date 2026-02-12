@@ -417,6 +417,17 @@ input,
   font-size: 12px;
 }
 
+.panel-search-hint {
+  color: var(--text-muted);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  padding: 2px 8px;
+  border: 1px solid var(--panel-border);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.03);
+}
+
 body.theme-light .channel-search-box {
   background-color: #f2f5fb;
 }
@@ -903,6 +914,25 @@ body.compact-chat .message-content p {
 
 .composer textarea:focus {
   outline: none;
+}
+
+.composer-meta-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 0 12px 8px;
+}
+
+.composer-shortcut-hint {
+  color: var(--text-muted);
+  font-size: 11px;
+}
+
+.composer-count {
+  color: var(--text-muted);
+  font-size: 11px;
+  white-space: nowrap;
 }
 
 .composer-emoji-wrap {
@@ -1453,4 +1483,37 @@ body.theme-light .select-option:hover {
   font-weight: 700;
   text-transform: uppercase;
   margin: 0;
+}
+
+.chat-view .jump-latest-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.jump-latest-main {
+  line-height: 1;
+}
+
+.jump-latest-count {
+  display: inline-flex;
+  min-width: 22px;
+  height: 22px;
+  align-items: center;
+  justify-content: center;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 800;
+  color: #ffffff;
+  background: rgba(0, 0, 0, 0.28);
+}
+
+.chat-view-empty-state {
+  margin-top: 54px;
+}
+
+@media (max-width: 960px) {
+  .panel-search-hint {
+    display: none;
+  }
 }

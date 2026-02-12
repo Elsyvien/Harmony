@@ -2,6 +2,7 @@ import { createContext, useContext, useEffect, useMemo, useState } from 'react';
 import type { PropsWithChildren } from 'react';
 import type { User, UserRole } from '../types/api';
 import { chatApi } from '../api/chat-api';
+import { getStorageItem, removeStorageItem, setStorageItem } from '../utils/safe-storage';
 
 const TOKEN_KEY = 'discordclone_token';
 const USER_KEY = 'discordclone_user';
@@ -17,8 +18,12 @@ interface AuthContextValue extends AuthState {
   clearAuth: () => void;
 }
 
-const initialToken = localStorage.getItem(TOKEN_KEY);
-const initialUser = localStorage.getItem(USER_KEY);
+const initialToken = getStorageItem(TOKEN_KEY);
+const initialUser = getStorageItem(USER_KEY);
+
+function isUserRole(value: unknown): value is UserRole {
+  return value === 'OWNER' || value === 'ADMIN' || value === 'MODERATOR' || value === 'MEMBER';
+}
 
 function parseStoredUser(raw: string | null): User | null {
   if (!raw) {
@@ -36,14 +41,14 @@ function parseStoredUser(raw: string | null): User | null {
         : parsed.isAdmin
           ? 'ADMIN'
           : 'MEMBER';
-    const role = parsed.role ?? fallbackRole;
+    const role = isUserRole(parsed.role) ? parsed.role : fallbackRole;
     const isAdmin = parsed.isAdmin ?? (role === 'OWNER' || role === 'ADMIN');
     return {
       id: parsed.id,
       username: parsed.username,
       email: parsed.email,
       createdAt: parsed.createdAt,
-      avatarUrl: parsed.avatarUrl,
+      avatarUrl: typeof parsed.avatarUrl === 'string' ? parsed.avatarUrl : undefined,
       role,
       isAdmin,
     };
@@ -74,14 +79,14 @@ export function AuthProvider({ children }: PropsWithChildren) {
         if (disposed) {
           return;
         }
-        localStorage.setItem(USER_KEY, JSON.stringify(response.user));
+        setStorageItem(USER_KEY, JSON.stringify(response.user));
         setState((prev) => ({ ...prev, user: response.user }));
       } catch {
         if (disposed) {
           return;
         }
-        localStorage.removeItem(TOKEN_KEY);
-        localStorage.removeItem(USER_KEY);
+        removeStorageItem(TOKEN_KEY);
+        removeStorageItem(USER_KEY);
         setState({ token: null, user: null });
       } finally {
         if (!disposed) {
@@ -94,21 +99,21 @@ export function AuthProvider({ children }: PropsWithChildren) {
     return () => {
       disposed = true;
     };
-  }, [state.token, state.user, hydrating]);
+  }, [state.token, hydrating]);
 
   const value = useMemo<AuthContextValue>(
     () => ({
       ...state,
       hydrating,
       setAuth: (token, user) => {
-        localStorage.setItem(TOKEN_KEY, token);
-        localStorage.setItem(USER_KEY, JSON.stringify(user));
+        setStorageItem(TOKEN_KEY, token);
+        setStorageItem(USER_KEY, JSON.stringify(user));
         setHydrating(false);
         setState({ token, user });
       },
       clearAuth: () => {
-        localStorage.removeItem(TOKEN_KEY);
-        localStorage.removeItem(USER_KEY);
+        removeStorageItem(TOKEN_KEY);
+        removeStorageItem(USER_KEY);
         setHydrating(false);
         setState({ token: null, user: null });
       },
