@@ -3,7 +3,7 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Harmony Documentation</title>
+    <title>Harmony Docs</title>
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link
@@ -15,17 +15,25 @@
   <body>
     <div class="layout">
       <aside class="sidebar">
-        <h1 class="brand">Harmony Docs</h1>
-        <p class="tagline">Canonical documentation hub</p>
-        <input id="doc-search" class="search" placeholder="Search docs..." />
+        <h1 class="brand">Harmony</h1>
+        <p class="tagline">Documentation</p>
+        <input id="doc-search" class="search" aria-label="Filter documentation sections" placeholder="Filter sections..." />
 
         <div class="nav-group">
-          <p class="nav-title">Overview</p>
+          <p class="nav-title">Getting Started</p>
           <a class="nav-link" href="#overview">Overview</a>
-          <a class="nav-link" href="#reading-order">Reading Order</a>
-          <a class="nav-link" href="#docs-map">Docs Map</a>
           <a class="nav-link" href="#quickstart">Quick Start</a>
-          <a class="nav-link" href="#consistency">Consistency Notes</a>
+        </div>
+
+        <div class="nav-group">
+          <p class="nav-title">Reference</p>
+          <a class="nav-link" href="#reading-order">Reading Order</a>
+          <a class="nav-link" href="#docs-map">All Documents</a>
+        </div>
+
+        <div class="nav-group">
+          <p class="nav-title">Notes</p>
+          <a class="nav-link" href="#consistency">Consistency</a>
         </div>
       </aside>
 
@@ -33,15 +41,15 @@
         <section class="hero">
           <h1>Harmony Documentation</h1>
           <p>
-            This page is the entrypoint for the full documentation set in <code>docs/</code>.
-            The detailed references are maintained in markdown files and are intended for both
-            human contributors and AI agents.
+            Entrypoint for the full documentation set. Detailed references live in
+            the markdown files below and are intended for both human contributors
+            and AI agents.
           </p>
           <div class="quick-links">
             <a class="chip" href="./README.md">Docs Hub</a>
             <a class="chip" href="./AI_AGENT_GUIDE.md">AI Agent Guide</a>
-            <a class="chip" href="./BACKEND_REFERENCE.md">Backend Reference</a>
-            <a class="chip" href="./FRONTEND_REFERENCE.md">Frontend Reference</a>
+            <a class="chip" href="./BACKEND_REFERENCE.md">Backend</a>
+            <a class="chip" href="./FRONTEND_REFERENCE.md">Frontend</a>
             <a class="chip" href="./DATA_MODEL.md">Data Model</a>
             <a class="chip" href="./OPERATIONS.md">Operations</a>
           </div>
@@ -51,96 +59,22 @@
           <h2>Overview</h2>
           <div class="grid cols-2">
             <article class="card">
-              <h3>Application Scope</h3>
+              <h3>What is Harmony?</h3>
               <p>
-                Harmony provides authenticated chat with public channels, friend-gated direct
-                channels, realtime events, voice signaling/transport, and admin runtime controls.
+                Authenticated real-time chat with public channels, friend-gated
+                direct channels, voice signaling, and admin runtime controls.
               </p>
             </article>
             <article class="card">
-              <h3>Primary Entry Files</h3>
+              <h3>Entry Files</h3>
               <p>
-                Backend: <code>backend/src/server.ts</code>, <code>backend/src/app.ts</code>.<br />
-                Frontend: <code>web/src/main.tsx</code>, <code>web/src/App.tsx</code>.
+                Backend: <code>backend/src/server.ts</code> &amp;
+                <code>backend/src/app.ts</code><br />
+                Frontend: <code>web/src/main.tsx</code> &amp;
+                <code>web/src/App.tsx</code>
               </p>
             </article>
           </div>
-        </section>
-
-        <section id="reading-order" class="section">
-          <h2>Recommended Reading Order</h2>
-          <table>
-            <thead>
-              <tr>
-                <th>Order</th>
-                <th>Document</th>
-                <th>Why</th>
-              </tr>
-            </thead>
-            <tbody>
-              <tr>
-                <td>1</td>
-                <td><a href="./AI_AGENT_GUIDE.md"><code>docs/AI_AGENT_GUIDE.md</code></a></td>
-                <td>Invariants, high-risk files, and safe change workflows.</td>
-              </tr>
-              <tr>
-                <td>2</td>
-                <td><a href="./ARCHITECTURE.md"><code>docs/ARCHITECTURE.md</code></a></td>
-                <td>System topology and runtime lifecycle.</td>
-              </tr>
-              <tr>
-                <td>3</td>
-                <td><a href="./BACKEND_REFERENCE.md"><code>docs/BACKEND_REFERENCE.md</code></a></td>
-                <td>Exact backend contracts and behavior.</td>
-              </tr>
-              <tr>
-                <td>4</td>
-                <td><a href="./FRONTEND_REFERENCE.md"><code>docs/FRONTEND_REFERENCE.md</code></a></td>
-                <td>State orchestration, UI modules, realtime fallback logic.</td>
-              </tr>
-              <tr>
-                <td>5</td>
-                <td><a href="./DATA_MODEL.md"><code>docs/DATA_MODEL.md</code></a></td>
-                <td>Schema constraints and domain invariants.</td>
-              </tr>
-              <tr>
-                <td>6</td>
-                <td><a href="./OPERATIONS.md"><code>docs/OPERATIONS.md</code></a></td>
-                <td>Runbooks, setup, troubleshooting, deploy checks.</td>
-              </tr>
-              <tr>
-                <td>7</td>
-                <td><a href="./FILE_MAP.md"><code>docs/FILE_MAP.md</code></a></td>
-                <td>File-by-file ownership and responsibilities.</td>
-              </tr>
-            </tbody>
-          </table>
-        </section>
-
-        <section id="docs-map" class="section">
-          <h2>Documentation Map</h2>
-          <table>
-            <thead>
-              <tr>
-                <th>Document</th>
-                <th>Purpose</th>
-              </tr>
-            </thead>
-            <tbody>
-              <tr><td><a href="./README.md"><code>docs/README.md</code></a></td><td>Primary documentation hub and update policy.</td></tr>
-              <tr><td><a href="./AI_AGENT_GUIDE.md"><code>docs/AI_AGENT_GUIDE.md</code></a></td><td>AI-focused guide with invariants and playbooks.</td></tr>
-              <tr><td><a href="./ARCHITECTURE.md"><code>docs/ARCHITECTURE.md</code></a></td><td>System architecture and lifecycle behavior.</td></tr>
-              <tr><td><a href="./BACKEND_REFERENCE.md"><code>docs/BACKEND_REFERENCE.md</code></a></td><td>Backend routes, WS protocol, services, repositories, errors.</td></tr>
-              <tr><td><a href="./FRONTEND_REFERENCE.md"><code>docs/FRONTEND_REFERENCE.md</code></a></td><td>Frontend state, transport, and component contracts.</td></tr>
-              <tr><td><a href="./DATA_MODEL.md"><code>docs/DATA_MODEL.md</code></a></td><td>Prisma schema and data constraints.</td></tr>
-              <tr><td><a href="./OPERATIONS.md"><code>docs/OPERATIONS.md</code></a></td><td>Setup, commands, deploy checks, troubleshooting.</td></tr>
-              <tr><td><a href="./FILE_MAP.md"><code>docs/FILE_MAP.md</code></a></td><td>Tracked-file map with responsibilities.</td></tr>
-              <tr><td><a href="./API.md"><code>docs/API.md</code></a></td><td>Condensed API and event quick reference.</td></tr>
-              <tr><td><a href="./SETUP.md"><code>docs/SETUP.md</code></a></td><td>Condensed setup quick reference.</td></tr>
-              <tr><td><a href="./structure.md"><code>docs/structure.md</code></a></td><td>Concise structure overview.</td></tr>
-              <tr><td><a href="./ROADMAP.md"><code>docs/ROADMAP.md</code></a></td><td>Current product and engineering roadmap.</td></tr>
-            </tbody>
-          </table>
         </section>
 
         <section id="quickstart" class="section">
@@ -153,12 +87,142 @@
               </tr>
             </thead>
             <tbody>
-              <tr><td>Install dependencies</td><td><code>npm install</code></td></tr>
-              <tr><td>Apply schema</td><td><code>npm --workspace backend exec prisma db push</code></td></tr>
-              <tr><td>Seed data</td><td><code>npm --workspace backend run prisma:seed</code></td></tr>
-              <tr><td>Start full stack</td><td><code>npm run dev</code></td></tr>
-              <tr><td>Run tests</td><td><code>npm test</code></td></tr>
-              <tr><td>Run lint</td><td><code>npm run lint</code></td></tr>
+              <tr>
+                <td>Install dependencies</td>
+                <td><code>npm install</code></td>
+              </tr>
+              <tr>
+                <td>Apply schema</td>
+                <td><code>npm --workspace backend exec prisma db push</code></td>
+              </tr>
+              <tr>
+                <td>Seed data</td>
+                <td><code>npm --workspace backend run prisma:seed</code></td>
+              </tr>
+              <tr>
+                <td>Start full stack</td>
+                <td><code>npm run dev</code></td>
+              </tr>
+              <tr>
+                <td>Run tests</td>
+                <td><code>npm test</code></td>
+              </tr>
+              <tr>
+                <td>Run lint</td>
+                <td><code>npm run lint</code></td>
+              </tr>
+            </tbody>
+          </table>
+        </section>
+
+        <section id="reading-order" class="section">
+          <h2>Recommended Reading Order</h2>
+          <table>
+            <thead>
+              <tr>
+                <th>#</th>
+                <th>Document</th>
+                <th>Purpose</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td>1</td>
+                <td><a href="./AI_AGENT_GUIDE.md">AI Agent Guide</a></td>
+                <td>Invariants, high-risk files, safe change workflows</td>
+              </tr>
+              <tr>
+                <td>2</td>
+                <td><a href="./ARCHITECTURE.md">Architecture</a></td>
+                <td>System topology and runtime lifecycle</td>
+              </tr>
+              <tr>
+                <td>3</td>
+                <td><a href="./BACKEND_REFERENCE.md">Backend Reference</a></td>
+                <td>Routes, services, repositories, error contracts</td>
+              </tr>
+              <tr>
+                <td>4</td>
+                <td><a href="./FRONTEND_REFERENCE.md">Frontend Reference</a></td>
+                <td>State orchestration, UI modules, realtime fallback</td>
+              </tr>
+              <tr>
+                <td>5</td>
+                <td><a href="./DATA_MODEL.md">Data Model</a></td>
+                <td>Schema constraints and domain invariants</td>
+              </tr>
+              <tr>
+                <td>6</td>
+                <td><a href="./OPERATIONS.md">Operations</a></td>
+                <td>Runbooks, setup, troubleshooting, deploy checks</td>
+              </tr>
+              <tr>
+                <td>7</td>
+                <td><a href="./FILE_MAP.md">File Map</a></td>
+                <td>File-by-file ownership and responsibilities</td>
+              </tr>
+            </tbody>
+          </table>
+        </section>
+
+        <section id="docs-map" class="section">
+          <h2>All Documents</h2>
+          <table>
+            <thead>
+              <tr>
+                <th>Document</th>
+                <th>Purpose</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td><a href="./README.md">README</a></td>
+                <td>Primary documentation hub and update policy</td>
+              </tr>
+              <tr>
+                <td><a href="./AI_AGENT_GUIDE.md">AI Agent Guide</a></td>
+                <td>AI-focused invariants and playbooks</td>
+              </tr>
+              <tr>
+                <td><a href="./ARCHITECTURE.md">Architecture</a></td>
+                <td>System architecture and lifecycle behavior</td>
+              </tr>
+              <tr>
+                <td><a href="./BACKEND_REFERENCE.md">Backend Reference</a></td>
+                <td>Routes, WS protocol, services, repositories, errors</td>
+              </tr>
+              <tr>
+                <td><a href="./FRONTEND_REFERENCE.md">Frontend Reference</a></td>
+                <td>State, transport, and component contracts</td>
+              </tr>
+              <tr>
+                <td><a href="./DATA_MODEL.md">Data Model</a></td>
+                <td>Prisma schema and data constraints</td>
+              </tr>
+              <tr>
+                <td><a href="./OPERATIONS.md">Operations</a></td>
+                <td>Setup, commands, deploy checks, troubleshooting</td>
+              </tr>
+              <tr>
+                <td><a href="./FILE_MAP.md">File Map</a></td>
+                <td>Tracked-file map with responsibilities</td>
+              </tr>
+              <tr>
+                <td><a href="./API.md">API</a></td>
+                <td>Condensed API and event quick reference</td>
+              </tr>
+              <tr>
+                <td><a href="./SETUP.md">Setup</a></td>
+                <td>Condensed setup quick reference</td>
+              </tr>
+              <tr>
+                <td><a href="./structure.md">Structure</a></td>
+                <td>Concise project structure overview</td>
+              </tr>
+              <tr>
+                <td><a href="./ROADMAP.md">Roadmap</a></td>
+                <td>Current product and engineering roadmap</td>
+              </tr>
             </tbody>
           </table>
         </section>
@@ -167,16 +231,17 @@
           <h2>Consistency Notes</h2>
           <div class="callout">
             Current Prisma schema uses <code>provider = "postgresql"</code>, while
-            <code>backend/.env.example</code> still contains a SQLite-style URL. Align
-            <code>DATABASE_URL</code> with PostgreSQL for fresh local setup.
+            <code>backend/.env.example</code> still contains a SQLite-style URL.
+            Align <code>DATABASE_URL</code> with PostgreSQL for fresh local setup.
           </div>
           <p class="muted">
-            If any document conflicts with source code, update docs and treat code as authoritative.
+            If any document conflicts with source code, update the docs &mdash;
+            code is authoritative.
           </p>
         </section>
 
         <p class="footer">
-          Documentation source: <code>docs/</code> in this repository.
+          Harmony &middot; Documentation source: <code>docs/</code>
         </p>
       </main>
     </div>
