@@ -5,6 +5,7 @@ interface ChannelSidebarProps {
   channels: Channel[];
   activeChannelId: string | null;
   onSelect: (channelId: string) => void;
+  unreadChannelCounts: Record<string, number>;
   activeView: 'chat' | 'friends' | 'settings' | 'admin';
   onChangeView: (view: 'chat' | 'friends' | 'settings' | 'admin') => void;
   onLogout: () => Promise<void>;
@@ -17,6 +18,10 @@ interface ChannelSidebarProps {
   voiceParticipantCounts: Record<string, number>;
   onJoinVoice: (channelId: string) => Promise<void> | void;
   onLeaveVoice: () => Promise<void> | void;
+  isSelfMuted: boolean;
+  isSelfDeafened: boolean;
+  onToggleMute: () => void;
+  onToggleDeafen: () => void;
   joiningVoiceChannelId: string | null;
   incomingFriendRequests: number;
 }
@@ -44,6 +49,7 @@ export function ChannelSidebar(props: ChannelSidebarProps) {
   const directChannels = filteredChannels.filter((channel) => channel.isDirect);
   const textChannels = filteredChannels.filter((channel) => !channel.isDirect && !channel.isVoice);
   const voiceChannels = filteredChannels.filter((channel) => !channel.isDirect && channel.isVoice);
+  const hasUnread = (channelId: string) => (props.unreadChannelCounts[channelId] ?? 0) > 0;
 
   return (
     <aside className="channel-sidebar">
@@ -145,7 +151,8 @@ export function ChannelSidebar(props: ChannelSidebarProps) {
             }
             onClick={() => props.onSelect(channel.id)}
           >
-            @{channel.directUser?.username ?? channel.name}
+            <span>@{channel.directUser?.username ?? channel.name}</span>
+            {hasUnread(channel.id) ? <span className="channel-unread-dot" aria-hidden="true"></span> : null}
           </button>
         ))}
 
@@ -159,7 +166,8 @@ export function ChannelSidebar(props: ChannelSidebarProps) {
                 className={channel.id === props.activeChannelId ? 'channel-item active' : 'channel-item'}
                 onClick={() => props.onSelect(channel.id)}
               >
-                #{channel.name}
+                <span>#{channel.name}</span>
+                {hasUnread(channel.id) ? <span className="channel-unread-dot" aria-hidden="true"></span> : null}
               </button>
               {canDelete ? (
                 <button
@@ -202,8 +210,11 @@ export function ChannelSidebar(props: ChannelSidebarProps) {
                 className={channel.id === props.activeChannelId ? 'channel-item active' : 'channel-item'}
                 onClick={() => props.onSelect(channel.id)}
               >
-                ~{channel.name}
-                <span className="channel-voice-count">{participants}</span>
+                <span>~{channel.name}</span>
+                <span className="channel-item-meta">
+                  {hasUnread(channel.id) ? <span className="channel-unread-dot" aria-hidden="true"></span> : null}
+                  <span className="channel-voice-count">{participants}</span>
+                </span>
               </button>
               <button
                 className={isJoined ? 'channel-voice-btn leave' : 'channel-voice-btn'}
@@ -284,10 +295,23 @@ export function ChannelSidebar(props: ChannelSidebarProps) {
              </div>
           </div>
           <div className="user-controls">
-            <button className="control-btn" aria-label="Mute">
+            <button
+              className={props.isSelfMuted ? 'control-btn active' : 'control-btn'}
+              aria-label={props.isSelfMuted ? 'Unmute microphone' : 'Mute microphone'}
+              title={props.isSelfMuted ? 'Unmute' : 'Mute'}
+              aria-pressed={props.isSelfMuted}
+              disabled={props.isSelfDeafened}
+              onClick={props.onToggleMute}
+            >
               <svg width="20" height="20" viewBox="0 0 24 24"><path fill="currentColor" d="M12 14c1.66 0 3-1.34 3-3V5c0-1.66-1.34-3-3-3S9 3.34 9 5v6c0 1.66 1.34 3 3 3z"></path><path fill="currentColor" d="M17 11c0 2.76-2.24 5-5 5s-5-2.24-5-5H5c0 3.53 2.61 6.43 6 6.92V21h2v-3.08c3.39-.49 6-3.39 6-6.92h-2z"></path></svg>
             </button>
-            <button className="control-btn" aria-label="Deafen">
+            <button
+              className={props.isSelfDeafened ? 'control-btn active' : 'control-btn'}
+              aria-label={props.isSelfDeafened ? 'Undeafen' : 'Deafen'}
+              title={props.isSelfDeafened ? 'Undeafen' : 'Deafen'}
+              aria-pressed={props.isSelfDeafened}
+              onClick={props.onToggleDeafen}
+            >
               <svg width="20" height="20" viewBox="0 0 24 24"><path fill="currentColor" d="M12 3a9 9 0 0 0-9 9v7c0 1.1.9 2 2 2h4v-8H5v-1c0-3.87 3.13-7 7-7s7 3.13 7 7v1h-4v8h4c1.1 0 2-.9 2-2v-7a9 9 0 0 0-9-9zM7 15v4H5v-4h2zm12 4h-2v-4h2v4z"></path></svg>
             </button>
             {props.isAdmin ? (

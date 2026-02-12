@@ -175,6 +175,7 @@ export function ChatPage() {
   const [submittingFriendRequest, setSubmittingFriendRequest] = useState(false);
   const [openingDmUserId, setOpeningDmUserId] = useState<string | null>(null);
   const [deletingChannelId, setDeletingChannelId] = useState<string | null>(null);
+  const [unreadChannelCounts, setUnreadChannelCounts] = useState<Record<string, number>>({});
   const [onlineUsers, setOnlineUsers] = useState<PresenceUser[]>([]);
   const [voiceParticipantsByChannel, setVoiceParticipantsByChannel] = useState<
     Record<string, VoiceParticipant[]>
@@ -182,6 +183,8 @@ export function ChatPage() {
   const [activeVoiceChannelId, setActiveVoiceChannelId] = useState<string | null>(null);
   const [voiceBusyChannelId, setVoiceBusyChannelId] = useState<string | null>(null);
   const [localAudioReady, setLocalAudioReady] = useState(false);
+  const [isSelfMuted, setIsSelfMuted] = useState(false);
+  const [isSelfDeafened, setIsSelfDeafened] = useState(false);
   const [remoteAudioStreams, setRemoteAudioStreams] = useState<Record<string, MediaStream>>({});
   const [savingVoiceBitrateChannelId, setSavingVoiceBitrateChannelId] = useState<string | null>(null);
 
@@ -205,6 +208,7 @@ export function ChatPage() {
     [channels, activeVoiceChannelId],
   );
   const activeVoiceBitrateKbps = activeVoiceChannel?.voiceBitrateKbps ?? 64;
+  const subscribedChannelIds = useMemo(() => channels.map((channel) => channel.id), [channels]);
 
   const voiceParticipantCounts = useMemo(() => {
     const counts: Record<string, number> = {};
@@ -367,6 +371,36 @@ export function ChatPage() {
     [clearPendingSignature],
   );
 
+  const applyLocalVoiceTrackState = useCallback(
+    (stream: MediaStream | null) => {
+      if (!stream) {
+        return;
+      }
+      const shouldEnableMic = !isSelfMuted && !isSelfDeafened;
+      for (const track of stream.getAudioTracks()) {
+        track.enabled = shouldEnableMic;
+      }
+    },
+    [isSelfMuted, isSelfDeafened],
+  );
+
+  const toggleSelfMute = useCallback(() => {
+    if (isSelfDeafened) {
+      return;
+    }
+    setIsSelfMuted((current) => !current);
+  }, [isSelfDeafened]);
+
+  const toggleSelfDeafen = useCallback(() => {
+    setIsSelfDeafened((current) => {
+      const next = !current;
+      if (next) {
+        setIsSelfMuted(true);
+      }
+      return next;
+    });
+  }, []);
+
   const closePeerConnection = useCallback((peerUserId: string) => {
     const connection = peerConnectionsRef.current.get(peerUserId);
     if (connection) {
@@ -405,6 +439,7 @@ export function ChatPage() {
 
   const getLocalVoiceStream = useCallback(async () => {
     if (localVoiceStreamRef.current) {
+      applyLocalVoiceTrackState(localVoiceStreamRef.current);
       return localVoiceStreamRef.current;
     }
     if (!navigator.mediaDevices?.getUserMedia) {
@@ -419,9 +454,10 @@ export function ChatPage() {
       video: false,
     });
     localVoiceStreamRef.current = stream;
+    applyLocalVoiceTrackState(stream);
     setLocalAudioReady(true);
     return stream;
-  }, []);
+  }, [applyLocalVoiceTrackState]);
 
   const applyAudioBitrateToConnection = useCallback(
     async (connection: RTCPeerConnection, bitrateKbps: number) => {
@@ -630,10 +666,15 @@ export function ChatPage() {
 
   const ws = useChatSocket({
     token: auth.token,
-    activeChannelId,
+    subscribedChannelIds,
     onMessageNew: (message) => {
-      if (message.channelId !== activeChannelId) {
-        return;
+      const isOwnMessage = auth.user?.id === message.userId;
+      const isViewedChannel = activeView === 'chat' && message.channelId === activeChannelId;
+      if (!isOwnMessage && !isViewedChannel) {
+        setUnreadChannelCounts((prev) => ({
+          ...prev,
+          [message.channelId]: (prev[message.channelId] ?? 0) + 1,
+        }));
       }
       if (auth.user) {
         const signature = messageSignature(
@@ -643,12 +684,15 @@ export function ChatPage() {
           message.attachment?.url,
         );
         clearPendingSignature(signature);
-        if (message.userId !== auth.user.id) {
+        if (message.userId !== auth.user.id && message.channelId === activeChannelId) {
           playIncomingMessageSound();
         }
       }
-      if (document.hidden) {
+      if (document.hidden && !isOwnMessage) {
         setHiddenUnreadCount((count) => count + 1);
+      }
+      if (message.channelId !== activeChannelId) {
+        return;
       }
       setMessages((prev) => reconcileIncomingMessage(prev, message));
     },
@@ -657,6 +701,13 @@ export function ChatPage() {
     },
     onDmEvent: (payload) => {
       setChannels((prev) => upsertChannel(prev, payload.channel));
+      const isViewedChannel = activeView === 'chat' && payload.channel.id === activeChannelId;
+      if (payload.from.id !== auth.user?.id && !isViewedChannel) {
+        setUnreadChannelCounts((prev) => ({
+          ...prev,
+          [payload.channel.id]: (prev[payload.channel.id] ?? 0) + 1,
+        }));
+      }
       setNotice(`New DM from @${payload.from.username}`);
       if (document.hidden) {
         setHiddenUnreadCount((count) => count + 1);
@@ -737,6 +788,7 @@ export function ChatPage() {
   useEffect(() => {
     if (!auth.token) {
       setOnlineUsers([]);
+      setUnreadChannelCounts({});
       setVoiceParticipantsByChannel({});
       setActiveVoiceChannelId(null);
       setVoiceBusyChannelId(null);
@@ -771,6 +823,20 @@ export function ChatPage() {
     }
     void loadFriendData();
   }, [auth.token, loadFriendData]);
+
+  useEffect(() => {
+    if (activeView !== 'chat' || !activeChannelId) {
+      return;
+    }
+    setUnreadChannelCounts((prev) => {
+      if (!prev[activeChannelId]) {
+        return prev;
+      }
+      const next = { ...prev };
+      delete next[activeChannelId];
+      return next;
+    });
+  }, [activeView, activeChannelId]);
 
   useEffect(() => {
     if (!activeChannelId) {
@@ -861,6 +927,10 @@ export function ChatPage() {
       void applyAudioBitrateToConnection(connection, activeVoiceBitrateKbps);
     }
   }, [applyAudioBitrateToConnection, activeVoiceBitrateKbps]);
+
+  useEffect(() => {
+    applyLocalVoiceTrackState(localVoiceStreamRef.current);
+  }, [applyLocalVoiceTrackState]);
 
   const loadAdminStats = useCallback(async () => {
     if (!auth.token || !auth.user?.isAdmin) {
@@ -1363,6 +1433,14 @@ export function ChatPage() {
         delete next[channelId];
         return next;
       });
+      setUnreadChannelCounts((prev) => {
+        if (!prev[channelId]) {
+          return prev;
+        }
+        const next = { ...prev };
+        delete next[channelId];
+        return next;
+      });
       setError(null);
     } catch (err) {
       setError(getErrorMessage(err, 'Could not delete channel'));
@@ -1403,7 +1481,16 @@ export function ChatPage() {
         onSelect={(channelId) => {
           setActiveChannelId(channelId);
           setActiveView('chat');
+          setUnreadChannelCounts((prev) => {
+            if (!prev[channelId]) {
+              return prev;
+            }
+            const next = { ...prev };
+            delete next[channelId];
+            return next;
+          });
         }}
+        unreadChannelCounts={unreadChannelCounts}
         activeView={activeView}
         onChangeView={setActiveView}
         onLogout={logout}
@@ -1416,6 +1503,10 @@ export function ChatPage() {
         voiceParticipantCounts={voiceParticipantCounts}
         onJoinVoice={joinVoiceChannel}
         onLeaveVoice={leaveVoiceChannel}
+        isSelfMuted={isSelfMuted}
+        isSelfDeafened={isSelfDeafened}
+        onToggleMute={toggleSelfMute}
+        onToggleDeafen={toggleSelfDeafen}
         joiningVoiceChannelId={voiceBusyChannelId}
         incomingFriendRequests={incomingRequests.length}
       />
@@ -1574,6 +1665,7 @@ export function ChatPage() {
             key={user.userId}
             autoPlay
             playsInline
+            muted={isSelfDeafened}
             ref={(node) => {
               if (!node) {
                 return;

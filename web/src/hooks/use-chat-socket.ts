@@ -39,7 +39,7 @@ export interface VoiceSignalPayload {
 
 export function useChatSocket(params: {
   token: string | null;
-  activeChannelId: string | null;
+  subscribedChannelIds: string[];
   onMessageNew: (message: Message) => void;
   onFriendEvent?: () => void;
   onDmEvent?: (payload: DmNewEventPayload) => void;
@@ -50,8 +50,8 @@ export function useChatSocket(params: {
 }) {
   const socketRef = useRef<WebSocket | null>(null);
   const reconnectTimerRef = useRef<number | null>(null);
-  const joinedChannelRef = useRef<string | null>(null);
-  const activeChannelIdRef = useRef(params.activeChannelId);
+  const joinedChannelIdsRef = useRef<Set<string>>(new Set());
+  const subscribedChannelIdsRef = useRef(params.subscribedChannelIds);
   const onMessageNewRef = useRef(params.onMessageNew);
   const onFriendEventRef = useRef(params.onFriendEvent);
   const onDmEventRef = useRef(params.onDmEvent);
@@ -68,7 +68,7 @@ export function useChatSocket(params: {
   onPresenceUpdateRef.current = params.onPresenceUpdate;
   onVoiceStateRef.current = params.onVoiceState;
   onVoiceSignalRef.current = params.onVoiceSignal;
-  activeChannelIdRef.current = params.activeChannelId;
+  subscribedChannelIdsRef.current = params.subscribedChannelIds;
 
   const sendEvent = useCallback((type: string, payload: unknown) => {
     const socket = socketRef.current;
@@ -97,9 +97,13 @@ export function useChatSocket(params: {
       socket.onopen = () => {
         setConnected(true);
         sendEvent('auth', { token: params.token });
-        if (activeChannelIdRef.current) {
-          sendEvent('channel:join', { channelId: activeChannelIdRef.current });
-          joinedChannelRef.current = activeChannelIdRef.current;
+        joinedChannelIdsRef.current.clear();
+        for (const channelId of subscribedChannelIdsRef.current) {
+          if (!channelId) {
+            continue;
+          }
+          sendEvent('channel:join', { channelId });
+          joinedChannelIdsRef.current.add(channelId);
         }
       };
 
@@ -179,26 +183,36 @@ export function useChatSocket(params: {
       if (reconnectTimerRef.current) {
         window.clearTimeout(reconnectTimerRef.current);
       }
+      joinedChannelIdsRef.current.clear();
       socketRef.current?.close();
       socketRef.current = null;
     };
   }, [params.token, sendEvent]);
 
   useEffect(() => {
-    const next = params.activeChannelId;
-    const previous = joinedChannelRef.current;
-    if (!params.token || !next) {
+    if (!params.token) {
       return;
     }
 
-    if (previous && previous !== next) {
-      sendEvent('channel:leave', { channelId: previous });
+    const nextSet = new Set(params.subscribedChannelIds.filter(Boolean));
+    const joinedSet = joinedChannelIdsRef.current;
+
+    for (const joinedChannelId of Array.from(joinedSet)) {
+      if (nextSet.has(joinedChannelId)) {
+        continue;
+      }
+      sendEvent('channel:leave', { channelId: joinedChannelId });
+      joinedSet.delete(joinedChannelId);
     }
-    if (previous !== next) {
-      sendEvent('channel:join', { channelId: next });
-      joinedChannelRef.current = next;
+
+    for (const nextChannelId of nextSet) {
+      if (joinedSet.has(nextChannelId)) {
+        continue;
+      }
+      sendEvent('channel:join', { channelId: nextChannelId });
+      joinedSet.add(nextChannelId);
     }
-  }, [params.token, params.activeChannelId, sendEvent]);
+  }, [params.token, params.subscribedChannelIds, sendEvent]);
 
   const sendMessage = useCallback(
     (channelId: string, content: string) => {

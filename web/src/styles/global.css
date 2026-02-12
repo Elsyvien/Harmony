@@ -29,9 +29,16 @@
   box-sizing: border-box;
 }
 
+html,
+body,
+#root {
+  height: 100%;
+}
+
 body {
   margin: 0;
-  height: 100vh;
+  min-height: 100vh;
+  min-height: 100dvh;
   color: var(--text-normal);
   background-color: var(--bg-dark);
   font-family: var(--font-body);
@@ -85,7 +92,8 @@ a:hover {
 
 /* Auth Pages */
 .auth-page {
-  height: 100vh;
+  min-height: 100vh;
+  min-height: 100dvh;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -206,7 +214,9 @@ button {
 .chat-layout {
   display: grid;
   grid-template-columns: 260px 1fr 260px;
-  height: 100vh;
+  height: 100%;
+  min-height: 100vh;
+  min-height: 100dvh;
   background-color: var(--bg-darkest);
 }
 
@@ -373,6 +383,22 @@ button {
   transition: all 0.1s;
 }
 
+.channel-item-meta {
+  margin-left: auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.channel-unread-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 999px;
+  background-color: #ff4f5e;
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.35);
+  flex-shrink: 0;
+}
+
 .sidebar-badge {
   min-width: 20px;
   height: 20px;
@@ -435,7 +461,7 @@ button {
 }
 
 .channel-voice-count {
-  margin-left: auto;
+  margin-left: 0;
   color: var(--text-muted);
   font-size: 11px;
   font-weight: 700;
@@ -563,6 +589,10 @@ button {
 .control-btn.active {
   background-color: rgba(88, 101, 242, 0.15);
   color: #8fa0ff;
+}
+.control-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
 }
 
 /* Main Chat Panel */
