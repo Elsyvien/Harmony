@@ -203,14 +203,16 @@ function getVoiceIceServers(): RTCIceServer[] {
   const turnUrlsRaw = import.meta.env.VITE_TURN_URLS as string | undefined;
   const turnUsername = import.meta.env.VITE_TURN_USERNAME as string | undefined;
   const turnCredential = import.meta.env.VITE_TURN_CREDENTIAL as string | undefined;
-  const turnUrls = Array.from(
+  const parsedUrls = Array.from(
     new Set(
       (turnUrlsRaw
         ?.split(',')
         .map((entry) => entry.trim())
         .filter(Boolean) ?? []),
     ),
-  ).slice(0, 2);
+  ).slice(0, 4);
+  const stunUrls = parsedUrls.filter((url) => url.startsWith('stun:'));
+  const turnRelayUrls = parsedUrls.filter((url) => url.startsWith('turn:') || url.startsWith('turns:'));
 
   const servers: RTCIceServer[] = [
     {
@@ -221,14 +223,16 @@ function getVoiceIceServers(): RTCIceServer[] {
     },
   ];
 
+  if (stunUrls.length > 0) {
+    servers.push({ urls: stunUrls });
+  }
+
   const hasValidTurnCredentials = Boolean(turnUsername && turnCredential);
-  if (turnUrls.length > 0 && hasValidTurnCredentials) {
-    const turnServer: RTCIceServer = { urls: turnUrls };
+  if (turnRelayUrls.length > 0 && hasValidTurnCredentials) {
+    const turnServer: RTCIceServer = { urls: turnRelayUrls };
     turnServer.username = turnUsername;
     turnServer.credential = turnCredential;
     servers.push(turnServer);
-  } else if (turnUrls.length > 0) {
-    servers.push({ urls: turnUrls });
   } else {
     // Development fallback to avoid complete ICE failure behind strict NATs.
     // For production reliability, configure a dedicated TURN service via env.
@@ -352,6 +356,11 @@ export function ChatPage() {
   const previousRtpSnapshotsRef = useRef<Map<string, { bytes: number; timestamp: number }>>(new Map());
   const voiceParticipantIdsByChannelRef = useRef<Map<string, Set<string>>>(new Map());
   const activeVoiceChannelIdRef = useRef<string | null>(null);
+  const voiceBusyChannelIdRef = useRef<string | null>(null);
+  const queuedVoiceSignalsRef = useRef<Array<{ channelId: string; fromUserId: string; data: VoiceSignalData }>>([]);
+  const drainingVoiceSignalsRef = useRef(false);
+  const localVoiceAcquirePromiseRef = useRef<Promise<MediaStream> | null>(null);
+  const voiceTransportEpochRef = useRef(0);
   const sendVoiceSignalRef = useRef((() => false) as (channelId: string, targetUserId: string, data: unknown) => boolean);
   const createOfferForPeerRef = useRef((() => Promise.resolve()) as (peerUserId: string, channelId: string) => Promise<void>);
   const leaveVoiceRef = useRef((() => false) as (channelId?: string) => boolean);
@@ -893,6 +902,8 @@ export function ChatPage() {
   }, []);
 
   const teardownVoiceTransport = useCallback(() => {
+    voiceTransportEpochRef.current += 1;
+    localVoiceAcquirePromiseRef.current = null;
     for (const peerUserId of peerConnectionsRef.current.keys()) {
       closePeerConnection(peerUserId);
     }
@@ -1059,128 +1070,153 @@ export function ChatPage() {
     localAnalyserRef.current = analyser;
   }, [resetLocalAnalyser]);
 
-  const getLocalVoiceStream = useCallback(async () => {
+  const replaceAudioTrackAcrossPeers = useCallback(async (audioTrack: MediaStreamTrack) => {
+    for (const connection of peerConnectionsRef.current.values()) {
+      for (const sender of connection.getSenders()) {
+        if (sender.track?.kind !== 'audio') {
+          continue;
+        }
+        try {
+          await sender.replaceTrack(audioTrack);
+        } catch {
+          // Ignore replacement errors; next renegotiation can recover.
+        }
+      }
+    }
+  }, []);
+
+  const requestMicrophoneStream = useCallback(async () => {
     if (!navigator.mediaDevices?.getUserMedia) {
       throw new Error('Voice is not supported in this browser');
     }
     const preferredDeviceId = preferences.voiceInputDeviceId || null;
     let resolvedDeviceId = preferredDeviceId;
-
-    if (
-      localVoiceStreamRef.current &&
-      localVoiceInputDeviceIdRef.current === preferredDeviceId
-    ) {
-      applyLocalVoiceTrackState(localVoiceStreamRef.current);
-      return localVoiceProcessedStreamRef.current ?? localVoiceStreamRef.current;
-    }
-
-    const audioConstraints: MediaTrackConstraints = {
+    const buildConstraints = (deviceId: string | null): MediaTrackConstraints => ({
       echoCancellation: true,
       noiseSuppression: true,
       autoGainControl: true,
-      ...(preferredDeviceId ? { deviceId: { exact: preferredDeviceId } } : {}),
-    };
+      ...(deviceId ? { deviceId: { exact: deviceId } } : {}),
+    });
 
-    let stream: MediaStream;
     try {
-      stream = await navigator.mediaDevices.getUserMedia({
-        audio: audioConstraints,
+      const stream = await navigator.mediaDevices.getUserMedia({
+        audio: buildConstraints(preferredDeviceId),
         video: false,
       });
+      return { stream, resolvedDeviceId };
     } catch (err) {
       if (!preferredDeviceId) {
         throw err;
       }
       updatePreferences({ voiceInputDeviceId: null });
       resolvedDeviceId = null;
-      stream = await navigator.mediaDevices.getUserMedia({
-        audio: {
-          echoCancellation: true,
-          noiseSuppression: true,
-          autoGainControl: true,
-        },
+      const stream = await navigator.mediaDevices.getUserMedia({
+        audio: buildConstraints(null),
         video: false,
       });
+      return { stream, resolvedDeviceId };
+    }
+  }, [preferences.voiceInputDeviceId, updatePreferences]);
+
+  const getLocalVoiceStream = useCallback(async (forceRefresh = false) => {
+    const preferredDeviceId = preferences.voiceInputDeviceId || null;
+    const currentRawStream = localVoiceStreamRef.current;
+    const currentRawTrack = currentRawStream?.getAudioTracks()[0] ?? null;
+    const canReuseCurrentStream =
+      !forceRefresh &&
+      currentRawStream !== null &&
+      currentRawTrack !== null &&
+      currentRawTrack.readyState === 'live' &&
+      localVoiceInputDeviceIdRef.current === preferredDeviceId;
+
+    if (canReuseCurrentStream) {
+      applyLocalVoiceTrackState(currentRawStream);
+      return localVoiceProcessedStreamRef.current ?? currentRawStream;
     }
 
-    const nextTrack = stream.getAudioTracks()[0] ?? null;
-    if (!nextTrack) {
-      throw new Error('No microphone track available');
+    if (localVoiceAcquirePromiseRef.current) {
+      return localVoiceAcquirePromiseRef.current;
     }
 
-    // Clean up previous gain pipeline
-    if (localVoiceGainNodeRef.current) {
-      localVoiceGainNodeRef.current.disconnect();
-      localVoiceGainNodeRef.current = null;
-    }
-    if (localVoiceGainContextRef.current) {
-      void localVoiceGainContextRef.current.close();
-      localVoiceGainContextRef.current = null;
-    }
-    localVoiceProcessedStreamRef.current = null;
-
-    // Build gain pipeline: raw mic → gain → destination (processed stream)
-    let processedStream = stream;
-    try {
-      const AudioContextClass =
-        window.AudioContext ||
-        (window as typeof window & { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
-      if (AudioContextClass) {
-        const gainCtx = new AudioContextClass();
-        const source = gainCtx.createMediaStreamSource(stream);
-        const gainNode = gainCtx.createGain();
-        gainNode.gain.value = voiceInputGainRef.current / 100;
-        const destination = gainCtx.createMediaStreamDestination();
-        source.connect(gainNode);
-        gainNode.connect(destination);
-        localVoiceGainContextRef.current = gainCtx;
-        localVoiceGainNodeRef.current = gainNode;
-        localVoiceProcessedStreamRef.current = destination.stream;
-        processedStream = destination.stream;
+    const acquirePromise = (async () => {
+      const previousRawStream = localVoiceStreamRef.current;
+      const { stream: rawStream, resolvedDeviceId } = await requestMicrophoneStream();
+      const rawTrack = rawStream.getAudioTracks()[0] ?? null;
+      if (!rawTrack) {
+        for (const track of rawStream.getTracks()) {
+          track.stop();
+        }
+        throw new Error('No microphone track available');
       }
-    } catch {
-      // Fall back to raw stream if gain pipeline fails
-      processedStream = stream;
-    }
 
-    const processedTrack = processedStream.getAudioTracks()[0] ?? nextTrack;
+      if (localVoiceGainNodeRef.current) {
+        localVoiceGainNodeRef.current.disconnect();
+        localVoiceGainNodeRef.current = null;
+      }
+      if (localVoiceGainContextRef.current) {
+        void localVoiceGainContextRef.current.close();
+        localVoiceGainContextRef.current = null;
+      }
+      localVoiceProcessedStreamRef.current = null;
 
-    const previousStream = localVoiceStreamRef.current;
-    localVoiceStreamRef.current = stream;
-    localVoiceInputDeviceIdRef.current = resolvedDeviceId;
+      let processedStream = rawStream;
+      try {
+        const AudioContextClass =
+          window.AudioContext ||
+          (window as typeof window & { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
+        if (AudioContextClass) {
+          const gainContext = new AudioContextClass();
+          const source = gainContext.createMediaStreamSource(rawStream);
+          const gainNode = gainContext.createGain();
+          gainNode.gain.value = voiceInputGainRef.current / 100;
+          const destination = gainContext.createMediaStreamDestination();
+          source.connect(gainNode);
+          gainNode.connect(destination);
+          localVoiceGainContextRef.current = gainContext;
+          localVoiceGainNodeRef.current = gainNode;
+          localVoiceProcessedStreamRef.current = destination.stream;
+          processedStream = destination.stream;
+        }
+      } catch {
+        processedStream = rawStream;
+      }
 
-    if (previousStream) {
-      for (const connection of peerConnectionsRef.current.values()) {
-        for (const sender of connection.getSenders()) {
-          if (sender.track?.kind !== 'audio') {
-            continue;
-          }
-          try {
-            await sender.replaceTrack(processedTrack);
-          } catch {
-            // Ignore replacement errors; next reconnection cycle can recover.
-          }
+      const processedTrack = processedStream.getAudioTracks()[0] ?? rawTrack;
+      localVoiceStreamRef.current = rawStream;
+      localVoiceInputDeviceIdRef.current = resolvedDeviceId;
+
+      await replaceAudioTrackAcrossPeers(processedTrack);
+
+      if (previousRawStream && previousRawStream !== rawStream) {
+        for (const track of previousRawStream.getTracks()) {
+          track.stop();
         }
       }
-      for (const track of previousStream.getTracks()) {
-        track.stop();
+
+      applyLocalVoiceTrackState(rawStream);
+      initLocalAnalyser(rawStream);
+      void refreshMicrophonePermission();
+      void enumerateAudioInputDevices();
+      setLocalAudioReady(true);
+      return processedStream;
+    })();
+
+    localVoiceAcquirePromiseRef.current = acquirePromise;
+    try {
+      return await acquirePromise;
+    } finally {
+      if (localVoiceAcquirePromiseRef.current === acquirePromise) {
+        localVoiceAcquirePromiseRef.current = null;
       }
     }
-
-    applyLocalVoiceTrackState(stream);
-    initLocalAnalyser(stream);
-    void refreshMicrophonePermission();
-    void enumerateAudioInputDevices();
-
-    setLocalAudioReady(true);
-    return processedStream;
   }, [
     applyLocalVoiceTrackState,
     enumerateAudioInputDevices,
     initLocalAnalyser,
     preferences.voiceInputDeviceId,
     refreshMicrophonePermission,
-    updatePreferences,
+    replaceAudioTrackAcrossPeers,
+    requestMicrophoneStream,
   ]);
 
   const applyAudioBitrateToConnection = useCallback(
@@ -1453,15 +1489,15 @@ export function ChatPage() {
     [auth.user, ensurePeerConnection],
   );
 
-  const handleVoiceSignal = useCallback(
-    async (payload: { channelId: string; fromUserId: string; data: unknown }) => {
+  const canProcessVoiceSignalsForChannel = useCallback((channelId: string) => {
+    const activeVoiceChannelId = activeVoiceChannelIdRef.current;
+    const busyVoiceChannelId = voiceBusyChannelIdRef.current;
+    return activeVoiceChannelId === channelId || busyVoiceChannelId === channelId;
+  }, []);
+
+  const processVoiceSignal = useCallback(
+    async (payload: { channelId: string; fromUserId: string; data: VoiceSignalData }) => {
       if (!auth.user || payload.fromUserId === auth.user.id) {
-        return;
-      }
-      if (!activeVoiceChannelIdRef.current || activeVoiceChannelIdRef.current !== payload.channelId) {
-        return;
-      }
-      if (!isVoiceSignalData(payload.data)) {
         return;
       }
 
@@ -1585,6 +1621,67 @@ export function ChatPage() {
       await flushPendingIceCandidates(payload.fromUserId, connection);
     },
     [auth.user, closePeerConnection, ensurePeerConnection, flushPendingIceCandidates],
+  );
+
+  const drainQueuedVoiceSignals = useCallback(async () => {
+    if (drainingVoiceSignalsRef.current || !auth.user) {
+      return;
+    }
+    drainingVoiceSignalsRef.current = true;
+    try {
+      let loopGuard = 0;
+      while (queuedVoiceSignalsRef.current.length > 0 && loopGuard < 400) {
+        loopGuard += 1;
+        const pending = queuedVoiceSignalsRef.current;
+        queuedVoiceSignalsRef.current = [];
+        const deferred: Array<{ channelId: string; fromUserId: string; data: VoiceSignalData }> = [];
+
+        for (const signal of pending) {
+          if (!canProcessVoiceSignalsForChannel(signal.channelId)) {
+            deferred.push(signal);
+            continue;
+          }
+          await processVoiceSignal(signal);
+        }
+
+        if (deferred.length > 0) {
+          queuedVoiceSignalsRef.current = deferred;
+          break;
+        }
+      }
+    } finally {
+      drainingVoiceSignalsRef.current = false;
+    }
+  }, [auth.user, canProcessVoiceSignalsForChannel, processVoiceSignal]);
+
+  const handleVoiceSignal = useCallback(
+    async (payload: { channelId: string; fromUserId: string; data: unknown }) => {
+      if (!auth.user || payload.fromUserId === auth.user.id) {
+        return;
+      }
+      if (!isVoiceSignalData(payload.data)) {
+        return;
+      }
+
+      const normalizedPayload = {
+        channelId: payload.channelId,
+        fromUserId: payload.fromUserId,
+        data: payload.data,
+      };
+
+      if (!canProcessVoiceSignalsForChannel(payload.channelId)) {
+        const queue = queuedVoiceSignalsRef.current;
+        queue.push(normalizedPayload);
+        if (queue.length > 300) {
+          queue.splice(0, queue.length - 300);
+        }
+        return;
+      }
+
+      await processVoiceSignal(normalizedPayload);
+      await drainQueuedVoiceSignals();
+    },
+    [auth.user, canProcessVoiceSignalsForChannel, drainQueuedVoiceSignals, processVoiceSignal],
   );
 
   const handleVoiceState = useCallback(
@@ -1774,6 +1871,17 @@ export function ChatPage() {
     activeVoiceChannelIdRef.current = activeVoiceChannelId;
   }, [activeVoiceChannelId]);
 
+  useEffect(() => {
+    voiceBusyChannelIdRef.current = voiceBusyChannelId;
+  }, [voiceBusyChannelId]);
+
+  useEffect(() => {
+    if (!ws.connected || !auth.user) {
+      return;
+    }
+    void drainQueuedVoiceSignals();
+  }, [ws.connected, auth.user, activeVoiceChannelId, voiceBusyChannelId, drainQueuedVoiceSignals]);
+
   // Live-update the input gain node when the preference changes
   useEffect(() => {
     voiceInputGainRef.current = preferences.voiceInputGain;
@@ -1893,6 +2001,10 @@ export function ChatPage() {
       setUnreadChannelCounts({});
       setVoiceParticipantsByChannel({});
       voiceParticipantIdsByChannelRef.current.clear();
+      queuedVoiceSignalsRef.current = [];
+      drainingVoiceSignalsRef.current = false;
+      activeVoiceChannelIdRef.current = null;
+      voiceBusyChannelIdRef.current = null;
       setActiveVoiceChannelId(null);
       setVoiceBusyChannelId(null);
       teardownVoiceTransport();
@@ -1997,35 +2109,45 @@ export function ChatPage() {
       return;
     }
 
+    const transportEpoch = ++voiceTransportEpochRef.current;
     let cancelled = false;
     const syncVoiceTransport = async () => {
+      const currentRawTrack = localVoiceStreamRef.current?.getAudioTracks()[0] ?? null;
+      const needsFreshStream = !currentRawTrack || currentRawTrack.readyState !== 'live';
       try {
-        await getLocalVoiceStream();
+        await getLocalVoiceStream(needsFreshStream);
       } catch (err) {
-        if (!cancelled) {
+        if (!cancelled && voiceTransportEpochRef.current === transportEpoch) {
           leaveVoiceRef.current(activeVoiceChannelId);
           setError(getErrorMessage(err, 'Could not access microphone for voice channel'));
+          activeVoiceChannelIdRef.current = null;
           setActiveVoiceChannelId(null);
         }
         return;
       }
 
-      if (cancelled) {
+      if (cancelled || voiceTransportEpochRef.current !== transportEpoch) {
         return;
       }
 
-      const peerUserIds = participants
-        .map((participant) => participant.userId)
-        .filter((userId) => userId !== auth.user?.id);
+      const desiredPeerUserIds = new Set(
+        participants
+          .map((participant) => participant.userId)
+          .filter((userId) => userId !== auth.user?.id),
+      );
 
       for (const existingPeerUserId of Array.from(peerConnectionsRef.current.keys())) {
-        if (!peerUserIds.includes(existingPeerUserId)) {
+        if (!desiredPeerUserIds.has(existingPeerUserId)) {
           closePeerConnection(existingPeerUserId);
         }
       }
 
-      for (const peerUserId of peerUserIds) {
+      const sortedPeerUserIds = Array.from(desiredPeerUserIds).sort();
+      for (const peerUserId of sortedPeerUserIds) {
         try {
+          if (cancelled || voiceTransportEpochRef.current !== transportEpoch) {
+            return;
+          }
           await ensurePeerConnection(peerUserId, activeVoiceChannelId);
           await createOfferForPeer(peerUserId, activeVoiceChannelId);
         } catch {
@@ -2574,6 +2696,7 @@ export function ChatPage() {
         setError('Voice requires an active real-time connection');
         return;
       }
+      voiceBusyChannelIdRef.current = channelId;
       setVoiceBusyChannelId(channelId);
       try {
         const joinMuted = preferences.autoMuteOnJoin || isSelfDeafened;
@@ -2609,6 +2732,7 @@ export function ChatPage() {
         return;
       }
       const leavingChannelId = activeVoiceChannelId;
+      voiceBusyChannelIdRef.current = leavingChannelId;
       setVoiceBusyChannelId(leavingChannelId);
       ws.leaveVoice(leavingChannelId);
       activeVoiceChannelIdRef.current = null;
