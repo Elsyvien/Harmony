@@ -347,6 +347,16 @@ export function ChatPage() {
     return 'none';
   }, [selectedUser, auth.user, friends, outgoingRequests, incomingRequests]);
 
+  const selectedUserIncomingRequestId = useMemo(() => {
+    if (!selectedUser) {
+      return null;
+    }
+    return incomingRequests.find((request) => request.from.id === selectedUser.id)?.id ?? null;
+  }, [selectedUser, incomingRequests]);
+
+  const acceptingSelectedUserFriendRequest =
+    selectedUserIncomingRequestId !== null && friendActionBusyId === selectedUserIncomingRequestId;
+
   const filteredMessages = useMemo(() => {
     const query = messageQuery.trim().toLowerCase();
     if (!query) {
@@ -2406,9 +2416,12 @@ export function ChatPage() {
         onClose={() => setSelectedUser(null)}
         currentUser={auth.user}
         friendRequestState={selectedUserFriendRequestState}
+        incomingRequestId={selectedUserIncomingRequestId}
+        acceptingFriendRequest={acceptingSelectedUserFriendRequest}
         sendingFriendRequest={submittingFriendRequest}
         friendRequestError={friendsError}
         onSendFriendRequest={sendFriendRequest}
+        onAcceptFriendRequest={acceptFriendRequest}
       />
 
       {mobilePane !== 'none' ? (
