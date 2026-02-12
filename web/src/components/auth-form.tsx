@@ -74,12 +74,8 @@ export function AuthForm(props: AuthFormProps) {
 
       <button className="primary-btn" type="submit" disabled={props.loading}>
         {props.loading ? (
-          <span className="btn-loader">
-            <img
-              src="https://github.com/user-attachments/assets/d95f17bf-855f-4b0f-a15b-a304021981ea"
-              alt=""
-              aria-hidden="true"
-            />
+          <span className="btn-loader" role="status" aria-live="polite" aria-label="Submitting form">
+            <span className="btn-loader-spinner" aria-hidden="true" />
             <span>Please wait...</span>
           </span>
         ) : props.mode === 'login' ? (

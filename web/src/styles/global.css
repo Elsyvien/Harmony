@@ -185,10 +185,13 @@ button {
   gap: 8px;
 }
 
-.btn-loader img {
-  width: 18px;
-  height: 18px;
-  animation: spin 1.5s linear infinite;
+.btn-loader-spinner {
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  border: 2px solid rgba(255, 255, 255, 0.45);
+  border-top-color: #fff;
+  animation: spin 0.8s linear infinite;
 }
 
 .switch-copy {
