@@ -36,9 +36,9 @@ export function DropdownSelect({ options, value, onChange, placeholder = 'Select
 
       {isOpen && (
         <div className="select-options">
-          {options.map((option) => (
+          {options.map((option, index) => (
             <button
-              key={option}
+              key={`${option}-${index}`}
               className={`select-option ${value === option ? 'selected' : ''}`}
               onClick={() => {
                 onChange(option);
