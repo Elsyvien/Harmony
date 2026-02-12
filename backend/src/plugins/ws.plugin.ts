@@ -110,11 +110,7 @@ const wsPluginImpl: FastifyPluginAsync<WsPluginOptions> = async (fastify, option
     const payload = { channelId, participants };
     const delivered = new Set<ClientContext>();
 
-    for (const participant of participants) {
-      const subscribers = userSubscribers.get(participant.userId);
-      if (!subscribers) {
-        continue;
-      }
+    for (const subscribers of userSubscribers.values()) {
       for (const client of subscribers) {
         if (delivered.has(client)) {
           continue;
@@ -123,16 +119,14 @@ const wsPluginImpl: FastifyPluginAsync<WsPluginOptions> = async (fastify, option
         delivered.add(client);
       }
     }
+  };
 
-    const channelClients = channelSubscribers.get(channelId);
-    if (channelClients) {
-      for (const client of channelClients) {
-        if (delivered.has(client)) {
-          continue;
-        }
-        send(client, 'voice:state', payload);
-        delivered.add(client);
-      }
+  const sendVoiceStateSnapshot = (ctx: ClientContext) => {
+    for (const [channelId, participantsMap] of voiceParticipants.entries()) {
+      const participants = Array.from(participantsMap.values()).sort((a, b) =>
+        a.username.localeCompare(b.username),
+      );
+      send(ctx, 'voice:state', { channelId, participants });
     }
   };
 
@@ -239,6 +233,7 @@ const wsPluginImpl: FastifyPluginAsync<WsPluginOptions> = async (fastify, option
           userSubscribers.set(user.userId, subscribers);
           send(ctx, 'auth:ok', { userId: user.userId });
           broadcastPresence();
+          sendVoiceStateSnapshot(ctx);
           return;
         }
 
