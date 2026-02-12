@@ -714,7 +714,6 @@ button {
   display: grid;
   gap: 12px;
   margin-bottom: 16px;
-  transition: all 0.3s ease;
 }
 
 .voice-screen-shares.grid-layout {
