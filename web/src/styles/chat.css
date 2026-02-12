@@ -514,7 +514,7 @@ body.theme-light .profile-body {
   flex: 1;
   overflow-y: auto;
   overflow-x: hidden;
-  padding: 24px 0 24px 0;
+  padding: 16px 0;
   display: flex;
   flex-direction: column;
   gap: 0;
@@ -527,16 +527,51 @@ body.theme-light .profile-body {
 
 .message-item {
   display: flex;
-  padding: 6px 16px;
-  /* Tight padding */
-  margin-top: 3px;
-  animation: slideIn 0.15s ease-out;
+  padding: 2px 16px; /* Tighter vertical padding */
+  margin-top: 1px;
+  animation: slideIn 0.1s ease-out; /* Faster animation */
   position: relative;
+  transition: background-color 0.05s linear; /* Instant transition */
+}
+
+/* Grouping Logic: Subsequent messages from same user */
+.message-item.grouped {
+  margin-top: 0;
+  padding-top: 1px;
+  padding-bottom: 1px;
+}
+
+.message-item.grouped .message-avatar {
+  display: none; /* Changed from visibility:hidden to display:none for better alignment */
+}
+
+.message-item.grouped .message-content header {
+  display: none;
+}
+
+.message-item.grouped .message-content {
+  margin-left: 56px; /* Offset to align with text above (40px avatar + 16px margin) */
+}
+
+.message-item:hover {
+  background-color: rgba(255, 255, 255, 0.03);
+}
+
+/* 3. Brutalist Active State: Invert/High-contrast */
+.message-item:active {
+  background-color: var(--text-header);
+  filter: invert(1);
+}
+
+.message-item:active .message-author,
+.message-item:active .message-content p,
+.message-item:active .message-content time {
+  color: black;
 }
 
 body.compact-chat .message-item {
-  padding-top: 3px;
-  padding-bottom: 3px;
+  padding-top: 1px;
+  padding-bottom: 1px;
 }
 
 body.compact-chat .message-avatar {

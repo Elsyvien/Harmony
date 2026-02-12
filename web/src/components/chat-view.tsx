@@ -284,8 +284,18 @@ export function ChatView(props: ChatViewProps) {
           <p className="muted chat-view-empty-state">No messages yet. Be the first one.</p>
         ) : null}
 
-        {props.messages.map((message) => (
+        {props.messages.map((message, index) => (
           (() => {
+            const previousMessage = props.messages[index - 1];
+            const isSameUser = previousMessage && previousMessage.userId === message.userId;
+            
+            // Check if messages were sent within 5 minutes of each other
+            const timeDiff = previousMessage 
+              ? new Date(message.createdAt).getTime() - new Date(previousMessage.createdAt).getTime()
+              : Infinity;
+            const isRecent = timeDiff < 5 * 60 * 1000;
+            const isGrouped = isSameUser && isRecent && !message.replyTo && !message.deletedAt && !previousMessage.deletedAt;
+
             const attachmentUrl = resolveMediaUrl(message.attachment?.url) ?? null;
             const avatarUrl = resolveMediaUrl(message.user.avatarUrl);
             const isImageAttachment = Boolean(
@@ -296,7 +306,7 @@ export function ChatView(props: ChatViewProps) {
             return (
               <article
                 key={message.id}
-                className={`message-item${message.optimistic ? ' pending' : ''}${message.failed ? ' failed' : ''}`}
+                className={`message-item${isGrouped ? ' grouped' : ''}${message.optimistic ? ' pending' : ''}${message.failed ? ' failed' : ''}`}
                 onContextMenu={(event) => {
                   event.preventDefault();
                   openMessageMenu(message, event.clientX, event.clientY);
