@@ -141,15 +141,12 @@ const wsPluginImpl: FastifyPluginAsync<WsPluginOptions> = async (fastify, option
       }
 
       // Aggregate state: DND > Online > Idle
-      // If any connection is Online, user is Online. If all Idle, user is Idle.
-      // If any is DND, it takes priority if no one is Online? 
-      // Discord usually shows the most active state.
       let finalState: PresenceState = 'idle';
       const clients = [...subscribers];
-      if (clients.some(c => c.state === 'online')) {
-        finalState = 'online';
-      } else if (clients.some(c => c.state === 'dnd')) {
+      if (clients.some(c => c.state === 'dnd')) {
         finalState = 'dnd';
+      } else if (clients.some(c => c.state === 'online')) {
+        finalState = 'online';
       }
 
       users.push({
@@ -323,6 +320,10 @@ const wsPluginImpl: FastifyPluginAsync<WsPluginOptions> = async (fastify, option
           delivered.add(client);
         }
       }
+
+      if (type === 'admin:settings:updated') {
+        void refreshSettings();
+      }
     },
     broadcastPresence: () => {
       broadcastPresence();
@@ -408,7 +409,13 @@ const wsPluginImpl: FastifyPluginAsync<WsPluginOptions> = async (fastify, option
         if (parsed.type === 'presence:set') {
           const payload = parsed.payload as { state?: PresenceState };
           if (payload?.state === 'online' || payload?.state === 'dnd' || payload?.state === 'idle') {
-            ctx.state = payload.state;
+            const subscribers = userSubscribers.get(ctx.userId);
+            if (subscribers) {
+              for (const client of subscribers) {
+                client.state = payload.state;
+                client.lastActivity = Date.now();
+              }
+            }
             broadcastPresence();
           }
           return;
@@ -443,6 +450,21 @@ const wsPluginImpl: FastifyPluginAsync<WsPluginOptions> = async (fastify, option
           }
           leaveChannel(ctx, payload.channelId);
           send(ctx, 'channel:left', { channelId: payload.channelId });
+          return;
+        }
+
+        if (parsed.type === 'presence:set') {
+          const payload = parsed.payload as { state?: PresenceState };
+          if (payload?.state === 'online' || payload?.state === 'dnd' || payload?.state === 'idle') {
+            const subscribers = userSubscribers.get(ctx.userId);
+            if (subscribers) {
+              for (const client of subscribers) {
+                client.state = payload.state;
+                client.lastActivity = Date.now();
+              }
+            }
+            broadcastPresence();
+          }
           return;
         }
 

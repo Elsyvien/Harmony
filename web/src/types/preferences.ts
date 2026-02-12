@@ -26,7 +26,7 @@ export const DEFAULT_USER_PREFERENCES: UserPreferences = {
   fontScale: 'md',
   enterToSend: true,
   playMessageSound: false,
-  voiceInputSensitivity: 0.04,
+  voiceInputSensitivity: 0.01,
   voiceOutputVolume: 100,
   showVoiceActivity: true,
   autoMuteOnJoin: false,

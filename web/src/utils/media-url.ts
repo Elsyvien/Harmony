@@ -12,5 +12,17 @@ export function resolveMediaUrl(url?: string | null): string | undefined {
   ) {
     return url;
   }
-  return `${API_BASE_URL}${url.startsWith('/') ? '' : '/'}${url}`;
+
+  const normalizedUrl = url.trim();
+  const hasPathPrefix = normalizedUrl.startsWith('/') || normalizedUrl.startsWith('uploads/');
+  const isLikelyFilename = !normalizedUrl.includes('/') && /\.[a-z0-9]{2,5}$/i.test(normalizedUrl);
+  const relativePath = hasPathPrefix
+    ? normalizedUrl.startsWith('/')
+      ? normalizedUrl
+      : `/${normalizedUrl}`
+    : isLikelyFilename
+      ? `/uploads/${normalizedUrl}`
+      : `/${normalizedUrl}`;
+
+  return `${API_BASE_URL}${relativePath}`;
 }
