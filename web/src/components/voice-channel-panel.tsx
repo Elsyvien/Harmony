@@ -1,4 +1,5 @@
 import { useRef, useState, useEffect, memo } from 'react';
+import { DropdownSelect } from './dropdown-select';
 
 interface VoiceChannelPanelProps {
   channelName: string;
@@ -34,12 +35,14 @@ const ScreenShareItem = memo(function ScreenShareItem({
   stream,
   label,
   isLocal,
+  isMaximized,
   onMaximize,
   onPopOut,
 }: {
   stream: MediaStream;
   label: string;
   isLocal: boolean;
+  isMaximized: boolean;
   onMaximize: () => void;
   onPopOut: () => void;
 }) {
@@ -51,14 +54,18 @@ const ScreenShareItem = memo(function ScreenShareItem({
     }
   }, [stream]);
 
+  // When not maximized but another stream IS maximized, this component might differ visually 
+  // (processed by parent classNames), but we keep the video playing.
+  // To "minimize traffic" effectively in P2P without signaling, we can't do much,
+  // but we can ensure we aren't using high-res rendering resources.
+
   return (
-    <div className="voice-screen-share-item">
+    <div className={`voice-screen-share-item ${isMaximized ? 'maximized' : ''}`} onClick={onMaximize}>
       <video
         ref={videoRef}
         autoPlay
         playsInline
         muted
-        onClick={onMaximize}
         style={{ cursor: 'pointer' }}
       />
       <div className="voice-screen-share-overlay">
@@ -84,7 +91,8 @@ export function VoiceChannelPanel(props: VoiceChannelPanelProps) {
   const speakingSet = new Set(props.speakingUserIds);
   const longPressTimeoutRef = useRef<number | null>(null);
   const [maximizedStreamId, setMaximizedStreamId] = useState<string | null>(null);
-  const [quality, setQuality] = useState<{ height: number; fps: number }>({ height: 720, fps: 30 });
+  // Default quality label to match initial state
+  const [qualityLabel, setQualityLabel] = useState('720p 30fps');
 
   const clearLongPress = () => {
     if (!longPressTimeoutRef.current) {
@@ -109,7 +117,7 @@ export function VoiceChannelPanel(props: VoiceChannelPanelProps) {
       video.srcObject = stream;
       video.autoplay = true;
       video.playsInline = true;
-      video.muted = true; // Still muted to avoid audio issues, unless we want to unmute for popout
+      video.muted = true;
       video.controls = true;
       video.style.width = '100%';
       video.style.height = '100%';
@@ -119,40 +127,18 @@ export function VoiceChannelPanel(props: VoiceChannelPanelProps) {
     }
   };
 
-  const handleQualityChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
-    const [h, f] = e.target.value.split('x').map(Number);
-    setQuality({ height: h, fps: f });
-    props.onScreenShareQualityChange?.(h, f);
+  const handleQualityChange = (val: string) => {
+    setQualityLabel(val);
+    const [res, fpsStr] = val.split(' ');
+    const height = parseInt(res.replace('p', ''), 10);
+    const fps = parseInt(fpsStr.replace('fps', ''), 10);
+    props.onScreenShareQualityChange?.(height, fps);
   };
 
-  const maximizedStream = maximizedStreamId
-    ? maximizedStreamId === 'local'
-      ? props.localScreenShareStream
-      : props.remoteScreenShares[maximizedStreamId]
-    : null;
+  const hasScreenShares = props.localScreenShareStream || Object.keys(props.remoteScreenShares).length > 0;
 
   return (
     <section className="voice-panel">
-      {maximizedStream && (
-        <div className="voice-maximized-overlay" onClick={() => setMaximizedStreamId(null)}>
-          <div className="voice-maximized-content" onClick={(e) => e.stopPropagation()}>
-            <video
-              autoPlay
-              playsInline
-              muted
-              ref={(node) => {
-                if (node && node.srcObject !== maximizedStream) {
-                  node.srcObject = maximizedStream;
-                }
-              }}
-            />
-            <button className="voice-maximized-close" onClick={() => setMaximizedStreamId(null)}>
-              ×
-            </button>
-          </div>
-        </div>
-      )}
-
       <header className="voice-panel-header">
         <h2>Voice Channel: {props.channelName}</h2>
         <div className="voice-panel-header-actions">
@@ -177,29 +163,14 @@ export function VoiceChannelPanel(props: VoiceChannelPanelProps) {
             {props.busy ? 'Working...' : props.joined ? 'Leave Voice' : 'Join Voice'}
           </button>
           {props.joined ? (
-            <div className="screen-share-controls">
-              {props.localScreenShareStream && (
-                <select
-                  className="quality-select"
-                  value={`${quality.height}x${quality.fps}`}
-                  onChange={handleQualityChange}
-                  title="Stream Quality"
-                >
-                  <option value="480x15">480p 15fps</option>
-                  <option value="720x30">720p 30fps</option>
-                  <option value="1080x30">1080p 30fps</option>
-                  <option value="1080x60">1080p 60fps</option>
-                </select>
-              )}
-              <button
-                className={props.localScreenShareStream ? 'ghost-btn danger small' : 'ghost-btn small'}
-                onClick={props.onToggleScreenShare}
-                disabled={props.busy || !props.wsConnected}
-                title="Share your screen"
-              >
-                {props.localScreenShareStream ? 'Stop Sharing' : 'Share Screen'}
-              </button>
-            </div>
+            <button
+              className={props.localScreenShareStream ? 'ghost-btn danger small' : 'ghost-btn small'}
+              onClick={props.onToggleScreenShare}
+              disabled={props.busy || !props.wsConnected}
+              title="Share your screen"
+            >
+              {props.localScreenShareStream ? 'Stop Sharing' : 'Share Screen'}
+            </button>
           ) : null}
         </div>
       </header>
@@ -214,47 +185,46 @@ export function VoiceChannelPanel(props: VoiceChannelPanelProps) {
           : 'Join the channel to establish WebRTC voice transport.'}
       </p>
 
-      {!props.localScreenShareStream && Object.keys(props.remoteScreenShares).length === 0 && (
-        <div className="voice-quality-row">
-          <label htmlFor="voice-quality-select">Voice Quality</label>
-          <select
-            id="voice-quality-select"
-            value={props.bitrateKbps}
-            disabled={!props.canEditQuality || props.qualityBusy}
-            onChange={(event) => props.onBitrateChange(Number(event.target.value))}
-          >
-            <option value={24}>24 kbps (Low)</option>
-            <option value={40}>40 kbps</option>
-            <option value={64}>64 kbps (Default)</option>
-            <option value={96}>96 kbps</option>
-            <option value={128}>128 kbps (High)</option>
-            <option value={192}>192 kbps</option>
-            <option value={256}>256 kbps</option>
-            <option value={320}>320 kbps</option>
-            <option value={384}>384 kbps</option>
-            <option value={500}>500 kbps</option>
-            <option value={640}>640 kbps</option>
-            <option value={700}>700 kbps</option>
-            <option value={768}>768 kbps</option>
-            <option value={896}>896 kbps</option>
-            <option value={1024}>1024 kbps</option>
-            <option value={1280}>1280 kbps</option>
-            <option value={1411}>1411 kbps (CD Quality)</option>
-            <option value={1536}>1536 kbps (Hi-Res Max)</option>
-          </select>
-          {props.qualityBusy ? <small>Saving...</small> : null}
+      {/* Quality Controls Section */}
+      {props.joined && (
+        <div className="voice-settings-grid">
+          <div className="voice-setting-col">
+            <label className="voice-quality-label">Voice Quality</label>
+            <DropdownSelect
+              options={['24 kbps (Low)', '40 kbps', '64 kbps (Default)', '96 kbps', '128 kbps (High)', '192 kbps', '256 kbps', '320 kbps', '384 kbps', '500 kbps', '640 kbps', '700 kbps', '768 kbps', '896 kbps', '1024 kbps', '1280 kbps', '1411 kbps (CD Quality)', '1536 kbps (Hi-Res Max)']}
+              value={`${props.bitrateKbps} kbps${props.bitrateKbps === 24 ? ' (Low)' : props.bitrateKbps === 64 ? ' (Default)' : props.bitrateKbps === 128 ? ' (High)' : ''}`}
+              onChange={(val) => {
+                const bitrate = parseInt(val.split(' ')[0], 10);
+                props.onBitrateChange(bitrate);
+              }}
+              disabled={!props.canEditQuality || props.qualityBusy}
+            />
+            {props.qualityBusy ? <small>Saving...</small> : null}
+          </div>
+
+          {props.localScreenShareStream && (
+            <div className="voice-setting-col">
+              <label className="voice-quality-label">Stream Quality</label>
+              <DropdownSelect
+                options={['480p 15fps', '720p 30fps', '1080p 30fps', '1080p 60fps']}
+                value={qualityLabel}
+                onChange={handleQualityChange}
+              />
+            </div>
+          )}
         </div>
       )}
 
-
-      {(props.localScreenShareStream || Object.keys(props.remoteScreenShares).length > 0) ? (
-        <div className="voice-screen-shares">
+      {/* Screen Share Layout */}
+      {hasScreenShares && (
+        <div className={`voice-screen-shares ${maximizedStreamId ? 'has-maximized' : 'grid-layout'}`}>
           {props.localScreenShareStream ? (
             <ScreenShareItem
               stream={props.localScreenShareStream}
               label="You are sharing"
               isLocal={true}
-              onMaximize={() => setMaximizedStreamId('local')}
+              isMaximized={maximizedStreamId === 'local'}
+              onMaximize={() => setMaximizedStreamId(maximizedStreamId === 'local' ? null : 'local')}
               onPopOut={() => handlePopOut(props.localScreenShareStream!, 'My Screen Share')}
             />
           ) : null}
@@ -267,13 +237,14 @@ export function VoiceChannelPanel(props: VoiceChannelPanelProps) {
                 stream={stream}
                 label={`${name}'s Screen`}
                 isLocal={false}
-                onMaximize={() => setMaximizedStreamId(userId)}
+                isMaximized={maximizedStreamId === userId}
+                onMaximize={() => setMaximizedStreamId(maximizedStreamId === userId ? null : userId)}
                 onPopOut={() => handlePopOut(stream, `${name}'s Screen`)}
               />
             );
           })}
         </div>
-      ) : null}
+      )}
 
       <div className="voice-participant-list">
         {props.participants.length === 0 ? <p className="muted">No one in this voice channel yet.</p> : null}

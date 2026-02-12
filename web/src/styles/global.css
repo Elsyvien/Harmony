@@ -712,9 +712,19 @@ button {
 /* Voice Screen Shares */
 .voice-screen-shares {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
   gap: 12px;
   margin-bottom: 16px;
+  transition: all 0.3s ease;
+}
+
+.voice-screen-shares.grid-layout {
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+}
+
+.voice-screen-shares.has-maximized {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
 }
 
 .voice-screen-share-item {
@@ -724,11 +734,35 @@ button {
   position: relative;
   aspect-ratio: 16 / 9;
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.5);
-  transition: transform 0.2s;
+  transition: transform 0.2s, flex 0.3s;
 }
 
-.voice-screen-share-item:hover {
+.voice-screen-shares.has-maximized .voice-screen-share-item.maximized {
+  width: 100%;
+  aspect-ratio: 16 / 9;
+  order: -1;
+  /* Ensure maximized is always first/top */
+  flex: none;
+}
+
+.voice-screen-shares.has-maximized .voice-screen-share-item:not(.maximized) {
+  width: 160px;
+  /* Thumbnail size */
+  aspect-ratio: 16 / 9;
+  align-self: flex-start;
+  opacity: 0.7;
+  cursor: zoom-in;
+}
+
+.voice-screen-shares.has-maximized .voice-screen-share-item:not(.maximized):hover {
+  opacity: 1;
+  transform: scale(1.05);
+}
+
+/* Grid layout hover effect */
+.voice-screen-shares.grid-layout .voice-screen-share-item:hover {
   transform: scale(1.02);
+  z-index: 2;
 }
 
 .voice-screen-share-item video {
@@ -865,6 +899,29 @@ button {
   outline: none;
   border-color: var(--accent);
 }
+
+/* Voice Settings Grid */
+.voice-settings-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+  margin-bottom: 16px;
+  padding: 0 8px;
+}
+
+.voice-setting-col {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.voice-quality-label {
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--text-muted);
+  text-transform: uppercase;
+}
+
 
 /* User Area Footer */
 .channel-sidebar footer {
