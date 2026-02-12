@@ -259,6 +259,7 @@ export function ChatPage() {
     useState<MicrophonePermissionState>('unknown');
   const [requestingMicrophonePermission, setRequestingMicrophonePermission] = useState(false);
   const [hiddenUnreadCount, setHiddenUnreadCount] = useState(0);
+  const previousIncomingRequestCountRef = useRef<number | null>(null);
   const streamStatusBannerTimeoutRef = useRef<number | null>(null);
   const pendingSignaturesRef = useRef(new Set<string>());
   const pendingTimeoutsRef = useRef(new Map<string, number>());
@@ -1535,10 +1536,32 @@ export function ChatPage() {
 
   useEffect(() => {
     if (!auth.token) {
+      previousIncomingRequestCountRef.current = null;
       return;
     }
     void loadFriendData();
   }, [auth.token, loadFriendData]);
+
+  useEffect(() => {
+    if (!auth.token) {
+      previousIncomingRequestCountRef.current = null;
+      return;
+    }
+    const currentIncomingCount = incomingRequests.length;
+    const previousIncomingCount = previousIncomingRequestCountRef.current;
+    previousIncomingRequestCountRef.current = currentIncomingCount;
+
+    if (previousIncomingCount === null || currentIncomingCount <= previousIncomingCount) {
+      return;
+    }
+
+    const newRequestCount = currentIncomingCount - previousIncomingCount;
+    setNotice(
+      newRequestCount === 1
+        ? 'You received a friend request.'
+        : `You received ${newRequestCount} friend requests.`,
+    );
+  }, [auth.token, incomingRequests.length]);
 
   useEffect(() => {
     if (activeView !== 'chat' || !activeChannelId) {
