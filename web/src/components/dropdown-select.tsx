@@ -9,6 +9,7 @@ interface DropdownSelectProps {
 
 export function DropdownSelect({ options, value, onChange, placeholder = 'Select...' }: DropdownSelectProps) {
   const [isOpen, setIsOpen] = useState(false);
+  const [rotations, setRotations] = useState(0);
   const wrapperRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -32,16 +33,21 @@ export function DropdownSelect({ options, value, onChange, placeholder = 'Select
     };
   }, []);
 
+  const handleToggle = () => {
+    setIsOpen((open) => !open);
+    setRotations((prev) => prev + 1);
+  };
+
   return (
     <div className="select-wrapper" ref={wrapperRef}>
       <button
         className={`select-button ${isOpen ? 'open' : ''} ${value ? 'selected' : ''}`}
-        onClick={() => setIsOpen((open) => !open)}
+        onClick={handleToggle}
       >
         <span className="select-button-label">
           {value || placeholder}
         </span>
-        <div className="select-arrow"></div>
+        <div className="select-arrow" style={{ transform: `rotate(${rotations * 180}deg)` }}></div>
       </button>
 
       {isOpen && (
@@ -53,6 +59,7 @@ export function DropdownSelect({ options, value, onChange, placeholder = 'Select
               onClick={() => {
                 onChange(option);
                 setIsOpen(false);
+                setRotations((prev) => prev + 1);
               }}
             >
               {option}
