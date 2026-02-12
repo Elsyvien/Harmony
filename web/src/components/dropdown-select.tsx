@@ -26,7 +26,7 @@ export function DropdownSelect({ options, value, onChange, placeholder = 'Select
     <div className="select-wrapper" ref={wrapperRef}>
       <button
         className={`select-button ${isOpen ? 'open' : ''} ${value ? 'selected' : ''}`}
-        onClick={() => setIsOpen(!isOpen)}
+        onClick={() => setIsOpen((open) => !open)}
       >
         <span className="select-button-label">
           {value || placeholder}
