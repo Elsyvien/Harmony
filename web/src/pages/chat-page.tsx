@@ -691,30 +691,24 @@ export function ChatPage() {
   const handleVoiceState = useCallback(
     (payload: VoiceStatePayload) => {
       const nextParticipantIds = new Set(payload.participants.map((participant) => participant.userId));
-      const previousParticipantIds = voiceParticipantIdsByChannelRef.current.get(payload.channelId);
-      if (auth.user && previousParticipantIds) {
+      const hadPreviousState = voiceParticipantIdsByChannelRef.current.has(payload.channelId);
+      const previousParticipantIds = voiceParticipantIdsByChannelRef.current.get(payload.channelId) ?? new Set<string>();
+      if (auth.user && hadPreviousState) {
         const selfUserId = auth.user.id;
-        const previousHadSelf = previousParticipantIds.has(selfUserId);
-        const nextHasSelf = nextParticipantIds.has(selfUserId);
-        const relevantToCurrentVoiceSession =
-          activeVoiceChannelIdRef.current === payload.channelId || previousHadSelf || nextHasSelf;
+        const someoneElseJoined = [...nextParticipantIds].some(
+          (participantId) =>
+            participantId !== selfUserId && !previousParticipantIds.has(participantId),
+        );
+        const someoneElseLeft = [...previousParticipantIds].some(
+          (participantId) =>
+            participantId !== selfUserId && !nextParticipantIds.has(participantId),
+        );
 
-        if (relevantToCurrentVoiceSession) {
-          const someoneElseJoined = [...nextParticipantIds].some(
-            (participantId) =>
-              participantId !== selfUserId && !previousParticipantIds.has(participantId),
-          );
-          const someoneElseLeft = [...previousParticipantIds].some(
-            (participantId) =>
-              participantId !== selfUserId && !nextParticipantIds.has(participantId),
-          );
-
-          if (someoneElseJoined) {
-            playVoiceStateSound('join');
-          }
-          if (someoneElseLeft) {
-            playVoiceStateSound('leave');
-          }
+        if (someoneElseJoined) {
+          playVoiceStateSound('join');
+        }
+        if (someoneElseLeft) {
+          playVoiceStateSound('leave');
         }
       }
       voiceParticipantIdsByChannelRef.current.set(payload.channelId, nextParticipantIds);
@@ -1330,6 +1324,7 @@ export function ChatPage() {
           throw new Error('VOICE_JOIN_FAILED');
         }
         setActiveVoiceChannelId(channelId);
+        playVoiceStateSound('join');
         setError(null);
       } catch {
         setError('Could not join voice channel');
@@ -1337,7 +1332,7 @@ export function ChatPage() {
         setVoiceBusyChannelId(null);
       }
     },
-    [auth.token, ws, activeVoiceChannelId],
+    [auth.token, ws, activeVoiceChannelId, playVoiceStateSound],
   );
 
   const leaveVoiceChannel = useCallback(
@@ -1348,13 +1343,14 @@ export function ChatPage() {
       const leavingChannelId = activeVoiceChannelId;
       setVoiceBusyChannelId(leavingChannelId);
       ws.leaveVoice(leavingChannelId);
+      playVoiceStateSound('leave');
       setError(null);
       window.setTimeout(() => {
         setVoiceBusyChannelId((current) => (current === leavingChannelId ? null : current));
         setActiveVoiceChannelId((current) => (current === leavingChannelId ? null : current));
       }, 1800);
     },
-    [ws, activeVoiceChannelId],
+    [ws, activeVoiceChannelId, playVoiceStateSound],
   );
 
   useEffect(() => {
@@ -1797,6 +1793,7 @@ export function ChatPage() {
             preferences={preferences}
             onUpdatePreferences={updatePreferences}
             onResetPreferences={resetPreferences}
+            onLogout={logout}
           />
         ) : null}
 
