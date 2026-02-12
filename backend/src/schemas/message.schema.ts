@@ -40,7 +40,7 @@ export const createChannelBodySchema = z.object({
 });
 
 export const updateVoiceSettingsBodySchema = z.object({
-  voiceBitrateKbps: z.coerce.number().int().min(16).max(700),
+  voiceBitrateKbps: z.coerce.number().int().min(16).max(1536),
 });
 
 export const directChannelParamsSchema = z.object({

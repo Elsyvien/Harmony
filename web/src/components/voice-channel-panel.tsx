@@ -62,7 +62,13 @@ export function VoiceChannelPanel(props: VoiceChannelPanelProps) {
           <option value={384}>384 kbps</option>
           <option value={500}>500 kbps</option>
           <option value={640}>640 kbps</option>
-          <option value={700}>700 kbps (Max)</option>
+          <option value={700}>700 kbps</option>
+          <option value={768}>768 kbps</option>
+          <option value={896}>896 kbps</option>
+          <option value={1024}>1024 kbps</option>
+          <option value={1280}>1280 kbps</option>
+          <option value={1411}>1411 kbps (CD Quality)</option>
+          <option value={1536}>1536 kbps (Hi-Res Max)</option>
         </select>
         {props.qualityBusy ? <small>Saving...</small> : null}
       </div>

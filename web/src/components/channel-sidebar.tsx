@@ -189,6 +189,8 @@ export function ChannelSidebar(props: ChannelSidebarProps) {
 
         {voiceChannels.length > 0 ? <p className="channel-group-label">Voice Channels</p> : null}
         {voiceChannels.map((channel) => {
+          const isDeleting = props.deletingChannelId === channel.id;
+          const canDelete = props.isAdmin;
           const isJoined = props.activeVoiceChannelId === channel.id;
           const participants = props.voiceParticipantCounts[channel.id] ?? 0;
           const isTransitioning = props.joiningVoiceChannelId === channel.id;
@@ -216,6 +218,28 @@ export function ChannelSidebar(props: ChannelSidebarProps) {
               >
                 {isTransitioning ? '...' : isJoined ? 'Leave' : 'Join'}
               </button>
+              {canDelete ? (
+                <button
+                  className="channel-delete-btn"
+                  title={`Delete ~${channel.name}`}
+                  aria-label={`Delete ~${channel.name}`}
+                  disabled={Boolean(props.deletingChannelId)}
+                  onClick={async () => {
+                    if (props.deletingChannelId) {
+                      return;
+                    }
+                    const confirmed = window.confirm(
+                      `Delete ~${channel.name}? This will remove the voice channel.`,
+                    );
+                    if (!confirmed) {
+                      return;
+                    }
+                    await props.onDeleteChannel(channel.id);
+                  }}
+                >
+                  {isDeleting ? '...' : 'x'}
+                </button>
+              ) : null}
             </div>
           );
         })}
