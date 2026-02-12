@@ -15,13 +15,17 @@ export function DropdownSelect({ options, value, onChange, placeholder = 'Select
   useEffect(() => {
     function handleClickOutside(event: MouseEvent) {
       if (wrapperRef.current && !wrapperRef.current.contains(event.target as Node)) {
-        setIsOpen(false);
+        if (isOpen) {
+          setIsOpen(false);
+          setRotations((prev) => prev + 1);
+        }
       }
     }
 
     function handleKeyDown(event: KeyboardEvent) {
-      if (event.key === 'Escape') {
+      if (event.key === 'Escape' && isOpen) {
         setIsOpen(false);
+        setRotations((prev) => prev + 1);
       }
     }
 
@@ -31,7 +35,7 @@ export function DropdownSelect({ options, value, onChange, placeholder = 'Select
       document.removeEventListener('mousedown', handleClickOutside);
       document.removeEventListener('keydown', handleKeyDown);
     };
-  }, []);
+  }, [isOpen]);
 
   const handleToggle = () => {
     setIsOpen((open) => !open);
