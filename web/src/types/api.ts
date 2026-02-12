@@ -33,6 +33,24 @@ export interface Message {
   userId: string;
   content: string;
   attachment: MessageAttachment | null;
+  editedAt: string | null;
+  deletedAt: string | null;
+  replyToMessageId: string | null;
+  replyTo: {
+    id: string;
+    userId: string;
+    content: string;
+    createdAt: string;
+    deletedAt: string | null;
+    user: {
+      id: string;
+      username: string;
+    };
+  } | null;
+  reactions: Array<{
+    emoji: string;
+    userIds: string[];
+  }>;
   createdAt: string;
   optimistic?: boolean;
   failed?: boolean;

@@ -2,10 +2,32 @@ interface UserProfileProps {
   user: { id: string; username: string; email?: string; createdAt?: string } | null;
   onClose: () => void;
   currentUser?: { id: string };
+  friendRequestState?: 'self' | 'none' | 'friends' | 'outgoing' | 'incoming';
+  sendingFriendRequest?: boolean;
+  onSendFriendRequest?: (username: string) => Promise<void> | void;
 }
 
-export function UserProfile({ user, onClose, currentUser }: UserProfileProps) {
+export function UserProfile({
+  user,
+  onClose,
+  currentUser,
+  friendRequestState = 'none',
+  sendingFriendRequest = false,
+  onSendFriendRequest,
+}: UserProfileProps) {
   if (!user) return null;
+
+  const isSelf = currentUser?.id === user.id || friendRequestState === 'self';
+  const canSendFriendRequest = !isSelf && friendRequestState === 'none' && Boolean(onSendFriendRequest);
+  const actionLabel = sendingFriendRequest
+    ? 'Sending...'
+    : friendRequestState === 'friends'
+      ? 'Already Friends'
+      : friendRequestState === 'outgoing'
+        ? 'Request Sent'
+        : friendRequestState === 'incoming'
+          ? 'Request Received'
+          : 'Send Friend Request';
 
   return (
     <div className="user-profile-overlay" onClick={onClose}>
@@ -29,6 +51,23 @@ export function UserProfile({ user, onClose, currentUser }: UserProfileProps) {
              <label>ROLES</label>
              <div className="role-pill">Member</div>
           </div>
+
+          {!isSelf ? (
+            <div className="profile-section profile-actions">
+              <button
+                className="ghost-btn"
+                disabled={!canSendFriendRequest || sendingFriendRequest}
+                onClick={() => {
+                  if (!canSendFriendRequest) {
+                    return;
+                  }
+                  void onSendFriendRequest?.(user.username);
+                }}
+              >
+                {actionLabel}
+              </button>
+            </div>
+          ) : null}
           
           {currentUser && currentUser.id === user.id && (
              <div className="profile-section">

@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import type { UserPreferences } from '../types/preferences';
 import { DEFAULT_USER_PREFERENCES } from '../types/preferences';
 
-const PREFS_KEY = 'discordclone_user_preferences_v3';
+const PREFS_KEY = 'discordclone_user_preferences_v4';
 
 function parsePreferences(raw: string | null): UserPreferences {
   if (!raw) {
@@ -11,6 +11,10 @@ function parsePreferences(raw: string | null): UserPreferences {
   try {
     const parsed = JSON.parse(raw) as Partial<UserPreferences>;
     return {
+      theme:
+        parsed.theme === 'light' || parsed.theme === 'dark'
+          ? parsed.theme
+          : DEFAULT_USER_PREFERENCES.theme,
       compactMode: Boolean(parsed.compactMode),
       reducedMotion: Boolean(parsed.reducedMotion),
       use24HourClock: Boolean(parsed.use24HourClock),
@@ -47,6 +51,7 @@ function parsePreferences(raw: string | null): UserPreferences {
 }
 
 function applyBodyClasses(preferences: UserPreferences) {
+  document.body.classList.toggle('theme-light', preferences.theme === 'light');
   document.body.classList.toggle('compact-chat', preferences.compactMode);
   document.body.classList.toggle('reduced-motion', preferences.reducedMotion);
   document.body.classList.toggle('clock-24h', preferences.use24HourClock);

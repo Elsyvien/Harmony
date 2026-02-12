@@ -4,6 +4,11 @@ export const channelIdParamsSchema = z.object({
   id: z.string().uuid(),
 });
 
+export const channelMessageParamsSchema = z.object({
+  id: z.string().uuid(),
+  messageId: z.string().uuid(),
+});
+
 export const listMessagesQuerySchema = z.object({
   before: z
     .string()
@@ -22,12 +27,21 @@ export const messageAttachmentSchema = z.object({
 export const createMessageBodySchema = z
   .object({
     content: z.string().max(2000).default(''),
+    replyToMessageId: z.string().uuid().optional(),
     attachment: messageAttachmentSchema.optional(),
   })
   .refine((payload) => payload.content.trim().length > 0 || Boolean(payload.attachment), {
     message: 'Message content cannot be empty',
     path: ['content'],
   });
+
+export const updateMessageBodySchema = z.object({
+  content: z.string().trim().min(1).max(2000),
+});
+
+export const toggleReactionBodySchema = z.object({
+  emoji: z.string().trim().min(1).max(32),
+});
 
 export const createChannelBodySchema = z.object({
   name: z

@@ -37,6 +37,7 @@ model User {
   createdAt      DateTime  @default(now())
 
   messages       Message[]
+  messageReactions MessageReaction[]
   channelMembers ChannelMember[]
   friendshipsA   Friendship[] @relation("UserA")
   friendshipsB   Friendship[] @relation("UserB")
@@ -76,6 +77,9 @@ model Message {
   attachmentName String?
   attachmentType String?
   attachmentSize Int?
+  editedAt  DateTime?
+  deletedAt DateTime?
+  replyToMessageId String?
   createdAt DateTime @default(now())
 
   channelId String
@@ -83,6 +87,29 @@ model Message {
 
   userId    String
   user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  replyTo Message? @relation("MessageReplies", fields: [replyToMessageId], references: [id], onDelete: SetNull)
+  replies Message[] @relation("MessageReplies")
+  reactions MessageReaction[]
+
+  @@index([channelId, createdAt])
+  @@index([replyToMessageId])
+}
+
+model MessageReaction {
+  id        String   @id @default(uuid())
+  emoji     String
+  createdAt DateTime @default(now())
+
+  messageId String
+  message   Message @relation(fields: [messageId], references: [id], onDelete: Cascade)
+
+  userId    String
+  user      User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([messageId, userId, emoji])
+  @@index([messageId])
+  @@index([userId])
 }
 
 model Friendship {

@@ -37,10 +37,20 @@ export interface VoiceSignalPayload {
   data: unknown;
 }
 
+export interface MessageReactionEventPayload {
+  message: Message;
+  emoji: string;
+  userId: string;
+  reacted: boolean;
+}
+
 export function useChatSocket(params: {
   token: string | null;
   subscribedChannelIds: string[];
   onMessageNew: (message: Message) => void;
+  onMessageUpdated?: (message: Message) => void;
+  onMessageDeleted?: (message: Message) => void;
+  onMessageReaction?: (payload: MessageReactionEventPayload) => void;
   onFriendEvent?: () => void;
   onDmEvent?: (payload: DmNewEventPayload) => void;
   onChannelUpdated?: (channel: Channel) => void;
@@ -53,6 +63,9 @@ export function useChatSocket(params: {
   const joinedChannelIdsRef = useRef<Set<string>>(new Set());
   const subscribedChannelIdsRef = useRef(params.subscribedChannelIds);
   const onMessageNewRef = useRef(params.onMessageNew);
+  const onMessageUpdatedRef = useRef(params.onMessageUpdated);
+  const onMessageDeletedRef = useRef(params.onMessageDeleted);
+  const onMessageReactionRef = useRef(params.onMessageReaction);
   const onFriendEventRef = useRef(params.onFriendEvent);
   const onDmEventRef = useRef(params.onDmEvent);
   const onChannelUpdatedRef = useRef(params.onChannelUpdated);
@@ -62,6 +75,9 @@ export function useChatSocket(params: {
   const [connected, setConnected] = useState(false);
 
   onMessageNewRef.current = params.onMessageNew;
+  onMessageUpdatedRef.current = params.onMessageUpdated;
+  onMessageDeletedRef.current = params.onMessageDeleted;
+  onMessageReactionRef.current = params.onMessageReaction;
   onFriendEventRef.current = params.onFriendEvent;
   onDmEventRef.current = params.onDmEvent;
   onChannelUpdatedRef.current = params.onChannelUpdated;
@@ -114,6 +130,30 @@ export function useChatSocket(params: {
             const payload = parsed.payload as { message?: Message };
             if (payload.message) {
               onMessageNewRef.current(payload.message);
+            }
+            return;
+          }
+
+          if (parsed.type === 'message:updated') {
+            const payload = parsed.payload as { message?: Message };
+            if (payload.message) {
+              onMessageUpdatedRef.current?.(payload.message);
+            }
+            return;
+          }
+
+          if (parsed.type === 'message:deleted') {
+            const payload = parsed.payload as { message?: Message };
+            if (payload.message) {
+              onMessageDeletedRef.current?.(payload.message);
+            }
+            return;
+          }
+
+          if (parsed.type === 'message:reaction') {
+            const payload = parsed.payload as MessageReactionEventPayload | undefined;
+            if (payload?.message?.id && payload.emoji && payload.userId) {
+              onMessageReactionRef.current?.(payload);
             }
             return;
           }

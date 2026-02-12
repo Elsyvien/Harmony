@@ -10,10 +10,13 @@ import type { MessageService } from '../services/message.service.js';
 import { prisma } from '../repositories/prisma.js';
 import {
   channelIdParamsSchema,
+  channelMessageParamsSchema,
   createChannelBodySchema,
   createMessageBodySchema,
   directChannelParamsSchema,
   listMessagesQuerySchema,
+  toggleReactionBodySchema,
+  updateMessageBodySchema,
   updateVoiceSettingsBodySchema,
 } from '../schemas/message.schema.js';
 import { AppError } from '../utils/app-error.js';
@@ -235,6 +238,7 @@ export const channelRoutes: FastifyPluginAsync<ChannelRoutesOptions> = async (fa
       const message = await options.messageService.createMessage({
         channelId,
         content: body.content,
+        replyToMessageId: body.replyToMessageId,
         attachment: body.attachment,
         userId: request.user.userId,
         userIsAdmin: isAdminRole(request.user.role),
@@ -242,6 +246,84 @@ export const channelRoutes: FastifyPluginAsync<ChannelRoutesOptions> = async (fa
       fastify.wsGateway.broadcastMessage(channelId, message);
 
       reply.code(201).send({ message });
+    },
+  );
+
+  fastify.patch(
+    '/channels/:id/messages/:messageId',
+    {
+      preHandler: [authPreHandler],
+      config: {
+        rateLimit: { max: 30, timeWindow: 60_000 },
+      },
+    },
+    async (request) => {
+      const { id: channelId, messageId } = channelMessageParamsSchema.parse(request.params);
+      const body = updateMessageBodySchema.parse(request.body);
+
+      const message = await options.messageService.updateMessage({
+        channelId,
+        messageId,
+        userId: request.user.userId,
+        userIsAdmin: isAdminRole(request.user.role),
+        content: body.content,
+      });
+      fastify.wsGateway.broadcastMessageUpdated(channelId, message);
+
+      return { message };
+    },
+  );
+
+  fastify.delete(
+    '/channels/:id/messages/:messageId',
+    {
+      preHandler: [authPreHandler],
+      config: {
+        rateLimit: { max: 30, timeWindow: 60_000 },
+      },
+    },
+    async (request) => {
+      const { id: channelId, messageId } = channelMessageParamsSchema.parse(request.params);
+      const message = await options.messageService.deleteMessage({
+        channelId,
+        messageId,
+        userId: request.user.userId,
+        userIsAdmin: isAdminRole(request.user.role),
+      });
+
+      fastify.wsGateway.broadcastMessageDeleted(channelId, message);
+      return { message };
+    },
+  );
+
+  fastify.post(
+    '/channels/:id/messages/:messageId/reactions',
+    {
+      preHandler: [authPreHandler],
+      config: {
+        rateLimit: { max: 80, timeWindow: 60_000 },
+      },
+    },
+    async (request) => {
+      const { id: channelId, messageId } = channelMessageParamsSchema.parse(request.params);
+      const body = toggleReactionBodySchema.parse(request.body);
+      const result = await options.messageService.toggleReaction({
+        channelId,
+        messageId,
+        userId: request.user.userId,
+        emoji: body.emoji,
+      });
+
+      fastify.wsGateway.broadcastMessageReaction(channelId, result.message, {
+        userId: request.user.userId,
+        emoji: body.emoji,
+        reacted: result.reacted,
+      });
+      return {
+        message: result.message,
+        reacted: result.reacted,
+        emoji: body.emoji,
+      };
     },
   );
 };
