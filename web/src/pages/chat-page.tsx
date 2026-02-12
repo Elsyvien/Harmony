@@ -1450,21 +1450,24 @@ export function ChatPage() {
         localScreenStreamRef.current = stream;
         setLocalScreenShareStream(stream);
 
-        stream.getVideoTracks()[0].onended = () => {
-          localScreenStreamRef.current = null;
-          setLocalScreenShareStream(null);
-          if (activeVoiceChannelIdRef.current) {
-            for (const [peerUserId, connection] of peerConnectionsRef.current) {
-              const senders = connection.getSenders();
-              for (const sender of senders) {
-                if (sender.track?.kind === 'video') {
-                  connection.removeTrack(sender);
+        const videoTrack = stream.getVideoTracks()[0];
+        if (videoTrack) {
+          videoTrack.onended = () => {
+            localScreenStreamRef.current = null;
+            setLocalScreenShareStream(null);
+            if (activeVoiceChannelIdRef.current) {
+              for (const [peerUserId, connection] of peerConnectionsRef.current) {
+                const senders = connection.getSenders();
+                for (const sender of senders) {
+                  if (sender.track?.kind === 'video') {
+                    connection.removeTrack(sender);
+                  }
                 }
+                void createOfferForPeer(peerUserId, activeVoiceChannelIdRef.current);
               }
-              void createOfferForPeer(peerUserId, activeVoiceChannelIdRef.current);
             }
-          }
-        };
+          };
+        }
 
         if (activeVoiceChannelId) {
           const videoTrack = stream.getVideoTracks()[0];
