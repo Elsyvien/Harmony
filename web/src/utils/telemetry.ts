@@ -38,9 +38,19 @@ function normalizeError(error: unknown) {
       stack: error.stack,
     };
   }
+  let serializedError = '[unserializable]';
+  if (typeof error === 'string') {
+    serializedError = error;
+  } else {
+    try {
+      serializedError = JSON.stringify(error);
+    } catch {
+      // Fall back to a safe placeholder for circular/unsupported values.
+    }
+  }
   return {
     name: 'UnknownError',
-    message: typeof error === 'string' ? error : JSON.stringify(error),
+    message: serializedError,
   };
 }
 

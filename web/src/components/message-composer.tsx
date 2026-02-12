@@ -4,6 +4,7 @@ import type { MessageAttachment } from '../types/api';
 interface MessageComposerProps {
   disabled?: boolean;
   enterToSend?: boolean;
+  draftScopeKey?: string | null;
   insertRequest?: { key: number; text: string } | null;
   replyTo?: { username: string; content: string } | null;
   replyToMessageId?: string | null;
@@ -16,6 +17,8 @@ interface MessageComposerProps {
   onUploadAttachment: (file: File) => Promise<MessageAttachment>;
 }
 
+const DRAFT_STORAGE_PREFIX = 'harmony:composer:draft:';
+
 export function MessageComposer(props: MessageComposerProps) {
   const [value, setValue] = useState('');
   const [isSending, setIsSending] = useState(false);
@@ -24,6 +27,7 @@ export function MessageComposer(props: MessageComposerProps) {
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const lastInsertKeyRef = useRef<number | null>(null);
+  const draftStorageKey = props.draftScopeKey ? `${DRAFT_STORAGE_PREFIX}${props.draftScopeKey}` : null;
 
   useEffect(() => {
     if (textareaRef.current) {
@@ -50,7 +54,41 @@ export function MessageComposer(props: MessageComposerProps) {
     });
   }, [props.insertRequest]);
 
-  const handleKeyDown = async (e: React.KeyboardEvent) => {
+  useEffect(() => {
+    if (!draftStorageKey) {
+      setValue('');
+      return;
+    }
+    try {
+      const savedDraft = localStorage.getItem(draftStorageKey);
+      setValue(savedDraft ?? '');
+    } catch {
+      setValue('');
+    }
+  }, [draftStorageKey]);
+
+  useEffect(() => {
+    if (!draftStorageKey) {
+      return;
+    }
+    try {
+      if (value.trim().length === 0) {
+        localStorage.removeItem(draftStorageKey);
+      } else {
+        localStorage.setItem(draftStorageKey, value);
+      }
+    } catch {
+      // Ignore storage failures (private mode, quota, etc.).
+    }
+  }, [draftStorageKey, value]);
+
+  const handleKeyDown = (e: React.KeyboardEvent) => {
+    if (e.key === 'Escape' && props.replyTo && props.onClearReply && value.trim().length === 0) {
+      e.preventDefault();
+      props.onClearReply();
+      return;
+    }
+
     const sendWithEnter = props.enterToSend ?? true;
     const shouldSend = sendWithEnter
       ? e.key === 'Enter' && !e.shiftKey
@@ -175,16 +213,31 @@ export function MessageComposer(props: MessageComposerProps) {
             }
             rows={1}
             disabled={props.disabled || isSending || isUploadingAttachment}
+            aria-label="Message input"
           />
           <button
             className="send-btn"
             type="submit"
             disabled={props.disabled || isSending || isUploadingAttachment || !value.trim()}
+            aria-label="Send message"
+            title={
+              (props.enterToSend ?? true)
+                ? 'Send message (Enter)'
+                : 'Send message (Ctrl/Cmd+Enter)'
+            }
           >
             <svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
               <path d="M2.01 21L23 12L2.01 3L2 10L17 12L2 14L2.01 21Z" fill="currentColor"/>
             </svg>
           </button>
+        </div>
+        <div className="composer-meta-row">
+          <small className="composer-shortcut-hint">
+            {(props.enterToSend ?? true)
+              ? 'Enter to send, Shift+Enter for newline'
+              : 'Ctrl/Cmd+Enter to send, Enter for newline'}
+          </small>
+          <small className="composer-count">{value.length} chars</small>
         </div>
       </form>
     </div>

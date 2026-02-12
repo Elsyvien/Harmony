@@ -17,12 +17,14 @@ const updateAdminSettingsSchema = z
     allowRegistrations: z.boolean().optional(),
     readOnlyMode: z.boolean().optional(),
     slowModeSeconds: z.coerce.number().int().min(0).max(60).optional(),
+    idleTimeoutMinutes: z.coerce.number().int().min(1).max(120).optional(),
   })
   .refine(
     (value) =>
       value.allowRegistrations !== undefined ||
       value.readOnlyMode !== undefined ||
-      value.slowModeSeconds !== undefined,
+      value.slowModeSeconds !== undefined ||
+      value.idleTimeoutMinutes !== undefined,
     { message: 'At least one setting must be provided' },
   );
 
@@ -88,6 +90,7 @@ export const adminRoutes: FastifyPluginAsync<AdminRoutesOptions> = async (fastif
     async (request) => {
       const body = updateAdminSettingsSchema.parse(request.body);
       const settings = await options.adminSettingsService.updateSettings(body);
+      fastify.wsGateway.broadcastSystem('admin:settings:updated', { settings });
       return { settings };
     },
   );

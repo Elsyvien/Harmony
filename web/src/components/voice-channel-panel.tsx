@@ -62,7 +62,11 @@ interface VoiceChannelPanelProps {
   getParticipantAudioState?: (userId: string) => { volume: number; muted: boolean } | null;
   localScreenShareStream: MediaStream | null;
   localStreamSource: 'screen' | 'camera' | null;
+  remoteStreamingUserIds: string[];
   remoteScreenShares: Record<string, MediaStream>;
+  watchedRemoteStreamUserIds: string[];
+  onWatchRemoteStream: (userId: string) => void;
+  onStopWatchingRemoteStream: (userId: string) => void;
   onToggleVideoShare: (source: 'screen' | 'camera') => void;
   streamQualityLabel: string;
   onStreamQualityChange: (value: string) => void;
@@ -150,11 +154,13 @@ const ScreenShareItem = memo(function ScreenShareItem({
   label,
   isMaximized,
   onMaximize,
+  onStopWatching,
 }: {
   stream: MediaStream;
   label: string;
   isMaximized: boolean;
   onMaximize: () => void;
+  onStopWatching?: () => void;
 }) {
   const videoRef = useRef<HTMLVideoElement>(null);
 
@@ -207,6 +213,19 @@ const ScreenShareItem = memo(function ScreenShareItem({
       <div className="voice-screen-share-overlay">
         <div className="voice-screen-share-label">{label}</div>
         <div className="voice-screen-share-controls">
+          {onStopWatching ? (
+            <button
+              className="screen-share-text-btn"
+              onClick={(e) => {
+                e.stopPropagation();
+                onStopWatching();
+              }}
+              title="Stop watching this stream"
+              aria-label="Stop watching stream"
+            >
+              Stop
+            </button>
+          ) : null}
           <button
             className="screen-share-control-btn"
             onClick={(e) => {
@@ -224,10 +243,38 @@ const ScreenShareItem = memo(function ScreenShareItem({
   );
 });
 
+const ScreenSharePreviewItem = memo(function ScreenSharePreviewItem({
+  label,
+  isConnecting,
+  onWatch,
+}: {
+  label: string;
+  isConnecting: boolean;
+  onWatch: () => void;
+}) {
+  return (
+    <div className="voice-screen-share-item preview">
+      <div className="voice-screen-share-preview-bg" />
+      <div className="voice-screen-share-preview-content">
+        <span className="voice-screen-share-preview-live">LIVE</span>
+        <strong>{label}</strong>
+        <button
+          className="voice-screen-share-preview-btn"
+          disabled={isConnecting}
+          onClick={onWatch}
+        >
+          {isConnecting ? 'Connecting...' : 'View Stream'}
+        </button>
+      </div>
+    </div>
+  );
+});
+
 export function VoiceChannelPanel(props: VoiceChannelPanelProps) {
   const speakingSet = new Set(props.speakingUserIds);
   const longPressTimeoutRef = useRef<number | null>(null);
   const [maximizedStreamId, setMaximizedStreamId] = useState<string | null>(null);
+  const remoteLiveUserIds = props.remoteStreamingUserIds.filter((userId) => userId !== props.currentUserId);
 
   const clearLongPress = () => {
     if (!longPressTimeoutRef.current) {
@@ -237,7 +284,7 @@ export function VoiceChannelPanel(props: VoiceChannelPanelProps) {
     longPressTimeoutRef.current = null;
   };
 
-  const hasScreenShares = props.localScreenShareStream || Object.keys(props.remoteScreenShares).length > 0;
+  const hasScreenShares = props.localScreenShareStream || remoteLiveUserIds.length > 0;
   const canEditBitrates = props.canEditChannelBitrate && !props.qualityBusy;
   const localShareTitle =
     props.localStreamSource === 'camera' ? 'You are sharing your camera' : 'You are sharing your screen';
@@ -375,9 +422,21 @@ export function VoiceChannelPanel(props: VoiceChannelPanelProps) {
               onMaximize={() => setMaximizedStreamId(maximizedStreamId === 'local' ? null : 'local')}
             />
           ) : null}
-          {Object.entries(props.remoteScreenShares).map(([userId, stream]) => {
+          {remoteLiveUserIds.map((userId) => {
+            const stream = props.remoteScreenShares[userId] ?? null;
+            const isWatching = props.watchedRemoteStreamUserIds.includes(userId);
             const participant = props.participants.find((p) => p.userId === userId);
             const name = participant?.username ?? 'Unknown';
+            if (!stream) {
+              return (
+                <ScreenSharePreviewItem
+                  key={userId}
+                  label={`${name}'s Stream`}
+                  isConnecting={isWatching}
+                  onWatch={() => props.onWatchRemoteStream(userId)}
+                />
+              );
+            }
             return (
               <ScreenShareItem
                 key={userId}
@@ -385,6 +444,7 @@ export function VoiceChannelPanel(props: VoiceChannelPanelProps) {
                 label={`${name}'s Stream`}
                 isMaximized={maximizedStreamId === userId}
                 onMaximize={() => setMaximizedStreamId(maximizedStreamId === userId ? null : userId)}
+                onStopWatching={() => props.onStopWatchingRemoteStream(userId)}
               />
             );
           })}

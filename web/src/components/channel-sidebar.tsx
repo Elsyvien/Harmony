@@ -33,6 +33,7 @@ interface ChannelSidebarProps {
   incomingFriendRequests: number;
   avatarUrl?: string;
   ping: number | null;
+  state: string; // Add this
 }
 
 function stringToColor(str: string) {
@@ -50,7 +51,9 @@ export function ChannelSidebar(props: ChannelSidebarProps) {
   const [creating, setCreating] = useState(false);
   const [showCreateChannel, setShowCreateChannel] = useState(false);
   const [channelFilter, setChannelFilter] = useState('');
-  const userTag = props.userId.slice(0, 4);
+  const userTagSource =
+    typeof props.userId === 'string' && props.userId.length > 0 ? props.userId : props.username;
+  const userTag = userTagSource.slice(0, 4);
   const query = channelFilter.trim().toLowerCase();
   const filteredChannels = props.channels.filter((channel) => {
     if (!query) {
@@ -280,6 +283,7 @@ export function ChannelSidebar(props: ChannelSidebarProps) {
                   {channelParticipants.map((participant) => {
                     const isLive = streamingSet.has(participant.userId);
                     const isSpeaking = speakingSet.has(participant.userId);
+                    const participantAvatarUrl = resolveMediaUrl(participant.avatarUrl);
                     const voiceStatusLabel = participant.deafened
                       ? 'DEAF'
                       : participant.muted
@@ -292,10 +296,18 @@ export function ChannelSidebar(props: ChannelSidebarProps) {
                       >
                         <div
                           className="channel-connected-avatar"
-                          style={{ backgroundColor: stringToColor(participant.username) }}
+                          style={{ backgroundColor: participantAvatarUrl ? 'transparent' : stringToColor(participant.username) }}
                           aria-hidden="true"
                         >
-                          {participant.username.slice(0, 1).toUpperCase()}
+                          {participantAvatarUrl ? (
+                            <img
+                              src={participantAvatarUrl}
+                              alt={participant.username}
+                              style={{ width: '100%', height: '100%', borderRadius: '50%', objectFit: 'cover' }}
+                            />
+                          ) : (
+                            participant.username.slice(0, 1).toUpperCase()
+                          )}
                         </div>
                         <span className="channel-connected-name">{participant.username}</span>
                         {isLive ? <span className="channel-connected-live">LIVE</span> : null}
@@ -327,7 +339,7 @@ export function ChannelSidebar(props: ChannelSidebarProps) {
               ) : (
                 props.username.slice(0, 1).toUpperCase()
               )}
-              <div className="status-dot online"></div>
+              <div className={`status-dot ${props.state}`}></div>
             </div>
             <div className="name-tag">
               <span className="username">{props.username}</span>

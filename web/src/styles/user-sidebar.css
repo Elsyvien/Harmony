@@ -65,8 +65,31 @@
   right: -2px;
 }
 .status-dot-large.online { background-color: var(--positive); }
-.status-dot-large.idle { background-color: var(--warning); }
-.status-dot-large.dnd { background-color: var(--danger); }
+.status-dot-large.idle { 
+  background-color: var(--warning); 
+  mask-image: radial-gradient(circle at 30% 30%, transparent 45%, black 46%);
+  -webkit-mask-image: radial-gradient(circle at 30% 30%, transparent 45%, black 46%);
+}
+.status-dot-large.dnd { 
+  background-color: var(--danger);
+  position: absolute;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.status-dot-large.dnd::after {
+  content: "";
+  display: block;
+  width: 6px;
+  height: 2px;
+  background-color: var(--bg-darker);
+  border-radius: 1px;
+}
+
+.user-item:hover .status-dot-large.dnd::after {
+  background-color: var(--bg-hover);
+}
 
 .user-item:hover .status-dot-large {
   border-color: var(--bg-hover); /* Match hover background */

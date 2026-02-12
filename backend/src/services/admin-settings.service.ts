@@ -4,6 +4,7 @@ export interface AdminSettings {
   allowRegistrations: boolean;
   readOnlyMode: boolean;
   slowModeSeconds: number;
+  idleTimeoutMinutes: number;
 }
 
 const SETTINGS_ID = 'global';
@@ -29,11 +30,13 @@ export class AdminSettingsService {
     allowRegistrations: boolean;
     readOnlyMode: boolean;
     slowModeSeconds: number;
+    idleTimeoutMinutes: number;
   }): AdminSettings {
     return {
       allowRegistrations: row.allowRegistrations,
       readOnlyMode: row.readOnlyMode,
       slowModeSeconds: row.slowModeSeconds,
+      idleTimeoutMinutes: row.idleTimeoutMinutes,
     };
   }
 
@@ -54,6 +57,9 @@ export class AdminSettingsService {
         ...(typeof next.readOnlyMode === 'boolean' ? { readOnlyMode: next.readOnlyMode } : {}),
         ...(typeof next.slowModeSeconds === 'number'
           ? { slowModeSeconds: next.slowModeSeconds }
+          : {}),
+        ...(typeof next.idleTimeoutMinutes === 'number'
+          ? { idleTimeoutMinutes: next.idleTimeoutMinutes }
           : {}),
       },
     });

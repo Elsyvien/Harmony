@@ -48,6 +48,8 @@ export function ChatView(props: ChatViewProps) {
     x: number;
     y: number;
   } | null>(null);
+  const [loadingOlder, setLoadingOlder] = useState(false);
+  const [unseenNewMessagesCount, setUnseenNewMessagesCount] = useState(0);
   const [reactionPickerMessageId, setReactionPickerMessageId] = useState<string | null>(null);
   const longPressTimeoutRef = useRef<number | null>(null);
   const suppressNextClickRef = useRef(false);
@@ -87,6 +89,8 @@ export function ChatView(props: ChatViewProps) {
     previousLastMessageIdRef.current = null;
     previousMessageCountRef.current = 0;
     setShowJumpToLatest(false);
+    setUnseenNewMessagesCount(0);
+    setLoadingOlder(false);
     setMessageMenu(null);
     setReactionPickerMessageId(null);
     cancelSmoothScroll(messageListRef.current);
@@ -159,6 +163,24 @@ export function ChatView(props: ChatViewProps) {
     };
   }, [clearLongPress]);
 
+  const loadingOlderInFlightRef = useRef(false);
+
+  const loadOlderMessages = async () => {
+    if (loadingOlderInFlightRef.current) {
+      return;
+    }
+
+    loadingOlderInFlightRef.current = true;
+    setLoadingOlder(true);
+
+    try {
+      await props.onLoadOlder();
+    } finally {
+      loadingOlderInFlightRef.current = false;
+      setLoadingOlder(false);
+    }
+  };
+
   const openMessageMenu = (message: Message, x: number, y: number) => {
     const menuWidth = 260;
     const menuHeight = 280;
@@ -193,15 +215,19 @@ export function ChatView(props: ChatViewProps) {
       });
       stickToBottomRef.current = true;
       setShowJumpToLatest(false);
+      setUnseenNewMessagesCount(0);
     } else if (appendedNewMessage) {
+      const appendedCount = Math.max(1, props.messages.length - previousCount);
       if (stickToBottomRef.current) {
         requestAnimationFrame(() => {
           scrollToLatest(true);
         });
         stickToBottomRef.current = true;
         setShowJumpToLatest(false);
+        setUnseenNewMessagesCount(0);
       } else {
         setShowJumpToLatest(true);
+        setUnseenNewMessagesCount((current) => current + appendedCount);
       }
     }
 
@@ -235,29 +261,47 @@ export function ChatView(props: ChatViewProps) {
             <span className="status-offline">○ Polling</span>
           )}
         </p>
-        <button className="ghost-btn small" onClick={() => void props.onLoadOlder()}>
-          Load older
+        <button
+          className="ghost-btn small"
+          onClick={() => {
+            void loadOlderMessages();
+          }}
+          disabled={props.loading || loadingOlder}
+        >
+          {loadingOlder ? 'Loading...' : 'Load older'}
         </button>
       </div>
 
       <div
         ref={messageListRef}
         className="message-list"
+        aria-live="polite"
         onScroll={() => {
           const nearBottom = isNearBottom();
           stickToBottomRef.current = nearBottom;
           if (showJumpToLatest && nearBottom) {
             setShowJumpToLatest(false);
+            setUnseenNewMessagesCount(0);
           }
         }}
       >
         {props.loading ? <p className="muted">Loading messages...</p> : null}
         {!props.loading && props.messages.length === 0 ? (
-          <p className="muted">No messages yet. Be the first one.</p>
+          <p className="muted chat-view-empty-state">No messages yet. Be the first one.</p>
         ) : null}
 
-        {props.messages.map((message) => (
+        {props.messages.map((message, index) => (
           (() => {
+            const previousMessage = props.messages[index - 1];
+            const isSameUser = previousMessage && previousMessage.userId === message.userId;
+            
+            // Check if messages were sent within 5 minutes of each other
+            const timeDiff = previousMessage 
+              ? new Date(message.createdAt).getTime() - new Date(previousMessage.createdAt).getTime()
+              : Infinity;
+            const isRecent = timeDiff < 5 * 60 * 1000;
+            const isGrouped = isSameUser && isRecent && !message.replyTo && !message.deletedAt && !previousMessage.deletedAt;
+
             const attachmentUrl = resolveMediaUrl(message.attachment?.url) ?? null;
             const avatarUrl = resolveMediaUrl(message.user.avatarUrl);
             const isImageAttachment = Boolean(
@@ -268,7 +312,7 @@ export function ChatView(props: ChatViewProps) {
             return (
               <article
                 key={message.id}
-                className={`message-item${message.optimistic ? ' pending' : ''}${message.failed ? ' failed' : ''}`}
+                className={`message-item${isGrouped ? ' grouped' : ''}${message.optimistic ? ' pending' : ''}${message.failed ? ' failed' : ''}`}
                 onContextMenu={(event) => {
                   event.preventDefault();
                   openMessageMenu(message, event.clientX, event.clientY);
@@ -591,9 +635,18 @@ export function ChatView(props: ChatViewProps) {
             scrollToLatest(true);
             stickToBottomRef.current = true;
             setShowJumpToLatest(false);
+            setUnseenNewMessagesCount(0);
           }}
+          aria-label={
+            unseenNewMessagesCount > 0
+              ? `Jump to latest message, ${unseenNewMessagesCount} unread`
+              : 'Jump to latest message'
+          }
         >
-          Jump to latest message
+          <span className="jump-latest-main">Jump to latest</span>
+          {unseenNewMessagesCount > 0 ? (
+            <span className="jump-latest-count">{unseenNewMessagesCount}</span>
+          ) : null}
         </button>
       ) : null}
     </section>

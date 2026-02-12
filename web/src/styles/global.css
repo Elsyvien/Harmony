@@ -18,6 +18,7 @@
 
   --danger: #f23f43;
   --positive: #23a559;
+  --warning: #f0b232;
 
   --font-display: "Space Grotesk", sans-serif;
   --font-body: "Inter", "Segoe UI", sans-serif;
@@ -488,6 +489,28 @@ button {
 
 .status-dot.online {
   background-color: var(--positive);
+}
+
+.status-dot.idle {
+  background-color: var(--warning);
+  mask-image: radial-gradient(circle at 30% 30%, transparent 45%, black 46%);
+  -webkit-mask-image: radial-gradient(circle at 30% 30%, transparent 45%, black 46%);
+}
+
+.status-dot.dnd {
+  background-color: var(--danger);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.status-dot.dnd::after {
+  content: "";
+  display: block;
+  width: 4px;
+  height: 1.5px;
+  background-color: #0e0f11;
+  border-radius: 1px;
 }
 
 .name-tag {

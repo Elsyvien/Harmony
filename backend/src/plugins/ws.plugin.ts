@@ -21,12 +21,23 @@ interface VoiceParticipantState {
   deafened: boolean;
 }
 
+type PresenceState = 'online' | 'idle' | 'dnd';
+
+interface PresenceUser {
+  id: string;
+  username: string;
+  avatarUrl?: string;
+  state: PresenceState;
+}
+
 interface ClientContext {
   userId: string | null;
   username: string | null;
   avatarUrl: string | null;
   role: 'OWNER' | 'ADMIN' | 'MODERATOR' | 'MEMBER' | null;
   joinedChannels: Set<string>;
+  state: PresenceState;
+  lastActivity: number;
   socket: {
     send: (data: string) => void;
     on: (event: 'message' | 'close', handler: (raw?: unknown) => void | Promise<void>) => void;
@@ -43,6 +54,21 @@ const wsPluginImpl: FastifyPluginAsync<WsPluginOptions> = async (fastify, option
   const userSubscribers = new Map<string, Set<ClientContext>>();
   const voiceParticipants = new Map<string, Map<string, VoiceParticipantState>>();
   const activeVoiceChannelByUser = new Map<string, string>();
+
+  // Global settings for idle timeout
+  let idleTimeoutMinutes = 15;
+
+  const refreshSettings = async () => {
+    try {
+      const settings = await prisma.appSettings.findUnique({ where: { id: 'global' } });
+      if (settings) {
+        idleTimeoutMinutes = settings.idleTimeoutMinutes;
+      }
+    } catch {
+      // Ignore
+    }
+  };
+  await refreshSettings();
 
   const send = (ctx: ClientContext, type: string, payload: unknown) => {
     if (ctx.socket.readyState === WS_OPEN_STATE) {
@@ -62,6 +88,27 @@ const wsPluginImpl: FastifyPluginAsync<WsPluginOptions> = async (fastify, option
     }
     ctx.joinedChannels.delete(channelId);
   };
+
+  // Heartbeat to check for idle users
+  const checkIdleUsers = () => {
+    const now = Date.now();
+    let changed = false;
+    for (const subscribers of userSubscribers.values()) {
+      for (const client of subscribers) {
+        if (client.state === 'online') {
+          const diffMs = now - client.lastActivity;
+          if (diffMs > idleTimeoutMinutes * 60 * 1000) {
+            client.state = 'idle';
+            changed = true;
+          }
+        }
+      }
+    }
+    if (changed) {
+      broadcastPresence();
+    }
+  };
+  const idleInterval = setInterval(checkIdleUsers, 60000); // Check every minute
 
   const leaveAllChannels = (ctx: ClientContext) => {
     for (const channelId of [...ctx.joinedChannels]) {
@@ -86,17 +133,31 @@ const wsPluginImpl: FastifyPluginAsync<WsPluginOptions> = async (fastify, option
   };
 
   const getOnlineUsers = () => {
-    const users: Array<{ id: string; username: string; avatarUrl?: string }> = [];
+    const users: PresenceUser[] = [];
     for (const [userId, subscribers] of userSubscribers) {
-      const username = [...subscribers]
-        .map((client) => client.username)
-        .find((value): value is string => Boolean(value));
-      const avatarUrl = [...subscribers]
-        .map((client) => client.avatarUrl)
-        .find((value): value is string => Boolean(value));
-      if (username) {
-        users.push({ id: userId, username, avatarUrl });
+      const client = [...subscribers][0];
+      if (!client || !client.username) {
+        continue;
       }
+
+      // Aggregate state: DND > Online > Idle
+      // If any connection is Online, user is Online. If all Idle, user is Idle.
+      // If any is DND, it takes priority if no one is Online? 
+      // Discord usually shows the most active state.
+      let finalState: PresenceState = 'idle';
+      const clients = [...subscribers];
+      if (clients.some(c => c.state === 'online')) {
+        finalState = 'online';
+      } else if (clients.some(c => c.state === 'dnd')) {
+        finalState = 'dnd';
+      }
+
+      users.push({
+        id: userId,
+        username: client.username,
+        avatarUrl: client.avatarUrl ?? undefined,
+        state: finalState,
+      });
     }
     return users.sort((a, b) => a.username.localeCompare(b.username));
   };
@@ -279,6 +340,8 @@ const wsPluginImpl: FastifyPluginAsync<WsPluginOptions> = async (fastify, option
       avatarUrl: null,
       role: null,
       joinedChannels: new Set<string>(),
+      state: 'online',
+      lastActivity: Date.now(),
       socket: socket,
     };
 
@@ -287,6 +350,13 @@ const wsPluginImpl: FastifyPluginAsync<WsPluginOptions> = async (fastify, option
         const parsed = JSON.parse(String(raw)) as { type?: string; payload?: unknown };
         if (!parsed.type) {
           throw new AppError('INVALID_EVENT', 400, 'Missing event type');
+        }
+
+        // Update activity on any event
+        ctx.lastActivity = Date.now();
+        if (ctx.state === 'idle') {
+          ctx.state = 'online';
+          broadcastPresence();
         }
 
         if (parsed.type === 'auth') {
@@ -333,6 +403,15 @@ const wsPluginImpl: FastifyPluginAsync<WsPluginOptions> = async (fastify, option
 
         if (!ctx.userId) {
           throw new AppError('UNAUTHORIZED', 401, 'Authenticate first');
+        }
+
+        if (parsed.type === 'presence:set') {
+          const payload = parsed.payload as { state?: PresenceState };
+          if (payload?.state === 'online' || payload?.state === 'dnd' || payload?.state === 'idle') {
+            ctx.state = payload.state;
+            broadcastPresence();
+          }
+          return;
         }
 
         if (parsed.type === 'channel:join') {

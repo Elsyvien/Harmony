@@ -50,6 +50,7 @@ export function AdminSettingsPanel(props: AdminSettingsPanelProps) {
     allowRegistrations: true,
     readOnlyMode: false,
     slowModeSeconds: 0,
+    idleTimeoutMinutes: 15,
   });
   const [search, setSearch] = useState('');
   const [roleFilter, setRoleFilter] = useState<'ALL' | UserRole>('ALL');
@@ -179,6 +180,26 @@ export function AdminSettingsPanel(props: AdminSettingsPanelProps) {
               setDraft((prev) => ({
                 ...prev,
                 slowModeSeconds: Math.max(0, Math.min(60, Number(event.target.value) || 0)),
+              }))
+            }
+            disabled={props.settingsLoading || props.savingSettings}
+          />
+        </label>
+
+        <label className="field-inline">
+          <span>
+            <strong>Idle timeout (minutes)</strong>
+            <small>How long until a user is automatically marked as Idle.</small>
+          </span>
+          <input
+            type="number"
+            min={1}
+            max={120}
+            value={draft.idleTimeoutMinutes}
+            onChange={(event) =>
+              setDraft((prev) => ({
+                ...prev,
+                idleTimeoutMinutes: Math.max(1, Math.min(120, Number(event.target.value) || 15)),
               }))
             }
             disabled={props.settingsLoading || props.savingSettings}

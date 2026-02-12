@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import type { UserPreferences } from '../types/preferences';
 import { DEFAULT_USER_PREFERENCES } from '../types/preferences';
+import { getStorageItem, setStorageItem } from '../utils/safe-storage';
 
 const PREFS_KEY = 'discordclone_user_preferences_v4';
 
@@ -29,11 +30,11 @@ function parsePreferences(raw: string | null): UserPreferences {
           : DEFAULT_USER_PREFERENCES.enterToSend,
       playMessageSound: Boolean(parsed.playMessageSound),
       voiceInputSensitivity:
-        typeof parsed.voiceInputSensitivity === 'number'
+        typeof parsed.voiceInputSensitivity === 'number' && Number.isFinite(parsed.voiceInputSensitivity)
           ? Math.min(0.12, Math.max(0.005, parsed.voiceInputSensitivity))
           : DEFAULT_USER_PREFERENCES.voiceInputSensitivity,
       voiceOutputVolume:
-        typeof parsed.voiceOutputVolume === 'number'
+        typeof parsed.voiceOutputVolume === 'number' && Number.isFinite(parsed.voiceOutputVolume)
           ? Math.min(100, Math.max(0, Math.round(parsed.voiceOutputVolume)))
           : DEFAULT_USER_PREFERENCES.voiceOutputVolume,
       showVoiceActivity:
@@ -66,11 +67,11 @@ function applyBodyClasses(preferences: UserPreferences) {
 
 export function useUserPreferences() {
   const [preferences, setPreferences] = useState<UserPreferences>(() =>
-    parsePreferences(localStorage.getItem(PREFS_KEY)),
+    parsePreferences(getStorageItem(PREFS_KEY)),
   );
 
   useEffect(() => {
-    localStorage.setItem(PREFS_KEY, JSON.stringify(preferences));
+    setStorageItem(PREFS_KEY, JSON.stringify(preferences));
     applyBodyClasses(preferences);
   }, [preferences]);
 
