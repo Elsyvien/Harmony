@@ -1,6 +1,7 @@
-import { useMemo, useState } from 'react';
+import { useMemo, useRef, useState } from 'react';
 import type { User } from '../types/api';
 import type { UserPreferences } from '../types/preferences';
+import { smoothScrollTo } from '../utils/smooth-scroll';
 
 interface SettingsPanelProps {
   user: User;
@@ -33,6 +34,7 @@ export function SettingsPanel(props: SettingsPanelProps) {
   const [notificationHint, setNotificationHint] = useState<string | null>(null);
   const [loggingOut, setLoggingOut] = useState(false);
   const [activeSection, setActiveSection] = useState('account');
+  const scrollContainerRef = useRef<HTMLElement | null>(null);
 
   const createdAt = useMemo(
     () =>
@@ -48,17 +50,28 @@ export function SettingsPanel(props: SettingsPanelProps) {
     notificationPermission !== 'unsupported' &&
     notificationPermission !== 'granted' &&
     !requestingNotifications;
+
   const jumpToSection = (sectionId: string) => {
-    const node = document.getElementById(sectionId);
+    const container = scrollContainerRef.current;
+    if (!container) {
+      return;
+    }
+    const node = container.querySelector<HTMLElement>(`#${sectionId}`);
     if (!node) {
       return;
     }
+
     setActiveSection(sectionId);
-    node.scrollIntoView({ behavior: 'smooth', block: 'start' });
+
+    const containerRect = container.getBoundingClientRect();
+    const nodeRect = node.getBoundingClientRect();
+    const targetTop = Math.max(0, nodeRect.top - containerRect.top + container.scrollTop - 8);
+
+    smoothScrollTo(container, targetTop, { reducedMotion: props.preferences.reducedMotion });
   };
 
   return (
-    <section className="settings-panel discord-settings-panel">
+    <section ref={scrollContainerRef} className="settings-panel discord-settings-panel">
       <div className="settings-shell">
         <aside className="settings-sidebar">
           <div className="settings-profile">

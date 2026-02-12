@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { Message } from '../types/api';
 import { MarkdownMessage } from './markdown-message';
+import { cancelSmoothScroll, smoothScrollTo } from '../utils/smooth-scroll';
 
 interface ChatViewProps {
   activeChannelId: string | null;
@@ -10,6 +11,7 @@ interface ChatViewProps {
   currentUserId?: string;
   use24HourClock?: boolean;
   showSeconds?: boolean;
+  reducedMotion?: boolean;
   onLoadOlder: () => Promise<void>;
   onUserClick?: (user: { id: string; username: string }) => void;
   onMentionUser?: (user: { id: string; username: string }) => void;
@@ -57,12 +59,18 @@ export function ChatView(props: ChatViewProps) {
     return distanceToBottom <= 80;
   };
 
-  const scrollToLatest = (behavior: ScrollBehavior = 'auto') => {
+  const scrollToLatest = (animated: boolean) => {
     const element = messageListRef.current;
     if (!element) {
       return;
     }
-    element.scrollTo({ top: element.scrollHeight, behavior });
+    const targetTop = element.scrollHeight;
+    if (!animated || props.reducedMotion) {
+      cancelSmoothScroll(element);
+      element.scrollTop = targetTop;
+      return;
+    }
+    smoothScrollTo(element, targetTop, { reducedMotion: props.reducedMotion });
   };
 
   useEffect(() => {
@@ -70,7 +78,14 @@ export function ChatView(props: ChatViewProps) {
     previousMessageCountRef.current = 0;
     setShowJumpToLatest(false);
     setMessageMenu(null);
+    cancelSmoothScroll(messageListRef.current);
   }, [props.activeChannelId]);
+
+  useEffect(() => {
+    return () => {
+      cancelSmoothScroll(messageListRef.current);
+    };
+  }, []);
 
   useEffect(() => {
     if (!messageMenu) {
@@ -129,14 +144,14 @@ export function ChatView(props: ChatViewProps) {
 
     if (isInitialChannelRender) {
       requestAnimationFrame(() => {
-        scrollToLatest();
+        scrollToLatest(false);
       });
       stickToBottomRef.current = true;
       setShowJumpToLatest(false);
     } else if (appendedNewMessage) {
       if (stickToBottomRef.current) {
         requestAnimationFrame(() => {
-          scrollToLatest('smooth');
+          scrollToLatest(true);
         });
         stickToBottomRef.current = true;
         setShowJumpToLatest(false);
@@ -440,7 +455,7 @@ export function ChatView(props: ChatViewProps) {
         <button
           className="jump-latest-btn"
           onClick={() => {
-            scrollToLatest('smooth');
+            scrollToLatest(true);
             stickToBottomRef.current = true;
             setShowJumpToLatest(false);
           }}

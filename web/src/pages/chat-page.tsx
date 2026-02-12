@@ -2234,6 +2234,7 @@ export function ChatPage() {
                   currentUserId={auth.user.id}
                   use24HourClock={preferences.use24HourClock}
                   showSeconds={preferences.showSeconds}
+                  reducedMotion={preferences.reducedMotion}
                   onLoadOlder={loadOlder}
                   onUserClick={setSelectedUser}
                   onMentionUser={(user) => {
