@@ -2975,8 +2975,8 @@ body.font-scale-lg {
 }
 
 .select-arrow::after {
-  content: "^";
-  font-size: 14px;
+  content: "▾";
+  font-size: 12px;
   font-weight: 700;
   display: inline-block;
   transform-origin: center;
