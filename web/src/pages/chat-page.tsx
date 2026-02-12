@@ -1624,6 +1624,7 @@ export function ChatPage() {
 
       const selfPresent = payload.participants.some((participant) => participant.userId === auth.user?.id);
       if (selfPresent) {
+        activeVoiceChannelIdRef.current = payload.channelId;
         setActiveVoiceChannelId(payload.channelId);
         setVoiceBusyChannelId((current) => (current === payload.channelId ? null : current));
         return;
@@ -1636,6 +1637,7 @@ export function ChatPage() {
         if (voiceBusyChannelId === payload.channelId) {
           return current;
         }
+        activeVoiceChannelIdRef.current = null;
         return null;
       });
       if (voiceBusyChannelId !== payload.channelId) {
@@ -2588,6 +2590,7 @@ export function ChatPage() {
         if (!sent) {
           throw new Error('VOICE_JOIN_FAILED');
         }
+        activeVoiceChannelIdRef.current = channelId;
         setActiveVoiceChannelId(channelId);
         playVoiceStateSound('join');
         setError(null);
@@ -2608,6 +2611,7 @@ export function ChatPage() {
       const leavingChannelId = activeVoiceChannelId;
       setVoiceBusyChannelId(leavingChannelId);
       ws.leaveVoice(leavingChannelId);
+      activeVoiceChannelIdRef.current = null;
       playVoiceStateSound('leave');
       setError(null);
       window.setTimeout(() => {
