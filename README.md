@@ -1,4 +1,8 @@
-# DiscordClone
+# Harmony
+
+<p align="left">
+  <img src="web/ressources/logos/logo.png" alt="Harmony logo" width="120" />
+</p>
 
 Discord-like chat app with:
 - JWT auth (register/login/logout)
