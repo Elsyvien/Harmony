@@ -11,34 +11,51 @@ interface VoiceChannelPanelProps {
   joined: boolean;
   busy: boolean;
   wsConnected: boolean;
+  isMuted: boolean;
+  onToggleMute: () => void;
+  speakingUserIds: string[];
+  showVoiceActivity: boolean;
   onJoin: () => Promise<void> | void;
   onLeave: () => Promise<void> | void;
 }
 
 export function VoiceChannelPanel(props: VoiceChannelPanelProps) {
+  const speakingSet = new Set(props.speakingUserIds);
+
   return (
     <section className="voice-panel">
       <header className="voice-panel-header">
         <h2>Voice Channel: {props.channelName}</h2>
-        <button
-          className={props.joined ? 'ghost-btn danger' : 'ghost-btn'}
-          disabled={props.busy || !props.wsConnected}
-          onClick={() => {
-            if (props.joined) {
-              void props.onLeave();
-              return;
-            }
-            void props.onJoin();
-          }}
-        >
-          {props.busy ? 'Working...' : props.joined ? 'Leave Voice' : 'Join Voice'}
-        </button>
+        <div className="voice-panel-header-actions">
+          <button
+            className={props.isMuted ? 'ghost-btn small danger' : 'ghost-btn small'}
+            disabled={!props.joined}
+            onClick={props.onToggleMute}
+          >
+            {props.isMuted ? 'Mic Muted' : 'Mic Live'}
+          </button>
+          <button
+            className={props.joined ? 'ghost-btn danger' : 'ghost-btn'}
+            disabled={props.busy || !props.wsConnected}
+            onClick={() => {
+              if (props.joined) {
+                void props.onLeave();
+                return;
+              }
+              void props.onJoin();
+            }}
+          >
+            {props.busy ? 'Working...' : props.joined ? 'Leave Voice' : 'Join Voice'}
+          </button>
+        </div>
       </header>
 
       <p className="setting-hint">
         {props.joined
           ? props.localAudioReady
-            ? 'Mic stream active. WebRTC peer transport is running.'
+            ? props.isMuted
+              ? 'Connected. Your mic is muted.'
+              : 'Mic stream active. WebRTC peer transport is running.'
             : 'Joining voice... requesting microphone access.'
           : 'Join the channel to establish WebRTC voice transport.'}
       </p>
@@ -75,22 +92,38 @@ export function VoiceChannelPanel(props: VoiceChannelPanelProps) {
 
       <div className="voice-participant-list">
         {props.participants.length === 0 ? <p className="muted">No one in this voice channel yet.</p> : null}
-        {props.participants.map((participant) => (
-          <div key={participant.userId} className="voice-participant-item">
-            <span>{participant.username}</span>
-            <small>
-              {participant.userId === props.currentUserId
-                ? props.joined
-                  ? props.localAudioReady
-                    ? 'You (Mic Active)'
-                    : 'You (Connecting)'
-                  : 'You'
-                : props.remoteAudioUsers.some((user) => user.userId === participant.userId)
-                  ? 'Audio Connected'
-                  : 'Signaling'}
-            </small>
-          </div>
-        ))}
+        {props.participants.map((participant) => {
+          const isSelf = participant.userId === props.currentUserId;
+          const hasAudio = props.remoteAudioUsers.some((user) => user.userId === participant.userId);
+          const isSpeaking = props.showVoiceActivity && speakingSet.has(participant.userId);
+          return (
+            <div key={participant.userId} className={`voice-participant-item ${isSpeaking ? 'speaking' : ''}`}>
+              <span>
+                {participant.username}
+                {props.showVoiceActivity ? (
+                  <em className={`voice-speaking-dot ${isSpeaking ? 'active' : ''}`} aria-hidden="true" />
+                ) : null}
+              </span>
+              <small>
+                {isSelf
+                  ? props.joined
+                    ? props.localAudioReady
+                      ? props.isMuted
+                        ? 'You (Muted)'
+                        : isSpeaking
+                          ? 'You (Speaking)'
+                          : 'You (Mic Active)'
+                      : 'You (Connecting)'
+                    : 'You'
+                  : hasAudio
+                    ? isSpeaking
+                      ? 'Speaking'
+                      : 'Audio Connected'
+                    : 'Signaling'}
+              </small>
+            </div>
+          );
+        })}
       </div>
     </section>
   );

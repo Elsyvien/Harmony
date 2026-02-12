@@ -182,7 +182,9 @@ export function ChatPage() {
   const [activeVoiceChannelId, setActiveVoiceChannelId] = useState<string | null>(null);
   const [voiceBusyChannelId, setVoiceBusyChannelId] = useState<string | null>(null);
   const [localAudioReady, setLocalAudioReady] = useState(false);
+  const [localMicMuted, setLocalMicMuted] = useState(false);
   const [remoteAudioStreams, setRemoteAudioStreams] = useState<Record<string, MediaStream>>({});
+  const [speakingUserIds, setSpeakingUserIds] = useState<string[]>([]);
   const [savingVoiceBitrateChannelId, setSavingVoiceBitrateChannelId] = useState<string | null>(null);
 
   const [selectedUser, setSelectedUser] = useState<{ id: string; username: string } | null>(null);
@@ -190,6 +192,9 @@ export function ChatPage() {
   const pendingSignaturesRef = useRef(new Set<string>());
   const pendingTimeoutsRef = useRef(new Map<string, number>());
   const localVoiceStreamRef = useRef<MediaStream | null>(null);
+  const localAnalyserRef = useRef<AnalyserNode | null>(null);
+  const localAnalyserContextRef = useRef<AudioContext | null>(null);
+  const localAnalyserSourceRef = useRef<MediaStreamAudioSourceNode | null>(null);
   const peerConnectionsRef = useRef<Map<string, RTCPeerConnection>>(new Map());
   const pendingIceRef = useRef<Map<string, RTCIceCandidateInit[]>>(new Map());
   const activeVoiceChannelIdRef = useRef<string | null>(null);
@@ -399,7 +404,18 @@ export function ChatPage() {
       }
       localVoiceStreamRef.current = null;
     }
+    if (localAnalyserSourceRef.current) {
+      localAnalyserSourceRef.current.disconnect();
+      localAnalyserSourceRef.current = null;
+    }
+    localAnalyserRef.current = null;
+    if (localAnalyserContextRef.current) {
+      void localAnalyserContextRef.current.close();
+      localAnalyserContextRef.current = null;
+    }
     setLocalAudioReady(false);
+    setLocalMicMuted(false);
+    setSpeakingUserIds([]);
     setRemoteAudioStreams({});
   }, [closePeerConnection]);
 
@@ -419,9 +435,29 @@ export function ChatPage() {
       video: false,
     });
     localVoiceStreamRef.current = stream;
+    const shouldMute = Boolean(preferences.autoMuteOnJoin);
+    for (const track of stream.getAudioTracks()) {
+      track.enabled = !shouldMute;
+    }
+    setLocalMicMuted(shouldMute);
+
+    const AudioContextClass =
+      window.AudioContext ||
+      (window as typeof window & { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
+    if (AudioContextClass && !localAnalyserRef.current) {
+      const analyserContext = new AudioContextClass();
+      const analyser = analyserContext.createAnalyser();
+      analyser.fftSize = 1024;
+      const source = analyserContext.createMediaStreamSource(stream);
+      source.connect(analyser);
+      localAnalyserContextRef.current = analyserContext;
+      localAnalyserSourceRef.current = source;
+      localAnalyserRef.current = analyser;
+    }
+
     setLocalAudioReady(true);
     return stream;
-  }, []);
+  }, [preferences.autoMuteOnJoin]);
 
   const applyAudioBitrateToConnection = useCallback(
     async (connection: RTCPeerConnection, bitrateKbps: number) => {
@@ -861,6 +897,89 @@ export function ChatPage() {
       void applyAudioBitrateToConnection(connection, activeVoiceBitrateKbps);
     }
   }, [applyAudioBitrateToConnection, activeVoiceBitrateKbps]);
+
+
+
+  useEffect(() => {
+    const stream = localVoiceStreamRef.current;
+    if (!stream) {
+      return;
+    }
+    for (const track of stream.getAudioTracks()) {
+      track.enabled = !localMicMuted;
+    }
+  }, [localMicMuted]);
+
+  useEffect(() => {
+    if (!preferences.showVoiceActivity || !auth.user || !activeVoiceChannelId || !localAudioReady || localMicMuted) {
+      setSpeakingUserIds((prev) => (prev.length === 0 ? prev : []));
+      return;
+    }
+
+    const analyser = localAnalyserRef.current;
+    if (!analyser) {
+      return;
+    }
+
+    const selfId = auth.user.id;
+    let frame = 0;
+    const data = new Uint8Array(analyser.fftSize);
+
+    const tick = () => {
+      analyser.getByteTimeDomainData(data);
+      let sum = 0;
+      for (let i = 0; i < data.length; i += 1) {
+        const normalized = (data[i] - 128) / 128;
+        sum += normalized * normalized;
+      }
+      const rms = Math.sqrt(sum / data.length);
+      const speaking = rms >= preferences.voiceInputSensitivity;
+      setSpeakingUserIds((prev) => {
+        const hasSelf = prev.includes(selfId);
+        if (speaking && !hasSelf) {
+          return [...prev, selfId];
+        }
+        if (!speaking && hasSelf) {
+          return prev.filter((id) => id !== selfId);
+        }
+        return prev;
+      });
+      frame = window.requestAnimationFrame(tick);
+    };
+
+    frame = window.requestAnimationFrame(tick);
+    return () => {
+      window.cancelAnimationFrame(frame);
+      setSpeakingUserIds((prev) => prev.filter((id) => id !== selfId));
+    };
+  }, [
+    preferences.showVoiceActivity,
+    preferences.voiceInputSensitivity,
+    auth.user,
+    activeVoiceChannelId,
+    localAudioReady,
+    localMicMuted,
+  ]);
+
+  useEffect(() => {
+    if (!preferences.showVoiceActivity) {
+      setSpeakingUserIds((prev) => prev.filter((id) => id === auth.user?.id));
+      return;
+    }
+
+    const nextRemoteSpeaking = viewedRemoteAudioUsers
+      .filter(({ stream }) => stream.active)
+      .map(({ userId }) => userId);
+
+    setSpeakingUserIds((prev) => {
+      const localSelf = prev.filter((id) => id === auth.user?.id);
+      const merged = [...new Set([...localSelf, ...nextRemoteSpeaking])];
+      if (merged.length === prev.length && merged.every((id, index) => id === prev[index])) {
+        return prev;
+      }
+      return merged;
+    });
+  }, [preferences.showVoiceActivity, viewedRemoteAudioUsers, auth.user?.id]);
 
   const loadAdminStats = useCallback(async () => {
     if (!auth.token || !auth.user?.isAdmin) {
@@ -1392,7 +1511,9 @@ export function ChatPage() {
     : isVoiceDisconnecting
       ? 'Disconnecting...'
       : localAudioReady
-        ? 'Connected'
+        ? localMicMuted
+          ? 'Connected (Muted)'
+          : 'Connected'
         : 'Connecting...';
 
   return (
@@ -1485,6 +1606,20 @@ export function ChatPage() {
                 joined={activeVoiceChannelId === activeChannel.id}
                 busy={voiceBusyChannelId === activeChannel.id}
                 wsConnected={ws.connected}
+                isMuted={localMicMuted}
+                onToggleMute={() => {
+                  const stream = localVoiceStreamRef.current;
+                  if (!stream) {
+                    return;
+                  }
+                  const nextMuted = !localMicMuted;
+                  for (const track of stream.getAudioTracks()) {
+                    track.enabled = !nextMuted;
+                  }
+                  setLocalMicMuted(nextMuted);
+                }}
+                speakingUserIds={speakingUserIds}
+                showVoiceActivity={preferences.showVoiceActivity}
                 onJoin={() => joinVoiceChannel(activeChannel.id)}
                 onLeave={leaveVoiceChannel}
               />
@@ -1581,6 +1716,7 @@ export function ChatPage() {
               if (node.srcObject !== user.stream) {
                 node.srcObject = user.stream;
               }
+              node.volume = Math.min(2, Math.max(0, preferences.voiceOutputVolume / 100));
             }}
           />
         ))}
