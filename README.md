@@ -32,3 +32,7 @@ Backend: `http://localhost:4000`
 - Backend: Fastify, TypeScript, Prisma
 - Frontend: React, TypeScript, Vite
 - Testing: Vitest (backend)
+
+
+<img width="1536" height="1024" alt="grafik" src="https://github.com/user-attachments/assets/d95f17bf-855f-4b0f-a15b-a304021981ea" />
+
