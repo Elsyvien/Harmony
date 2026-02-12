@@ -390,6 +390,11 @@ const wsPluginImpl: FastifyPluginAsync<WsPluginOptions> = async (fastify, option
           return;
         }
 
+        if (parsed.type === 'ping') {
+          send(ctx, 'pong', parsed.payload);
+          return;
+        }
+
         throw new AppError('UNKNOWN_EVENT', 400, `Unknown event: ${parsed.type}`);
       } catch (error) {
         if (error instanceof AppError) {

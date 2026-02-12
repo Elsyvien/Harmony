@@ -202,6 +202,14 @@ export function useChatSocket(params: {
               onVoiceSignalRef.current?.(payload);
             }
           }
+          if (parsed.type === 'pong') {
+            const payload = parsed.payload as { start: number };
+            if (payload?.start) {
+              const rtt = Date.now() - payload.start;
+              setPing(rtt);
+            }
+            return;
+          }
         } catch {
           // Ignore malformed event payloads from the server.
         }
@@ -283,5 +291,34 @@ export function useChatSocket(params: {
     [sendEvent],
   );
 
-  return { connected, sendMessage, joinVoice, leaveVoice, sendVoiceSignal };
+  useEffect(() => {
+    if (!connected) {
+      return;
+    }
+    const interval = window.setInterval(() => {
+      const start = Date.now();
+      const socket = socketRef.current;
+      if (socket && socket.readyState === WebSocket.OPEN) {
+        socket.send(JSON.stringify({ type: 'ping', payload: { start } }));
+      }
+    }, 5000); // Ping every 5 seconds
+
+    return () => {
+      window.clearInterval(interval);
+    };
+  }, [connected]);
+
+  const [ping, setPing] = useState<number | null>(null);
+
+  // In the existing onmessage handler, we need to handle 'pong'. 
+  // Since we can't easily inject into the large useEffect, let's modify the socket.onmessage wrapper if possible or add a separate listener mechanism if the architecture supports it.
+  // Actually, looking at the file, the onmessage is inside the main useEffect. I should probably rewrite that useEffect to include pong handling.
+  // BUT `replace_file_content` on a huge block is risky.
+  // Let's see if we can just modify the onmessage handler block.
+
+  // Wait, I can't modify the onmessage handler easily without replacing the whole useEffect or a large chunk.
+  // The onmessage handler is lines 127-208.
+  // I will replace the onmessage handler to include 'pong' case.
+
+  return { connected, sendMessage, joinVoice, leaveVoice, sendVoiceSignal, ping };
 }

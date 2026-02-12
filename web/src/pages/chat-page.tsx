@@ -2235,9 +2235,9 @@ export function ChatPage() {
         onToggleDeafen={toggleSelfDeafen}
         joiningVoiceChannelId={voiceBusyChannelId}
         incomingFriendRequests={incomingRequests.length}
-      />
-
-      <section className="chat-panel">
+        avatarUrl={auth.user.avatarUrl}
+        ping={ping}
+      /><section className="chat-panel">
         <header className="panel-header">
           <div className="panel-header-main">
             {activeView === 'chat' ? (
