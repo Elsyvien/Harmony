@@ -2996,3 +2996,75 @@ body.font-scale-lg {
   color: #8fa0ff;
   font-weight: 700;
 }
+
+/* Message Actions Toolbar */
+.message-actions-toolbar {
+  position: absolute;
+  top: -16px;
+  right: 16px;
+  background-color: var(--bg-dark);
+  border: 1px solid var(--panel-border);
+  border-radius: 8px;
+  padding: 4px;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+  opacity: 0;
+  transform: translateY(4px);
+  transition: opacity 0.1s ease, transform 0.1s ease;
+  pointer-events: none;
+  z-index: 10;
+}
+
+.message-item:hover .message-actions-toolbar,
+.message-actions-toolbar:hover {
+  opacity: 1;
+  transform: translateY(0);
+  pointer-events: auto;
+}
+
+.quick-reactions {
+  display: flex;
+  gap: 2px;
+}
+
+.toolbar-divider {
+  width: 1px;
+  height: 20px;
+  background-color: var(--panel-border);
+  margin: 0 4px;
+}
+
+.toolbar-actions {
+  display: flex;
+  gap: 2px;
+}
+
+.toolbar-btn {
+  width: 28px;
+  height: 28px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 4px;
+  color: var(--text-muted);
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  transition: all 0.1s ease;
+}
+
+.toolbar-btn:hover {
+  background-color: var(--bg-hover);
+  color: var(--text-normal);
+}
+
+.toolbar-btn.emoji {
+  font-size: 16px;
+}
+
+.toolbar-btn.emoji:hover {
+  background-color: rgba(88, 101, 242, 0.16);
+  transform: scale(1.1);
+}
