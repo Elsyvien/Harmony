@@ -194,6 +194,10 @@ function isVoiceSignalData(value: unknown): value is VoiceSignalData {
   return false;
 }
 
+function isPolitePeer(localUserId: string, remoteUserId: string) {
+  return localUserId > remoteUserId;
+}
+
 export function ChatPage() {
   const auth = useAuth();
   const { preferences, updatePreferences, resetPreferences } = useUserPreferences();
@@ -280,6 +284,8 @@ export function ChatPage() {
   const peerConnectionsRef = useRef<Map<string, RTCPeerConnection>>(new Map());
   const videoSenderByPeerRef = useRef<Map<string, RTCRtpSender>>(new Map());
   const pendingVideoRenegotiationByPeerRef = useRef<Set<string>>(new Set());
+  const makingOfferByPeerRef = useRef<Map<string, boolean>>(new Map());
+  const ignoreOfferByPeerRef = useRef<Map<string, boolean>>(new Map());
   const pendingIceRef = useRef<Map<string, RTCIceCandidateInit[]>>(new Map());
   const previousRtpSnapshotsRef = useRef<Map<string, { bytes: number; timestamp: number }>>(new Map());
   const voiceParticipantIdsByChannelRef = useRef<Map<string, Set<string>>>(new Map());
@@ -789,6 +795,8 @@ export function ChatPage() {
     }
     videoSenderByPeerRef.current.delete(peerUserId);
     pendingVideoRenegotiationByPeerRef.current.delete(peerUserId);
+    makingOfferByPeerRef.current.delete(peerUserId);
+    ignoreOfferByPeerRef.current.delete(peerUserId);
     pendingIceRef.current.delete(peerUserId);
     setRemoteAudioStreams((prev) => {
       if (!prev[peerUserId]) {
@@ -815,6 +823,8 @@ export function ChatPage() {
     peerConnectionsRef.current.clear();
     videoSenderByPeerRef.current.clear();
     pendingVideoRenegotiationByPeerRef.current.clear();
+    makingOfferByPeerRef.current.clear();
+    ignoreOfferByPeerRef.current.clear();
     pendingIceRef.current.clear();
     if (localVoiceStreamRef.current) {
       for (const track of localVoiceStreamRef.current.getTracks()) {
@@ -1141,23 +1151,39 @@ export function ChatPage() {
         return;
       }
       const connection = await ensurePeerConnection(peerUserId, channelId);
+      if (makingOfferByPeerRef.current.get(peerUserId)) {
+        pendingVideoRenegotiationByPeerRef.current.add(peerUserId);
+        return;
+      }
       if (connection.signalingState !== 'stable') {
         pendingVideoRenegotiationByPeerRef.current.add(peerUserId);
         return;
       }
       pendingVideoRenegotiationByPeerRef.current.delete(peerUserId);
+      makingOfferByPeerRef.current.set(peerUserId, true);
       try {
         const offer = await connection.createOffer({
           offerToReceiveAudio: true,
           offerToReceiveVideo: true,
         });
+        if (connection.signalingState !== 'stable') {
+          pendingVideoRenegotiationByPeerRef.current.add(peerUserId);
+          return;
+        }
         await connection.setLocalDescription(offer);
+        const localDescription = connection.localDescription;
+        if (!localDescription || localDescription.type !== 'offer') {
+          pendingVideoRenegotiationByPeerRef.current.add(peerUserId);
+          return;
+        }
         sendVoiceSignalRef.current(channelId, peerUserId, {
           kind: 'offer',
-          sdp: offer,
+          sdp: localDescription,
         } satisfies VoiceSignalData);
       } catch {
         pendingVideoRenegotiationByPeerRef.current.add(peerUserId);
+      } finally {
+        makingOfferByPeerRef.current.delete(peerUserId);
       }
     },
     [auth.user, ensurePeerConnection],
@@ -1177,6 +1203,9 @@ export function ChatPage() {
 
       const signal = payload.data;
       if (signal.kind === 'ice') {
+        if (ignoreOfferByPeerRef.current.get(payload.fromUserId)) {
+          return;
+        }
         const connection = peerConnectionsRef.current.get(payload.fromUserId);
         if (!connection || !connection.remoteDescription) {
           const queue = pendingIceRef.current.get(payload.fromUserId) ?? [];
@@ -1195,11 +1224,24 @@ export function ChatPage() {
       const connection = await ensurePeerConnection(payload.fromUserId, payload.channelId);
 
       if (signal.kind === 'offer') {
-        if (connection.signalingState !== 'stable') {
+        const offerCollision =
+          makingOfferByPeerRef.current.get(payload.fromUserId) === true ||
+          connection.signalingState !== 'stable';
+        const polite = isPolitePeer(auth.user.id, payload.fromUserId);
+
+        if (!polite && offerCollision) {
+          ignoreOfferByPeerRef.current.set(payload.fromUserId, true);
+          return;
+        }
+
+        ignoreOfferByPeerRef.current.set(payload.fromUserId, false);
+
+        if (offerCollision && connection.signalingState === 'have-local-offer') {
           try {
             await connection.setLocalDescription({ type: 'rollback' });
           } catch {
-            // Ignore rollback issues and continue best effort.
+            pendingVideoRenegotiationByPeerRef.current.add(payload.fromUserId);
+            return;
           }
         }
         await connection.setRemoteDescription(signal.sdp);
@@ -1210,6 +1252,13 @@ export function ChatPage() {
           kind: 'answer',
           sdp: answer,
         } satisfies VoiceSignalData);
+        return;
+      }
+
+      if (
+        ignoreOfferByPeerRef.current.get(payload.fromUserId) ||
+        connection.signalingState !== 'have-local-offer'
+      ) {
         return;
       }
 

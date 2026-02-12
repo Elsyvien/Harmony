@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import type { VoiceParticipant } from '../../../hooks/use-chat-socket';
 import type { Channel, UserRole } from '../../../types/api';
+import { getStorageItem, setStorageItem } from '../../../utils/safe-storage';
 
 export type UserAudioPreference = { volume: number; muted: boolean };
 
@@ -12,7 +13,7 @@ type AudioContextMenuState = {
 };
 
 const USER_AUDIO_PREFS_KEY = 'harmony_user_audio_prefs_v1';
-const MAX_USER_AUDIO_VOLUME = 200;
+const MAX_USER_AUDIO_VOLUME = 100;
 
 function parseUserAudioPrefs(raw: string | null): Record<string, UserAudioPreference> {
   if (!raw) {
@@ -26,7 +27,7 @@ function parseUserAudioPrefs(raw: string | null): Record<string, UserAudioPrefer
         continue;
       }
       const volume =
-        typeof pref.volume === 'number'
+        typeof pref.volume === 'number' && Number.isFinite(pref.volume)
           ? Math.min(MAX_USER_AUDIO_VOLUME, Math.max(0, Math.round(pref.volume)))
           : 100;
       const muted = Boolean(pref.muted);
@@ -64,7 +65,7 @@ export function useVoiceFeature({
   authUserRole,
 }: UseVoiceFeatureOptions) {
   const [userAudioPrefs, setUserAudioPrefs] = useState<Record<string, UserAudioPreference>>(() =>
-    parseUserAudioPrefs(localStorage.getItem(USER_AUDIO_PREFS_KEY)),
+    parseUserAudioPrefs(getStorageItem(USER_AUDIO_PREFS_KEY)),
   );
   const [audioContextMenu, setAudioContextMenu] = useState<AudioContextMenuState | null>(null);
 
@@ -140,13 +141,14 @@ export function useVoiceFeature({
   }, []);
 
   const setUserVolume = useCallback((userId: string, volume: number) => {
+    const normalizedVolume = Number.isFinite(volume) ? volume : 100;
     setUserAudioPrefs((prev) => ({
       ...prev,
-        [userId]: {
-          volume: Math.min(MAX_USER_AUDIO_VOLUME, Math.max(0, Math.round(volume))),
-          muted: prev[userId]?.muted ?? false,
-        },
-      }));
+      [userId]: {
+        volume: Math.min(MAX_USER_AUDIO_VOLUME, Math.max(0, Math.round(normalizedVolume))),
+        muted: prev[userId]?.muted ?? false,
+      },
+    }));
   }, []);
 
   const toggleUserMuted = useCallback((userId: string) => {
@@ -163,7 +165,7 @@ export function useVoiceFeature({
   }, []);
 
   useEffect(() => {
-    localStorage.setItem(USER_AUDIO_PREFS_KEY, JSON.stringify(userAudioPrefs));
+    setStorageItem(USER_AUDIO_PREFS_KEY, JSON.stringify(userAudioPrefs));
   }, [userAudioPrefs]);
 
   useEffect(() => {
