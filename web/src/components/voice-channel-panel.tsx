@@ -78,6 +78,7 @@ const ScreenShareItem = memo(function ScreenShareItem({
               onPopOut();
             }}
             title="Pop out"
+            aria-label="Pop out screen share"
           >
             ↗
           </button>
