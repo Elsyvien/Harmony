@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import type { UserPreferences } from '../types/preferences';
 import { DEFAULT_USER_PREFERENCES } from '../types/preferences';
 
-const PREFS_KEY = 'discordclone_user_preferences_v2';
+const PREFS_KEY = 'discordclone_user_preferences_v3';
 
 function parsePreferences(raw: string | null): UserPreferences {
   if (!raw) {
@@ -24,6 +24,22 @@ function parsePreferences(raw: string | null): UserPreferences {
           ? parsed.enterToSend
           : DEFAULT_USER_PREFERENCES.enterToSend,
       playMessageSound: Boolean(parsed.playMessageSound),
+      voiceInputSensitivity:
+        typeof parsed.voiceInputSensitivity === 'number'
+          ? Math.min(0.12, Math.max(0.005, parsed.voiceInputSensitivity))
+          : DEFAULT_USER_PREFERENCES.voiceInputSensitivity,
+      voiceOutputVolume:
+        typeof parsed.voiceOutputVolume === 'number'
+          ? Math.min(200, Math.max(0, Math.round(parsed.voiceOutputVolume)))
+          : DEFAULT_USER_PREFERENCES.voiceOutputVolume,
+      showVoiceActivity:
+        typeof parsed.showVoiceActivity === 'boolean'
+          ? parsed.showVoiceActivity
+          : DEFAULT_USER_PREFERENCES.showVoiceActivity,
+      autoMuteOnJoin:
+        typeof parsed.autoMuteOnJoin === 'boolean'
+          ? parsed.autoMuteOnJoin
+          : DEFAULT_USER_PREFERENCES.autoMuteOnJoin,
     };
   } catch {
     return DEFAULT_USER_PREFERENCES;

@@ -8,6 +8,10 @@ export interface UserPreferences {
   fontScale: FontScale;
   enterToSend: boolean;
   playMessageSound: boolean;
+  voiceInputSensitivity: number;
+  voiceOutputVolume: number;
+  showVoiceActivity: boolean;
+  autoMuteOnJoin: boolean;
 }
 
 export const DEFAULT_USER_PREFERENCES: UserPreferences = {
@@ -18,4 +22,8 @@ export const DEFAULT_USER_PREFERENCES: UserPreferences = {
   fontScale: 'md',
   enterToSend: true,
   playMessageSound: false,
+  voiceInputSensitivity: 0.04,
+  voiceOutputVolume: 100,
+  showVoiceActivity: true,
+  autoMuteOnJoin: false,
 };
