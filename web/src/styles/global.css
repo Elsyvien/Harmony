@@ -109,6 +109,11 @@ a:hover {
   to { transform: rotateZ(180deg); }
 }
 
+@keyframes arrowOpen {
+  from { transform: rotate(-90deg) scale(0.9); opacity: 0.7; }
+  to { transform: rotate(90deg) scale(1); opacity: 1; }
+}
+
 @keyframes dropDown {
   0% { transform: translateY(0) scale(1); }
   50% { transform: translateY(3px) scale(1.02); }
@@ -2927,7 +2932,6 @@ body.font-scale-lg {
   align-items: center;
   justify-content: center;
   color: var(--text-muted);
-  transition: transform 0.3s ease;
   flex-shrink: 0;
 }
 
@@ -2935,11 +2939,15 @@ body.font-scale-lg {
   content: "〈";
   font-size: 16px;
   font-weight: 700;
+  display: block;
+  transition: transform 0.3s ease;
   transform: rotate(-90deg);
+  transform-origin: center;
 }
 
 .select-button.open .select-arrow::after {
   transform: rotate(90deg);
+  animation: arrowOpen 0.3s ease-out;
 }
 
 .select-options {
