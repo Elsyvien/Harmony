@@ -712,9 +712,18 @@ button {
 /* Voice Screen Shares */
 .voice-screen-shares {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
   gap: 12px;
   margin-bottom: 16px;
+}
+
+.voice-screen-shares.grid-layout {
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+}
+
+.voice-screen-shares.has-maximized {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
 }
 
 .voice-screen-share-item {
@@ -724,6 +733,35 @@ button {
   position: relative;
   aspect-ratio: 16 / 9;
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.5);
+  transition: transform 0.2s, flex 0.3s;
+}
+
+.voice-screen-shares.has-maximized .voice-screen-share-item.maximized {
+  width: 100%;
+  aspect-ratio: 16 / 9;
+  order: -1;
+  /* Ensure maximized is always first/top */
+  flex: none;
+}
+
+.voice-screen-shares.has-maximized .voice-screen-share-item:not(.maximized) {
+  width: 160px;
+  /* Thumbnail size */
+  aspect-ratio: 16 / 9;
+  align-self: flex-start;
+  opacity: 0.7;
+  cursor: zoom-in;
+}
+
+.voice-screen-shares.has-maximized .voice-screen-share-item:not(.maximized):hover {
+  opacity: 1;
+  transform: scale(1.05);
+}
+
+/* Grid layout hover effect */
+.voice-screen-shares.grid-layout .voice-screen-share-item:hover {
+  transform: scale(1.02);
+  z-index: 2;
 }
 
 .voice-screen-share-item video {
@@ -731,20 +769,159 @@ button {
   height: 100%;
   object-fit: contain;
   background-color: #000;
+  cursor: pointer;
+}
+
+.voice-screen-share-overlay {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  padding: 8px;
+  background: linear-gradient(to top, rgba(0, 0, 0, 0.8), transparent);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  opacity: 0;
+  transition: opacity 0.2s;
+  pointer-events: none;
+  /* Allow clicks to pass through to video unless on buttons */
+}
+
+.voice-screen-share-item:hover .voice-screen-share-overlay,
+.voice-screen-share-item:focus-within .voice-screen-share-overlay {
+  opacity: 1;
 }
 
 .voice-screen-share-label {
-  position: absolute;
-  bottom: 8px;
-  left: 8px;
-  background-color: rgba(0, 0, 0, 0.7);
   color: #fff;
-  padding: 4px 8px;
-  border-radius: 4px;
   font-size: 11px;
   font-weight: 700;
-  pointer-events: none;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.5);
 }
+
+.voice-screen-share-controls {
+  display: flex;
+  gap: 8px;
+  pointer-events: auto;
+  /* Enable clicks on buttons */
+}
+
+.screen-share-control-btn {
+  background-color: rgba(0, 0, 0, 0.5);
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  color: #fff;
+  border-radius: 4px;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: background-color 0.2s;
+}
+
+.screen-share-control-btn:hover {
+  background-color: var(--accent);
+  border-color: var(--accent);
+}
+
+/* Maximized View */
+.voice-maximized-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background-color: rgba(0, 0, 0, 0.9);
+  z-index: 1000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  animation: fadeIn 0.2s ease-out;
+}
+
+.voice-maximized-content {
+  width: 90%;
+  height: 90%;
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.voice-maximized-content video {
+  max-width: 100%;
+  max-height: 100%;
+  object-fit: contain;
+  box-shadow: 0 0 24px rgba(0, 0, 0, 0.5);
+}
+
+.voice-maximized-close {
+  position: absolute;
+  top: -40px;
+  right: -40px;
+  width: 40px;
+  height: 40px;
+  background: transparent;
+  border: none;
+  color: #fff;
+  font-size: 32px;
+  cursor: pointer;
+  opacity: 0.7;
+  transition: opacity 0.2s;
+}
+
+.voice-maximized-close:hover {
+  opacity: 1;
+}
+
+/* Quality Select & Controls */
+.screen-share-controls {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.quality-select {
+  background-color: var(--bg-darkest);
+  border: 1px solid var(--panel-border);
+  color: var(--text-normal);
+  border-radius: var(--radius-sharp);
+  padding: 4px 8px;
+  font-size: 11px;
+  height: 28px;
+  cursor: pointer;
+}
+
+.quality-select:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+
+/* Voice Settings Grid */
+.voice-settings-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+  margin-bottom: 16px;
+  padding: 0 8px;
+}
+
+.voice-setting-col {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.voice-quality-label {
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--text-muted);
+  text-transform: uppercase;
+}
+
 
 /* User Area Footer */
 .channel-sidebar footer {

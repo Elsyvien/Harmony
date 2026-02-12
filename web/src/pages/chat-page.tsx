@@ -1501,6 +1501,25 @@ export function ChatPage() {
     }
   }, [activeVoiceChannelId, createOfferForPeer]);
 
+  const updateScreenShareQuality = useCallback((height: number, frameRate: number) => {
+    const stream = localScreenStreamRef.current;
+    if (!stream) {
+      return;
+    }
+    const [track] = stream.getVideoTracks();
+    if (!track) {
+      return;
+    }
+    track
+      .applyConstraints({
+        height: { ideal: height },
+        frameRate: { ideal: frameRate },
+      })
+      .catch((err) => {
+        console.error('Failed to apply screen share constraints', err);
+      });
+  }, []);
+
   const loadAdminStats = useCallback(async () => {
     if (!auth.token || !auth.user?.isAdmin) {
       return;
@@ -2336,6 +2355,7 @@ export function ChatPage() {
                 localScreenShareStream={localScreenShareStream}
                 remoteScreenShares={remoteScreenShares}
                 onToggleScreenShare={toggleScreenShare}
+                onScreenShareQualityChange={updateScreenShareQuality}
               />
             ) : (
               <>
