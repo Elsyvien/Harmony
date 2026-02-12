@@ -1400,6 +1400,7 @@ body.theme-light .role-pill {
 
 .toggle-row input[type='checkbox'] {
   margin-top: 3px;
+  color:rgba(0, 0, 0, 0.25)
 }
 
 .toggle-row span {
@@ -2527,4 +2528,44 @@ body.font-scale-lg {
   .delete-confirm-row {
     grid-template-columns: 1fr;
   }
+}
+
+/* Animated Checkbox */
+.checkbox-animated {
+  appearance: none;
+  width: 20px;
+  height: 20px;
+  border: 2px solid var(--panel-border);
+  border-radius: 6px;
+  background-color: var(--bg-darkest);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.2s ease;
+  position: relative;
+}
+
+.checkbox-animated:hover {
+  border-color: var(--accent);
+  background-color: rgba(88, 101, 242, 0.08);
+}
+
+.checkbox-animated:checked {
+  background: linear-gradient(135deg, var(--accent), #7289da);
+  border-color: var(--accent);
+  animation: scaleUp 0.3s ease-out;
+}
+
+.checkbox-animated:checked::after {
+  content: "✓";
+  color: white;
+  font-size: 12px;
+  font-weight: 700;
+  display: block;
+}
+
+.checkbox-animated:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
 }
