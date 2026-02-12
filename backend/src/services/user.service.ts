@@ -9,7 +9,7 @@ import { prisma } from '../repositories/prisma.js';
 export class UserService {
     async updateAvatar(userId: string, file: MultipartFile) {
         if (!file.mimetype.startsWith('image/')) {
-            throw new AppError('INVALID_FILE_TYPE', 'Only image files are allowed', 400);
+            throw new AppError('INVALID_FILE_TYPE', 400, 'Only image files are allowed');
         }
 
         const fileExtension = path.extname(file.filename);
