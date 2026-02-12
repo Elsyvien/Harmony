@@ -14,7 +14,8 @@
     "react-dom": "^19.0.0",
     "react-markdown": "^10.1.0",
     "react-router-dom": "^6.30.1",
-    "remark-gfm": "^4.0.1"
+    "remark-gfm": "^4.0.1",
+    "@sapphi-red/web-noise-suppressor": "^0.4.0"
   },
   "devDependencies": {
     "@types/react": "^19.0.8",
