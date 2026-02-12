@@ -1,16 +1,23 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { Message } from '../types/api';
+import { MarkdownMessage } from './markdown-message';
 
 interface ChatViewProps {
   activeChannelId: string | null;
   messages: Message[];
   loading: boolean;
   wsConnected: boolean;
+  currentUserId?: string;
   use24HourClock?: boolean;
   showSeconds?: boolean;
   onLoadOlder: () => Promise<void>;
   onUserClick?: (user: { id: string; username: string }) => void;
   onMentionUser?: (user: { id: string; username: string }) => void;
+  onReplyToMessage?: (message: Message) => void;
+  onToggleReaction?: (messageId: string, emoji: string) => Promise<void> | void;
+  onEditMessage?: (messageId: string, content: string) => Promise<void> | void;
+  onDeleteMessage?: (messageId: string) => Promise<void> | void;
+  canManageAllMessages?: boolean;
 }
 
 function stringToColor(str: string) {
@@ -23,10 +30,12 @@ function stringToColor(str: string) {
 }
 
 export function ChatView(props: ChatViewProps) {
+  const quickReactions = ['👍', '❤️', '😂', '😮', '😢', '🎉'];
   const apiBaseUrl = import.meta.env.VITE_API_URL ?? 'http://localhost:4000';
   const messageListRef = useRef<HTMLDivElement | null>(null);
   const previousLastMessageIdRef = useRef<string | null>(null);
   const previousMessageCountRef = useRef(0);
+  const stickToBottomRef = useRef(true);
   const [showJumpToLatest, setShowJumpToLatest] = useState(false);
   const [messageMenu, setMessageMenu] = useState<{
     message: Message;
@@ -92,8 +101,8 @@ export function ChatView(props: ChatViewProps) {
   };
 
   const openMessageMenu = (message: Message, x: number, y: number) => {
-    const menuWidth = 220;
-    const menuHeight = 186;
+    const menuWidth = 260;
+    const menuHeight = 280;
     const nextX = Math.min(x, window.innerWidth - menuWidth - 8);
     const nextY = Math.min(y, window.innerHeight - menuHeight - 8);
     setMessageMenu({
@@ -107,6 +116,7 @@ export function ChatView(props: ChatViewProps) {
     if (!lastMessageId) {
       previousLastMessageIdRef.current = null;
       previousMessageCountRef.current = props.messages.length;
+      stickToBottomRef.current = true;
       return;
     }
 
@@ -121,12 +131,14 @@ export function ChatView(props: ChatViewProps) {
       requestAnimationFrame(() => {
         scrollToLatest();
       });
+      stickToBottomRef.current = true;
       setShowJumpToLatest(false);
     } else if (appendedNewMessage) {
-      if (isNearBottom()) {
+      if (stickToBottomRef.current) {
         requestAnimationFrame(() => {
           scrollToLatest('smooth');
         });
+        stickToBottomRef.current = true;
         setShowJumpToLatest(false);
       } else {
         setShowJumpToLatest(true);
@@ -172,7 +184,9 @@ export function ChatView(props: ChatViewProps) {
         ref={messageListRef}
         className="message-list"
         onScroll={() => {
-          if (showJumpToLatest && isNearBottom()) {
+          const nearBottom = isNearBottom();
+          stickToBottomRef.current = nearBottom;
+          if (showJumpToLatest && nearBottom) {
             setShowJumpToLatest(false);
           }
         }}
@@ -184,15 +198,15 @@ export function ChatView(props: ChatViewProps) {
 
         {props.messages.map((message) => (
           (() => {
-            const attachmentUrl =
-              message.attachment?.url?.startsWith('http')
-                ? message.attachment.url
-                : message.attachment?.url
-                  ? `${apiBaseUrl}${message.attachment.url}`
-                  : null;
+            const attachmentUrl = message.attachment?.url?.startsWith('http')
+              ? message.attachment.url
+              : message.attachment?.url
+                ? `${apiBaseUrl}${message.attachment.url}`
+                : null;
             const isImageAttachment = Boolean(
               message.attachment?.type.toLowerCase().startsWith('image/') && attachmentUrl,
             );
+            const hasReactions = message.reactions.length > 0;
 
             return (
           <article
@@ -236,7 +250,21 @@ export function ChatView(props: ChatViewProps) {
                 {message.optimistic ? <span className="pending-tag">Sending...</span> : null}
                 {message.failed ? <span className="pending-tag failed">Failed</span> : null}
               </header>
-              {message.content ? <p>{message.content}</p> : null}
+              {message.replyTo ? (
+                <div className="message-reply-preview">
+                  <span className="message-reply-author">@{message.replyTo.user.username}</span>
+                  <span className="message-reply-content">
+                    {message.replyTo.deletedAt
+                      ? 'Deleted message'
+                      : message.replyTo.content || '(no text)'}
+                  </span>
+                </div>
+              ) : null}
+              {message.deletedAt ? (
+                <p className="message-deleted">Message deleted</p>
+              ) : message.content ? (
+                <MarkdownMessage content={message.content} />
+              ) : null}
               {message.attachment && attachmentUrl ? (
                 <a
                   className="message-attachment"
@@ -253,6 +281,33 @@ export function ChatView(props: ChatViewProps) {
                   </span>
                 </a>
               ) : null}
+              {hasReactions ? (
+                <div className="message-reactions">
+                  {message.reactions.map((reaction) => {
+                    const reactedByCurrentUser = props.currentUserId
+                      ? reaction.userIds.includes(props.currentUserId)
+                      : false;
+                    return (
+                      <button
+                        key={`${message.id}:${reaction.emoji}`}
+                        type="button"
+                        className={`reaction-chip${reactedByCurrentUser ? ' active' : ''}`}
+                        disabled={!props.onToggleReaction}
+                        onClick={() => {
+                          if (!props.onToggleReaction) {
+                            return;
+                          }
+                          void props.onToggleReaction(message.id, reaction.emoji);
+                        }}
+                        title={`React with ${reaction.emoji}`}
+                      >
+                        <span>{reaction.emoji}</span>
+                        <small>{reaction.userIds.length}</small>
+                      </button>
+                    );
+                  })}
+                </div>
+              ) : null}
             </div>
           </article>
             );
@@ -261,11 +316,40 @@ export function ChatView(props: ChatViewProps) {
       </div>
 
       {messageMenu ? (
+        (() => {
+          const canManageMessage =
+            props.canManageAllMessages || props.currentUserId === messageMenu.message.userId;
+          const canEditMessage =
+            canManageMessage &&
+            !messageMenu.message.deletedAt &&
+            Boolean(props.onEditMessage) &&
+            Boolean(messageMenu.message.content);
+          const canDeleteMessage = canManageMessage && !messageMenu.message.deletedAt && Boolean(props.onDeleteMessage);
+          return (
         <div
           className="message-context-menu"
           style={{ left: `${messageMenu.x}px`, top: `${messageMenu.y}px` }}
           onMouseDown={(event) => event.stopPropagation()}
         >
+          <div className="message-context-reactions">
+            {quickReactions.map((emoji) => (
+              <button
+                key={`menu-reaction:${emoji}`}
+                type="button"
+                className="reaction-menu-btn"
+                disabled={!props.onToggleReaction}
+                onClick={() => {
+                  if (!props.onToggleReaction) {
+                    return;
+                  }
+                  void props.onToggleReaction(messageMenu.message.id, emoji);
+                  setMessageMenu(null);
+                }}
+              >
+                {emoji}
+              </button>
+            ))}
+          </div>
           <button
             onClick={() => {
               props.onUserClick?.(messageMenu.message.user);
@@ -284,6 +368,54 @@ export function ChatView(props: ChatViewProps) {
             Mention User
           </button>
           <button
+            onClick={() => {
+              props.onReplyToMessage?.(messageMenu.message);
+              setMessageMenu(null);
+            }}
+            disabled={!props.onReplyToMessage}
+          >
+            Reply
+          </button>
+          <button
+            onClick={() => {
+              if (!canEditMessage || !props.onEditMessage) {
+                return;
+              }
+              const currentContent = messageMenu.message.content;
+              const nextContent = window.prompt('Edit message', currentContent);
+              if (nextContent === null) {
+                return;
+              }
+              const trimmed = nextContent.trim();
+              if (!trimmed || trimmed === currentContent) {
+                setMessageMenu(null);
+                return;
+              }
+              void props.onEditMessage(messageMenu.message.id, trimmed);
+              setMessageMenu(null);
+            }}
+            disabled={!canEditMessage}
+          >
+            Edit Message
+          </button>
+          <button
+            className="danger"
+            onClick={() => {
+              if (!canDeleteMessage || !props.onDeleteMessage) {
+                return;
+              }
+              const confirmed = window.confirm('Delete this message?');
+              if (!confirmed) {
+                return;
+              }
+              void props.onDeleteMessage(messageMenu.message.id);
+              setMessageMenu(null);
+            }}
+            disabled={!canDeleteMessage}
+          >
+            Delete Message
+          </button>
+          <button
             onClick={async () => {
               if (!messageMenu.message.content) {
                 return;
@@ -300,6 +432,8 @@ export function ChatView(props: ChatViewProps) {
             Copy Message
           </button>
         </div>
+          );
+        })()
       ) : null}
 
       {showJumpToLatest ? (
@@ -307,6 +441,7 @@ export function ChatView(props: ChatViewProps) {
           className="jump-latest-btn"
           onClick={() => {
             scrollToLatest('smooth');
+            stickToBottomRef.current = true;
             setShowJumpToLatest(false);
           }}
         >

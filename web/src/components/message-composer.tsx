@@ -5,7 +5,14 @@ interface MessageComposerProps {
   disabled?: boolean;
   enterToSend?: boolean;
   insertRequest?: { key: number; text: string } | null;
-  onSend: (payload: { content: string; attachment?: MessageAttachment }) => Promise<void>;
+  replyTo?: { username: string; content: string } | null;
+  replyToMessageId?: string | null;
+  onClearReply?: () => void;
+  onSend: (payload: {
+    content: string;
+    attachment?: MessageAttachment;
+    replyToMessageId?: string | null;
+  }) => Promise<void>;
   onUploadAttachment: (file: File) => Promise<MessageAttachment>;
 }
 
@@ -72,7 +79,7 @@ export function MessageComposer(props: MessageComposerProps) {
     if (textareaRef.current) textareaRef.current.style.height = 'auto'; // Reset height
     
     try {
-      await props.onSend({ content: trimmed });
+      await props.onSend({ content: trimmed, replyToMessageId: props.replyToMessageId ?? null });
     } catch {
       setValue(trimmed);
     } finally {
@@ -102,7 +109,11 @@ export function MessageComposer(props: MessageComposerProps) {
 
     try {
       const attachment = await props.onUploadAttachment(file);
-      await props.onSend({ content: trimmed, attachment });
+      await props.onSend({
+        content: trimmed,
+        attachment,
+        replyToMessageId: props.replyToMessageId ?? null,
+      });
     } catch {
       setValue(trimmed);
     } finally {
@@ -118,6 +129,21 @@ export function MessageComposer(props: MessageComposerProps) {
   return (
     <div className="composer">
       <form onSubmit={handleSubmit}>
+        {props.replyTo ? (
+          <div className="composer-reply-pill">
+            <div>
+              <strong>Replying to @{props.replyTo.username}</strong>
+              <small>{props.replyTo.content || '(no text)'}</small>
+            </div>
+            <button
+              type="button"
+              className="ghost-btn small"
+              onClick={props.onClearReply}
+            >
+              Cancel
+            </button>
+          </div>
+        ) : null}
         <div className="input-wrapper">
           <button
             type="button"

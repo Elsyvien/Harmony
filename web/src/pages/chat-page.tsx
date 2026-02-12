@@ -29,6 +29,8 @@ import { getErrorMessage } from '../utils/error-message';
 
 type MainView = 'chat' | 'friends' | 'settings' | 'admin';
 type UserAudioPreference = { volume: number; muted: boolean };
+type ReplyTarget = { id: string; userId: string; username: string; content: string };
+type MobilePane = 'none' | 'channels' | 'users';
 type MicrophonePermissionState = 'granted' | 'denied' | 'prompt' | 'unsupported' | 'unknown';
 const USER_AUDIO_PREFS_KEY = 'harmony_user_audio_prefs_v1';
 
@@ -177,6 +179,7 @@ export function ChatPage() {
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [activeView, setActiveView] = useState<MainView>('chat');
+  const [mobilePane, setMobilePane] = useState<MobilePane>('none');
 
   const [adminStats, setAdminStats] = useState<AdminStats | null>(null);
   const [loadingAdminStats, setLoadingAdminStats] = useState(false);
@@ -219,6 +222,7 @@ export function ChatPage() {
     key: number;
     text: string;
   } | null>(null);
+  const [replyTarget, setReplyTarget] = useState<ReplyTarget | null>(null);
   const [audioInputDevices, setAudioInputDevices] = useState<
     Array<{ deviceId: string; label: string }>
   >([]);
@@ -862,7 +866,8 @@ export function ChatPage() {
       const nextParticipantIds = new Set(payload.participants.map((participant) => participant.userId));
       const hadPreviousState = voiceParticipantIdsByChannelRef.current.has(payload.channelId);
       const previousParticipantIds = voiceParticipantIdsByChannelRef.current.get(payload.channelId) ?? new Set<string>();
-      if (auth.user && hadPreviousState) {
+      const isCurrentVoiceChannel = activeVoiceChannelIdRef.current === payload.channelId;
+      if (auth.user && hadPreviousState && isCurrentVoiceChannel) {
         const selfUserId = auth.user.id;
         const someoneElseJoined = [...nextParticipantIds].some(
           (participantId) =>
@@ -945,6 +950,35 @@ export function ChatPage() {
         return;
       }
       setMessages((prev) => reconcileIncomingMessage(prev, message));
+    },
+    onMessageUpdated: (message) => {
+      if (message.channelId !== activeChannelId) {
+        return;
+      }
+      setMessages((prev) => prev.map((item) => (item.id === message.id ? message : item)));
+      setReplyTarget((current) =>
+        current && current.id === message.id
+          ? {
+              ...current,
+              content: message.deletedAt ? '' : message.content,
+            }
+          : current,
+      );
+    },
+    onMessageDeleted: (message) => {
+      if (message.channelId !== activeChannelId) {
+        return;
+      }
+      setMessages((prev) => prev.map((item) => (item.id === message.id ? message : item)));
+      setReplyTarget((current) => (current && current.id === message.id ? null : current));
+    },
+    onMessageReaction: (payload) => {
+      if (payload.message.channelId !== activeChannelId) {
+        return;
+      }
+      setMessages((prev) =>
+        prev.map((item) => (item.id === payload.message.id ? payload.message : item)),
+      );
     },
     onFriendEvent: () => {
       void loadFriendData();
@@ -1143,6 +1177,8 @@ export function ChatPage() {
 
   useEffect(() => {
     setAudioContextMenu(null);
+    setReplyTarget(null);
+    setMobilePane('none');
   }, [activeView, activeChannelId]);
 
   useEffect(() => {
@@ -1714,12 +1750,61 @@ export function ChatPage() {
     return <Navigate to="/login" replace />;
   }
 
-  const sendMessage = async (payload: { content: string; attachment?: MessageAttachment }) => {
+  const toggleMessageReaction = async (messageId: string, emoji: string) => {
+    if (!auth.token || !activeChannelId) {
+      return;
+    }
+    try {
+      const response = await chatApi.toggleMessageReaction(auth.token, activeChannelId, messageId, emoji);
+      setMessages((prev) => prev.map((item) => (item.id === messageId ? response.message : item)));
+    } catch (err) {
+      setError(getErrorMessage(err, 'Could not update reaction'));
+    }
+  };
+
+  const editMessage = async (messageId: string, content: string) => {
+    if (!auth.token || !activeChannelId) {
+      return;
+    }
+    try {
+      const response = await chatApi.updateMessage(auth.token, activeChannelId, messageId, content);
+      setMessages((prev) => prev.map((item) => (item.id === messageId ? response.message : item)));
+      setReplyTarget((current) =>
+        current && current.id === messageId ? { ...current, content: response.message.content } : current,
+      );
+      setError(null);
+    } catch (err) {
+      setError(getErrorMessage(err, 'Could not edit message'));
+    }
+  };
+
+  const deleteMessage = async (messageId: string) => {
+    if (!auth.token || !activeChannelId) {
+      return;
+    }
+    try {
+      const response = await chatApi.deleteMessage(auth.token, activeChannelId, messageId);
+      setMessages((prev) => prev.map((item) => (item.id === messageId ? response.message : item)));
+      setReplyTarget((current) => (current && current.id === messageId ? null : current));
+      setError(null);
+    } catch (err) {
+      setError(getErrorMessage(err, 'Could not delete message'));
+    }
+  };
+
+  const sendMessage = async (payload: {
+    content: string;
+    attachment?: MessageAttachment;
+    replyToMessageId?: string | null;
+  }) => {
     if (!auth.token || !activeChannelId || !auth.user) {
       return;
     }
     const trimmedContent = payload.content.trim();
     const attachment = payload.attachment;
+    const replyToMessageId = payload.replyToMessageId ?? null;
+    const outgoingReplyTarget =
+      replyToMessageId && replyTarget && replyTarget.id === replyToMessageId ? replyTarget : null;
     if (!trimmedContent && !attachment) {
       return;
     }
@@ -1744,17 +1829,30 @@ export function ChatPage() {
       attachment: attachment ?? null,
       editedAt: null,
       deletedAt: null,
-      replyToMessageId: null,
-      replyTo: null,
+      replyToMessageId,
+      replyTo: outgoingReplyTarget
+        ? {
+            id: outgoingReplyTarget.id,
+            userId: outgoingReplyTarget.userId,
+            content: outgoingReplyTarget.content,
+            createdAt: new Date().toISOString(),
+            deletedAt: null,
+            user: {
+              id: outgoingReplyTarget.userId,
+              username: outgoingReplyTarget.username,
+            },
+          }
+        : null,
       reactions: [],
       createdAt: new Date().toISOString(),
       optimistic: true,
       user: { id: auth.user.id, username: auth.user.username },
     };
     setMessages((prev) => mergeMessages(prev, [optimisticMessage]));
+    setReplyTarget((current) => (current?.id === replyToMessageId ? null : current));
 
     const wsSent =
-      !attachment && trimmedContent && ws.connected
+      !attachment && trimmedContent && ws.connected && !replyToMessageId
         ? ws.sendMessage(activeChannelId, trimmedContent)
         : false;
     if (wsSent) {
@@ -1767,6 +1865,7 @@ export function ChatPage() {
         activeChannelId,
         trimmedContent,
         attachment,
+        replyToMessageId ?? undefined,
       );
       clearPendingSignature(signature);
       setMessages((prev) => {
@@ -1922,6 +2021,10 @@ export function ChatPage() {
           : 'Admin Settings';
   const isVoiceDisconnecting =
     Boolean(activeVoiceChannelId) && voiceBusyChannelId === activeVoiceChannelId;
+  const isViewingJoinedVoiceChannel =
+    activeView === 'chat' &&
+    Boolean(activeChannel?.isVoice) &&
+    activeChannel?.id === activeVoiceChannelId;
   const voiceSessionStatus = !ws.connected
     ? 'Disconnected'
     : isVoiceDisconnecting
@@ -1929,15 +2032,23 @@ export function ChatPage() {
       : localAudioReady
         ? 'Connected'
         : 'Connecting...';
+  const chatLayoutClassName = [
+    'chat-layout',
+    mobilePane === 'channels' ? 'mobile-channels-open' : '',
+    mobilePane === 'users' ? 'mobile-users-open' : '',
+  ]
+    .filter(Boolean)
+    .join(' ');
 
   return (
-    <main className="chat-layout">
+    <main className={chatLayoutClassName}>
       <ChannelSidebar
         channels={channels}
         activeChannelId={activeChannelId}
         onSelect={(channelId) => {
           setActiveChannelId(channelId);
           setActiveView('chat');
+          setMobilePane('none');
           setUnreadChannelCounts((prev) => {
             if (!prev[channelId]) {
               return prev;
@@ -1971,7 +2082,25 @@ export function ChatPage() {
       <section className="chat-panel">
         <header className="panel-header">
           <div className="panel-header-main">
+            {activeView === 'chat' ? (
+              <button
+                className="mobile-pane-toggle"
+                onClick={() =>
+                  setMobilePane((current) => (current === 'channels' ? 'none' : 'channels'))
+                }
+              >
+                Channels
+              </button>
+            ) : null}
             <h1>{panelTitle}</h1>
+            {activeView === 'chat' ? (
+              <button
+                className="mobile-pane-toggle"
+                onClick={() => setMobilePane((current) => (current === 'users' ? 'none' : 'users'))}
+              >
+                Online
+              </button>
+            ) : null}
             {error ? <p className="error-banner">{error}</p> : null}
             {!error && notice ? <p className="info-banner">{notice}</p> : null}
           </div>
@@ -1992,7 +2121,7 @@ export function ChatPage() {
           ) : null}
         </header>
 
-        {activeVoiceChannel ? (
+        {activeVoiceChannel && !isViewingJoinedVoiceChannel ? (
           <div className="voice-session-bar" role="status" aria-live="polite">
             <div className="voice-session-main">
               <strong>Voice: ~{activeVoiceChannel.name}</strong>
@@ -2054,6 +2183,7 @@ export function ChatPage() {
                   loading={loadingMessages}
                   messages={filteredMessages}
                   wsConnected={ws.connected}
+                  currentUserId={auth.user.id}
                   use24HourClock={preferences.use24HourClock}
                   showSeconds={preferences.showSeconds}
                   onLoadOlder={loadOlder}
@@ -2064,11 +2194,33 @@ export function ChatPage() {
                       text: `@${user.username}`,
                     });
                   }}
+                  onReplyToMessage={(message) => {
+                    setReplyTarget({
+                      id: message.id,
+                      userId: message.userId,
+                      username: message.user.username,
+                      content: message.content,
+                    });
+                  }}
+                  onToggleReaction={toggleMessageReaction}
+                  onEditMessage={editMessage}
+                  onDeleteMessage={deleteMessage}
+                  canManageAllMessages={auth.user.isAdmin}
                 />
                 <MessageComposer
                   disabled={!activeChannelId}
                   enterToSend={preferences.enterToSend}
                   insertRequest={composerInsertRequest}
+                  replyTo={
+                    replyTarget
+                      ? {
+                          username: replyTarget.username,
+                          content: replyTarget.content,
+                        }
+                      : null
+                  }
+                  replyToMessageId={replyTarget?.id ?? null}
+                  onClearReply={() => setReplyTarget(null)}
                   onSend={sendMessage}
                   onUploadAttachment={uploadAttachment}
                 />
@@ -2140,7 +2292,10 @@ export function ChatPage() {
       {activeView === 'chat' ? (
         <UserSidebar
           users={onlineUsers}
-          onUserClick={setSelectedUser}
+          onUserClick={(user) => {
+            setSelectedUser(user);
+            setMobilePane('none');
+          }}
           onUserContextMenu={(user, position) => openUserAudioMenu(user, position)}
         />
       ) : null}
@@ -2209,6 +2364,63 @@ export function ChatPage() {
       ) : null}
 
       <UserProfile user={selectedUser} onClose={() => setSelectedUser(null)} currentUser={auth.user} />
+
+      {mobilePane !== 'none' ? (
+        <button
+          type="button"
+          className="mobile-drawer-backdrop"
+          aria-label="Close side panel"
+          onClick={() => setMobilePane('none')}
+        />
+      ) : null}
+
+      <nav className="mobile-bottom-nav" aria-label="Mobile navigation">
+        <button
+          className={activeView === 'chat' && mobilePane === 'none' ? 'active' : ''}
+          onClick={() => {
+            setActiveView('chat');
+            setMobilePane('none');
+          }}
+        >
+          Chat
+        </button>
+        <button
+          className={mobilePane === 'channels' ? 'active' : ''}
+          onClick={() => {
+            setActiveView('chat');
+            setMobilePane((current) => (current === 'channels' ? 'none' : 'channels'));
+          }}
+        >
+          Channels
+        </button>
+        <button
+          className={mobilePane === 'users' ? 'active' : ''}
+          onClick={() => {
+            setActiveView('chat');
+            setMobilePane((current) => (current === 'users' ? 'none' : 'users'));
+          }}
+        >
+          Users
+        </button>
+        <button
+          className={activeView === 'friends' ? 'active' : ''}
+          onClick={() => {
+            setActiveView('friends');
+            setMobilePane('none');
+          }}
+        >
+          Friends
+        </button>
+        <button
+          className={activeView === 'settings' ? 'active' : ''}
+          onClick={() => {
+            setActiveView('settings');
+            setMobilePane('none');
+          }}
+        >
+          Settings
+        </button>
+      </nav>
     </main>
   );
 }

@@ -261,31 +261,6 @@ export function ChannelSidebar(props: ChannelSidebarProps) {
         {filteredChannels.length === 0 ? <p className="muted">No channels match.</p> : null}
       </nav>
 
-      <section className="sidebar-menu">
-        <h3>Menu</h3>
-        <button
-          className={props.activeView === 'chat' ? 'channel-item active' : 'channel-item'}
-          onClick={() => props.onChangeView('chat')}
-        >
-          Chat
-        </button>
-        <button
-          className={props.activeView === 'friends' ? 'channel-item active' : 'channel-item'}
-          onClick={() => props.onChangeView('friends')}
-        >
-          Friends
-          {props.incomingFriendRequests > 0 ? (
-            <span className="sidebar-badge">{props.incomingFriendRequests}</span>
-          ) : null}
-        </button>
-        <button
-          className={props.activeView === 'settings' ? 'channel-item active' : 'channel-item'}
-          onClick={() => props.onChangeView('settings')}
-        >
-          Settings
-        </button>
-      </section>
-
       <footer>
         <div className="user-panel">
           <div className="user-info">
