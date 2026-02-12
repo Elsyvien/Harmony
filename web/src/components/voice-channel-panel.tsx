@@ -194,10 +194,12 @@ export function VoiceChannelPanel(props: VoiceChannelPanelProps) {
               options={['24 kbps (Low)', '40 kbps', '64 kbps (Default)', '96 kbps', '128 kbps (High)', '192 kbps', '256 kbps', '320 kbps', '384 kbps', '500 kbps', '640 kbps', '700 kbps', '768 kbps', '896 kbps', '1024 kbps', '1280 kbps', '1411 kbps (CD Quality)', '1536 kbps (Hi-Res Max)']}
               value={`${props.bitrateKbps} kbps${props.bitrateKbps === 24 ? ' (Low)' : props.bitrateKbps === 64 ? ' (Default)' : props.bitrateKbps === 128 ? ' (High)' : ''}`}
               onChange={(val) => {
+                if (!props.canEditQuality || props.qualityBusy) {
+                  return;
+                }
                 const bitrate = parseInt(val.split(' ')[0], 10);
                 props.onBitrateChange(bitrate);
               }}
-              disabled={!props.canEditQuality || props.qualityBusy}
             />
             {props.qualityBusy ? <small>Saving...</small> : null}
           </div>
