@@ -94,7 +94,7 @@ function clampMediaElementVolume(value: number) {
   if (!Number.isFinite(value)) {
     return 1;
   }
-  return Math.min(1, Math.max(0, value));
+  return Math.max(0, value);
 }
 
 function clampCameraPreset(preset: StreamQualityPreset): StreamQualityPreset {
@@ -280,6 +280,10 @@ export function ChatPage() {
   const localAnalyserRef = useRef<AnalyserNode | null>(null);
   const localAnalyserContextRef = useRef<AudioContext | null>(null);
   const localAnalyserSourceRef = useRef<MediaStreamAudioSourceNode | null>(null);
+  const remoteAudioContextRef = useRef<AudioContext | null>(null);
+  const remoteAudioSourceByUserRef = useRef<Map<string, MediaStreamAudioSourceNode>>(new Map());
+  const remoteAudioGainByUserRef = useRef<Map<string, GainNode>>(new Map());
+  const remoteAudioStreamByUserRef = useRef<Map<string, MediaStream>>(new Map());
   const localVoiceInputDeviceIdRef = useRef<string | null>(null);
   const peerConnectionsRef = useRef<Map<string, RTCPeerConnection>>(new Map());
   const videoSenderByPeerRef = useRef<Map<string, RTCRtpSender>>(new Map());
@@ -854,6 +858,23 @@ export function ChatPage() {
     setSpeakingUserIds([]);
     setRemoteAudioStreams({});
     setRemoteScreenShares({});
+    for (const userId of remoteAudioSourceByUserRef.current.keys()) {
+      const source = remoteAudioSourceByUserRef.current.get(userId);
+      if (source) {
+        source.disconnect();
+      }
+      const gain = remoteAudioGainByUserRef.current.get(userId);
+      if (gain) {
+        gain.disconnect();
+      }
+    }
+    remoteAudioSourceByUserRef.current.clear();
+    remoteAudioGainByUserRef.current.clear();
+    remoteAudioStreamByUserRef.current.clear();
+    if (remoteAudioContextRef.current) {
+      void remoteAudioContextRef.current.close();
+      remoteAudioContextRef.current = null;
+    }
   }, [closePeerConnection]);
 
   const resetLocalAnalyser = useCallback(() => {
@@ -866,6 +887,35 @@ export function ChatPage() {
       void localAnalyserContextRef.current.close();
       localAnalyserContextRef.current = null;
     }
+  }, []);
+
+  const ensureRemoteAudioContext = useCallback(() => {
+    if (remoteAudioContextRef.current && remoteAudioContextRef.current.state !== 'closed') {
+      return remoteAudioContextRef.current;
+    }
+    const AudioContextClass =
+      window.AudioContext ||
+      (window as typeof window & { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
+    if (!AudioContextClass) {
+      return null;
+    }
+    const context = new AudioContextClass();
+    remoteAudioContextRef.current = context;
+    return context;
+  }, []);
+
+  const disconnectRemoteAudioForUser = useCallback((userId: string) => {
+    const source = remoteAudioSourceByUserRef.current.get(userId);
+    if (source) {
+      source.disconnect();
+      remoteAudioSourceByUserRef.current.delete(userId);
+    }
+    const gain = remoteAudioGainByUserRef.current.get(userId);
+    if (gain) {
+      gain.disconnect();
+      remoteAudioGainByUserRef.current.delete(userId);
+    }
+    remoteAudioStreamByUserRef.current.delete(userId);
   }, []);
 
   const initLocalAnalyser = useCallback((stream: MediaStream) => {
@@ -2400,6 +2450,67 @@ export function ChatPage() {
   }, [ws.connected, teardownVoiceTransport]);
 
   useEffect(() => {
+    const activeUserIds = new Set(activeRemoteAudioUsers.map((user) => user.userId));
+
+    for (const userId of remoteAudioSourceByUserRef.current.keys()) {
+      if (!activeUserIds.has(userId)) {
+        disconnectRemoteAudioForUser(userId);
+      }
+    }
+
+    if (!activeRemoteAudioUsers.length) {
+      return;
+    }
+
+    const context = ensureRemoteAudioContext();
+    if (!context) {
+      return;
+    }
+
+    if (context.state === 'suspended') {
+      void context.resume().catch(() => {
+        // Best effort: browser may still require explicit user interaction.
+      });
+    }
+
+    for (const user of activeRemoteAudioUsers) {
+      const previousStream = remoteAudioStreamByUserRef.current.get(user.userId);
+      let gainNode = remoteAudioGainByUserRef.current.get(user.userId) ?? null;
+
+      if (!gainNode || previousStream !== user.stream) {
+        disconnectRemoteAudioForUser(user.userId);
+        const source = context.createMediaStreamSource(user.stream);
+        gainNode = context.createGain();
+        source.connect(gainNode);
+        gainNode.connect(context.destination);
+        remoteAudioSourceByUserRef.current.set(user.userId, source);
+        remoteAudioGainByUserRef.current.set(user.userId, gainNode);
+        remoteAudioStreamByUserRef.current.set(user.userId, user.stream);
+      }
+
+      const localAudio = getUserAudioState(user.userId);
+      const shouldMute =
+        isSelfDeafened ||
+        localAudio.muted ||
+        preferences.voiceOutputVolume <= 0 ||
+        localAudio.volume <= 0;
+      const effectiveVolume =
+        shouldMute
+          ? 0
+          : (preferences.voiceOutputVolume / 100) * (localAudio.volume / 100);
+
+      gainNode.gain.value = clampMediaElementVolume(effectiveVolume);
+    }
+  }, [
+    activeRemoteAudioUsers,
+    disconnectRemoteAudioForUser,
+    ensureRemoteAudioContext,
+    getUserAudioState,
+    isSelfDeafened,
+    preferences.voiceOutputVolume,
+  ]);
+
+  useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
       if (!event.ctrlKey && !event.metaKey) {
         return;
@@ -2900,33 +3011,7 @@ export function ChatPage() {
         />
       ) : null}
 
-      <div className="voice-audio-sinks" aria-hidden="true">
-        {activeRemoteAudioUsers.map((user) => (
-          <audio
-            key={user.userId}
-            autoPlay
-            playsInline
-            muted={isSelfDeafened || getUserAudioState(user.userId).muted}
-            ref={(node) => {
-              if (!node) {
-                return;
-              }
-              if (node.srcObject !== user.stream) {
-                node.srcObject = user.stream;
-              }
-              const localAudio = getUserAudioState(user.userId);
-              const effectiveVolume =
-                (preferences.voiceOutputVolume / 100) * (localAudio.volume / 100);
-              node.volume = clampMediaElementVolume(effectiveVolume);
-              node.muted =
-                isSelfDeafened ||
-                localAudio.muted ||
-                preferences.voiceOutputVolume <= 0 ||
-                localAudio.volume <= 0;
-            }}
-          />
-        ))}
-      </div>
+      <div className="voice-audio-sinks" aria-hidden="true" />
 
       {audioContextMenu ? (
         <div

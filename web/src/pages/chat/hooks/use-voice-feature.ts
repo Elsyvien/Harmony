@@ -13,7 +13,7 @@ type AudioContextMenuState = {
 };
 
 const USER_AUDIO_PREFS_KEY = 'harmony_user_audio_prefs_v1';
-const MAX_USER_AUDIO_VOLUME = 100;
+const MAX_USER_AUDIO_VOLUME = 200;
 
 function parseUserAudioPrefs(raw: string | null): Record<string, UserAudioPreference> {
   if (!raw) {
