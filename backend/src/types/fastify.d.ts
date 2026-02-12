@@ -21,6 +21,7 @@ declare module 'fastify' {
     wsGateway: {
       broadcastMessage: (channelId: string, message: unknown) => void;
       notifyUsers: (userIds: string[], type: string, payload: unknown) => void;
+      broadcastSystem: (type: string, payload: unknown) => void;
     };
   }
 }

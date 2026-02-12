@@ -71,6 +71,17 @@ export const chatApi = {
     );
   },
 
+  updateVoiceChannelSettings(token: string, channelId: string, input: { voiceBitrateKbps: number }) {
+    return apiRequest<{ channel: Channel }>(
+      `/channels/${channelId}/voice-settings`,
+      {
+        method: 'PATCH',
+        body: JSON.stringify(input),
+      },
+      token,
+    );
+  },
+
   createDirectChannel(token: string, userId: string) {
     return apiRequest<{ channel: Channel }>(
       `/channels/direct/${userId}`,

@@ -44,11 +44,12 @@ model User {
 }
 
 model Channel {
-  id        String    @id @default(uuid())
-  name      String    @unique
-  type      ChannelType @default(PUBLIC)
-  dmKey     String?   @unique
-  createdAt DateTime  @default(now())
+  id               String      @id @default(uuid())
+  name             String      @unique
+  type             ChannelType @default(PUBLIC)
+  dmKey            String?     @unique
+  voiceBitrateKbps Int?
+  createdAt        DateTime    @default(now())
 
   members   ChannelMember[]
   messages  Message[]

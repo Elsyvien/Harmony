@@ -179,6 +179,18 @@ const wsPluginImpl: FastifyPluginAsync<WsPluginOptions> = async (fastify, option
         }
       }
     },
+    broadcastSystem: (type: string, payload: unknown) => {
+      const delivered = new Set<ClientContext>();
+      for (const subscribers of userSubscribers.values()) {
+        for (const client of subscribers) {
+          if (delivered.has(client)) {
+            continue;
+          }
+          send(client, type, payload);
+          delivered.add(client);
+        }
+      }
+    },
   });
 
   fastify.get('/ws', { websocket: true }, (socket) => {

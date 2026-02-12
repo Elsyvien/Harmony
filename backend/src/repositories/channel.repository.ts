@@ -22,6 +22,7 @@ export interface ChannelRepository {
   deleteById(id: string): Promise<void>;
   createPublic(params: { name: string }): Promise<ChannelWithMembers>;
   createVoice(params: { name: string }): Promise<ChannelWithMembers>;
+  updateVoiceBitrate(params: { id: string; voiceBitrateKbps: number }): Promise<ChannelWithMembers>;
   ensurePublicByName(name: string): Promise<ChannelWithMembers>;
   findDirectByDmKey(dmKey: string): Promise<ChannelWithMembers | null>;
   createDirect(params: {
@@ -97,6 +98,7 @@ export class PrismaChannelRepository implements ChannelRepository {
       data: {
         name: params.name,
         type: 'PUBLIC',
+        voiceBitrateKbps: null,
       },
       include: includeMembers,
     });
@@ -107,6 +109,17 @@ export class PrismaChannelRepository implements ChannelRepository {
       data: {
         name: params.name,
         type: 'VOICE',
+        voiceBitrateKbps: 64,
+      },
+      include: includeMembers,
+    });
+  }
+
+  updateVoiceBitrate(params: { id: string; voiceBitrateKbps: number }) {
+    return prisma.channel.update({
+      where: { id: params.id },
+      data: {
+        voiceBitrateKbps: params.voiceBitrateKbps,
       },
       include: includeMembers,
     });
@@ -118,10 +131,12 @@ export class PrismaChannelRepository implements ChannelRepository {
       update: {
         type: 'PUBLIC',
         dmKey: null,
+        voiceBitrateKbps: null,
       },
       create: {
         name,
         type: 'PUBLIC',
+        voiceBitrateKbps: null,
       },
       include: includeMembers,
     });
@@ -141,6 +156,7 @@ export class PrismaChannelRepository implements ChannelRepository {
           name: params.name,
           type: 'DIRECT',
           dmKey: params.dmKey,
+          voiceBitrateKbps: null,
         },
       });
       await tx.channelMember.createMany({

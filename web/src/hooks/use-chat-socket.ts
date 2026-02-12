@@ -43,6 +43,7 @@ export function useChatSocket(params: {
   onMessageNew: (message: Message) => void;
   onFriendEvent?: () => void;
   onDmEvent?: (payload: DmNewEventPayload) => void;
+  onChannelUpdated?: (channel: Channel) => void;
   onPresenceUpdate?: (users: PresenceUser[]) => void;
   onVoiceState?: (payload: VoiceStatePayload) => void;
   onVoiceSignal?: (payload: VoiceSignalPayload) => void;
@@ -54,6 +55,7 @@ export function useChatSocket(params: {
   const onMessageNewRef = useRef(params.onMessageNew);
   const onFriendEventRef = useRef(params.onFriendEvent);
   const onDmEventRef = useRef(params.onDmEvent);
+  const onChannelUpdatedRef = useRef(params.onChannelUpdated);
   const onPresenceUpdateRef = useRef(params.onPresenceUpdate);
   const onVoiceStateRef = useRef(params.onVoiceState);
   const onVoiceSignalRef = useRef(params.onVoiceSignal);
@@ -62,6 +64,7 @@ export function useChatSocket(params: {
   onMessageNewRef.current = params.onMessageNew;
   onFriendEventRef.current = params.onFriendEvent;
   onDmEventRef.current = params.onDmEvent;
+  onChannelUpdatedRef.current = params.onChannelUpdated;
   onPresenceUpdateRef.current = params.onPresenceUpdate;
   onVoiceStateRef.current = params.onVoiceState;
   onVoiceSignalRef.current = params.onVoiceSignal;
@@ -120,6 +123,14 @@ export function useChatSocket(params: {
             const payload = parsed.payload as DmNewEventPayload | undefined;
             if (payload?.channel?.id && payload.from?.id) {
               onDmEventRef.current?.(payload);
+            }
+            return;
+          }
+
+          if (parsed.type === 'channel:updated') {
+            const payload = parsed.payload as { channel?: Channel } | undefined;
+            if (payload?.channel?.id) {
+              onChannelUpdatedRef.current?.(payload.channel);
             }
             return;
           }

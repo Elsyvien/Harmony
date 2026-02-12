@@ -855,6 +855,11 @@ button {
   padding: 6px 10px;
 }
 
+.voice-quality-row small {
+  color: var(--text-muted);
+  font-size: 11px;
+}
+
 .voice-participant-item {
   display: flex;
   align-items: center;

@@ -14,6 +14,7 @@ import {
   createMessageBodySchema,
   directChannelParamsSchema,
   listMessagesQuerySchema,
+  updateVoiceSettingsBodySchema,
 } from '../schemas/message.schema.js';
 import { AppError } from '../utils/app-error.js';
 import { isAdminRole } from '../utils/roles.js';
@@ -147,6 +148,30 @@ export const channelRoutes: FastifyPluginAsync<ChannelRoutesOptions> = async (fa
       const { id: channelId } = channelIdParamsSchema.parse(request.params);
       const result = await options.channelService.deleteChannel(channelId);
       return result;
+    },
+  );
+
+  fastify.patch(
+    '/channels/:id/voice-settings',
+    {
+      preHandler: [authPreHandler],
+      config: {
+        rateLimit: { max: 30, timeWindow: 60_000 },
+      },
+    },
+    async (request) => {
+      if (!isAdminRole(request.user.role)) {
+        throw new AppError('FORBIDDEN', 403, 'Admin permission required');
+      }
+
+      const { id: channelId } = channelIdParamsSchema.parse(request.params);
+      const body = updateVoiceSettingsBodySchema.parse(request.body);
+      const channel = await options.channelService.updateVoiceChannelBitrate(
+        channelId,
+        body.voiceBitrateKbps,
+      );
+      fastify.wsGateway.broadcastSystem('channel:updated', { channel });
+      return { channel };
     },
   );
 

@@ -39,6 +39,10 @@ export const createChannelBodySchema = z.object({
   type: z.enum(['TEXT', 'VOICE']).default('TEXT'),
 });
 
+export const updateVoiceSettingsBodySchema = z.object({
+  voiceBitrateKbps: z.coerce.number().int().min(16).max(700),
+});
+
 export const directChannelParamsSchema = z.object({
   userId: z.string().uuid(),
 });

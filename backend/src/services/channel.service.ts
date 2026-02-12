@@ -10,6 +10,7 @@ export interface ChannelSummary {
   createdAt: Date;
   isDirect: boolean;
   isVoice: boolean;
+  voiceBitrateKbps: number | null;
   directUser: {
     id: string;
     username: string;
@@ -46,6 +47,8 @@ export class ChannelService {
         createdAt: channel.createdAt,
         isDirect: false,
         isVoice: channel.type === 'VOICE',
+        voiceBitrateKbps:
+          channel.type === 'VOICE' ? (channel.voiceBitrateKbps ?? 64) : null,
         directUser: null,
       };
     }
@@ -57,6 +60,7 @@ export class ChannelService {
       createdAt: channel.createdAt,
       isDirect: true,
       isVoice: false,
+      voiceBitrateKbps: null,
       directUser: directUser
         ? {
             id: directUser.id,
@@ -109,6 +113,22 @@ export class ChannelService {
 
     await this.channelRepo.deleteById(channelId);
     return { deletedChannelId: channelId };
+  }
+
+  async updateVoiceChannelBitrate(channelId: string, voiceBitrateKbps: number) {
+    const channel = await this.channelRepo.findById(channelId);
+    if (!channel) {
+      throw new AppError('CHANNEL_NOT_FOUND', 404, 'Channel not found');
+    }
+    if (channel.type !== 'VOICE') {
+      throw new AppError('INVALID_VOICE_CHANNEL', 400, 'Channel is not a voice channel');
+    }
+
+    const updated = await this.channelRepo.updateVoiceBitrate({
+      id: channelId,
+      voiceBitrateKbps,
+    });
+    return this.toSummary(updated, '');
   }
 
   async ensureChannelExists(channelId: string) {

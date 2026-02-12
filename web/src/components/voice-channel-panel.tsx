@@ -6,6 +6,8 @@ interface VoiceChannelPanelProps {
   remoteAudioUsers: Array<{ userId: string; username: string; stream: MediaStream }>;
   bitrateKbps: number;
   onBitrateChange: (bitrateKbps: number) => void;
+  canEditQuality: boolean;
+  qualityBusy: boolean;
   joined: boolean;
   busy: boolean;
   wsConnected: boolean;
@@ -46,6 +48,7 @@ export function VoiceChannelPanel(props: VoiceChannelPanelProps) {
         <select
           id="voice-quality-select"
           value={props.bitrateKbps}
+          disabled={!props.canEditQuality || props.qualityBusy}
           onChange={(event) => props.onBitrateChange(Number(event.target.value))}
         >
           <option value={24}>24 kbps (Low)</option>
@@ -53,7 +56,15 @@ export function VoiceChannelPanel(props: VoiceChannelPanelProps) {
           <option value={64}>64 kbps (Default)</option>
           <option value={96}>96 kbps</option>
           <option value={128}>128 kbps (High)</option>
+          <option value={192}>192 kbps</option>
+          <option value={256}>256 kbps</option>
+          <option value={320}>320 kbps</option>
+          <option value={384}>384 kbps</option>
+          <option value={500}>500 kbps</option>
+          <option value={640}>640 kbps</option>
+          <option value={700}>700 kbps (Max)</option>
         </select>
+        {props.qualityBusy ? <small>Saving...</small> : null}
       </div>
 
       <div className="voice-participant-list">

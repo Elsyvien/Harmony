@@ -183,7 +183,7 @@ export function ChatPage() {
   const [voiceBusyChannelId, setVoiceBusyChannelId] = useState<string | null>(null);
   const [localAudioReady, setLocalAudioReady] = useState(false);
   const [remoteAudioStreams, setRemoteAudioStreams] = useState<Record<string, MediaStream>>({});
-  const [voiceBitrateKbps, setVoiceBitrateKbps] = useState(64);
+  const [savingVoiceBitrateChannelId, setSavingVoiceBitrateChannelId] = useState<string | null>(null);
 
   const [selectedUser, setSelectedUser] = useState<{ id: string; username: string } | null>(null);
   const [hiddenUnreadCount, setHiddenUnreadCount] = useState(0);
@@ -204,6 +204,7 @@ export function ChatPage() {
     () => channels.find((channel) => channel.id === activeVoiceChannelId) ?? null,
     [channels, activeVoiceChannelId],
   );
+  const activeVoiceBitrateKbps = activeVoiceChannel?.voiceBitrateKbps ?? 64;
 
   const voiceParticipantCounts = useMemo(() => {
     const counts: Record<string, number> = {};
@@ -478,7 +479,7 @@ export function ChatPage() {
       for (const track of stream.getTracks()) {
         connection.addTrack(track, stream);
       }
-      await applyAudioBitrateToConnection(connection, voiceBitrateKbps);
+      await applyAudioBitrateToConnection(connection, activeVoiceBitrateKbps);
 
       connection.onicecandidate = (event) => {
         if (!event.candidate) {
@@ -513,7 +514,7 @@ export function ChatPage() {
       peerConnectionsRef.current.set(peerUserId, connection);
       return connection;
     },
-    [applyAudioBitrateToConnection, closePeerConnection, getLocalVoiceStream, voiceBitrateKbps],
+    [applyAudioBitrateToConnection, closePeerConnection, getLocalVoiceStream, activeVoiceBitrateKbps],
   );
 
   const createOfferForPeer = useCallback(
@@ -611,10 +612,20 @@ export function ChatPage() {
         return;
       }
 
-      setActiveVoiceChannelId((current) => (current === payload.channelId ? null : current));
-      setVoiceBusyChannelId((current) => (current === payload.channelId ? null : current));
+      setActiveVoiceChannelId((current) => {
+        if (current !== payload.channelId) {
+          return current;
+        }
+        if (voiceBusyChannelId === payload.channelId) {
+          return current;
+        }
+        return null;
+      });
+      if (voiceBusyChannelId !== payload.channelId) {
+        setVoiceBusyChannelId((current) => (current === payload.channelId ? null : current));
+      }
     },
-    [auth.user],
+    [auth.user, voiceBusyChannelId],
   );
 
   const ws = useChatSocket({
@@ -650,6 +661,9 @@ export function ChatPage() {
       if (document.hidden) {
         setHiddenUnreadCount((count) => count + 1);
       }
+    },
+    onChannelUpdated: (channel) => {
+      setChannels((prev) => upsertChannel(prev, channel));
     },
     onPresenceUpdate: (users) => {
       setOnlineUsers(users);
@@ -844,9 +858,9 @@ export function ChatPage() {
       return;
     }
     for (const connection of connections) {
-      void applyAudioBitrateToConnection(connection, voiceBitrateKbps);
+      void applyAudioBitrateToConnection(connection, activeVoiceBitrateKbps);
     }
-  }, [applyAudioBitrateToConnection, voiceBitrateKbps]);
+  }, [applyAudioBitrateToConnection, activeVoiceBitrateKbps]);
 
   const loadAdminStats = useCallback(async () => {
     if (!auth.token || !auth.user?.isAdmin) {
@@ -1293,6 +1307,24 @@ export function ChatPage() {
     }
   };
 
+  const updateVoiceChannelBitrate = async (channelId: string, bitrateKbps: number) => {
+    if (!auth.token || !auth.user?.isAdmin) {
+      return;
+    }
+    setSavingVoiceBitrateChannelId(channelId);
+    try {
+      const response = await chatApi.updateVoiceChannelSettings(auth.token, channelId, {
+        voiceBitrateKbps: bitrateKbps,
+      });
+      setChannels((prev) => upsertChannel(prev, response.channel));
+      setError(null);
+    } catch (err) {
+      setError(getErrorMessage(err, 'Could not update voice quality'));
+    } finally {
+      setSavingVoiceBitrateChannelId((current) => (current === channelId ? null : current));
+    }
+  };
+
   const uploadAttachment = async (file: File) => {
     if (!auth.token) {
       throw new Error('Not authenticated');
@@ -1420,7 +1452,7 @@ export function ChatPage() {
                 {voiceSessionStatus}
               </span>
               <small>
-                {voiceBitrateKbps} kbps • {activeRemoteAudioUsers.length} remote stream(s)
+                {activeVoiceBitrateKbps} kbps • {activeRemoteAudioUsers.length} remote stream(s)
               </small>
             </div>
             <button
@@ -1444,8 +1476,12 @@ export function ChatPage() {
                 currentUserId={auth.user.id}
                 localAudioReady={localAudioReady}
                 remoteAudioUsers={viewedRemoteAudioUsers}
-                bitrateKbps={voiceBitrateKbps}
-                onBitrateChange={setVoiceBitrateKbps}
+                bitrateKbps={activeChannel.voiceBitrateKbps ?? 64}
+                onBitrateChange={(nextBitrate) => {
+                  void updateVoiceChannelBitrate(activeChannel.id, nextBitrate);
+                }}
+                canEditQuality={auth.user.isAdmin}
+                qualityBusy={savingVoiceBitrateChannelId === activeChannel.id}
                 joined={activeVoiceChannelId === activeChannel.id}
                 busy={voiceBusyChannelId === activeChannel.id}
                 wsConnected={ws.connected}

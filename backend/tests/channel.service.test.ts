@@ -12,6 +12,7 @@ function buildChannel(input: Partial<Channel> & Pick<Channel, 'id' | 'name'>): C
     name: input.name,
     type: input.type ?? 'PUBLIC',
     dmKey: input.dmKey ?? null,
+    voiceBitrateKbps: input.voiceBitrateKbps ?? (input.type === 'VOICE' ? 64 : null),
     createdAt: input.createdAt ?? new Date('2026-01-01T00:00:00.000Z'),
     members: [],
   };
@@ -62,6 +63,15 @@ class InMemoryChannelRepo implements ChannelRepository {
     });
     this.channels.push(created);
     return created;
+  }
+
+  async updateVoiceBitrate(params: { id: string; voiceBitrateKbps: number }) {
+    const channel = this.channels.find((item) => item.id === params.id);
+    if (!channel) {
+      throw new Error('Channel not found');
+    }
+    channel.voiceBitrateKbps = params.voiceBitrateKbps;
+    return channel;
   }
 
   async ensurePublicByName(name: string) {
@@ -185,5 +195,16 @@ describe('ChannelService deleteChannel', () => {
   it('allows deleting voice channels', async () => {
     const result = await service.deleteChannel('voice-id');
     expect(result.deletedChannelId).toBe('voice-id');
+  });
+
+  it('updates voice bitrate on voice channels', async () => {
+    const result = await service.updateVoiceChannelBitrate('voice-id', 96);
+    expect(result.voiceBitrateKbps).toBe(96);
+  });
+
+  it('rejects bitrate updates on non-voice channels', async () => {
+    await expect(service.updateVoiceChannelBitrate('general-id', 96)).rejects.toMatchObject({
+      code: 'INVALID_VOICE_CHANNEL',
+    } satisfies Partial<AppError>);
   });
 });
