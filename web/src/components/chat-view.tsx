@@ -163,14 +163,20 @@ export function ChatView(props: ChatViewProps) {
     };
   }, [clearLongPress]);
 
+  const loadingOlderInFlightRef = useRef(false);
+
   const loadOlderMessages = async () => {
-    if (loadingOlder) {
+    if (loadingOlderInFlightRef.current) {
       return;
     }
+
+    loadingOlderInFlightRef.current = true;
     setLoadingOlder(true);
+
     try {
       await props.onLoadOlder();
     } finally {
+      loadingOlderInFlightRef.current = false;
       setLoadingOlder(false);
     }
   };
