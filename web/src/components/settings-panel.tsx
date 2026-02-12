@@ -3,6 +3,8 @@ import type { User } from '../types/api';
 import type { UserPreferences } from '../types/preferences';
 import { DropdownSelect } from './dropdown-select';
 import { smoothScrollTo } from '../utils/smooth-scroll';
+import lobsterImage from '../../ressources/logos/images/maxresdefault.jpg';
+import lobsterAudio from '../../ressources/logos/audio/lobster.wav';
 
 interface SettingsPanelProps {
   user: User;
@@ -35,6 +37,9 @@ export function SettingsPanel(props: SettingsPanelProps) {
   const [notificationHint, setNotificationHint] = useState<string | null>(null);
   const [loggingOut, setLoggingOut] = useState(false);
   const [activeSection, setActiveSection] = useState('account');
+  const [lobsterVisible, setLobsterVisible] = useState(false);
+  const [lobsterChecked, setLobsterChecked] = useState(false);
+  const lobsterAudioRef = useRef<HTMLAudioElement | null>(null);
   const scrollContainerRef = useRef<HTMLElement | null>(null);
 
   const createdAt = useMemo(
@@ -69,6 +74,24 @@ export function SettingsPanel(props: SettingsPanelProps) {
     const targetTop = Math.max(0, nodeRect.top - containerRect.top + container.scrollTop - 8);
 
     smoothScrollTo(container, targetTop, { reducedMotion: props.preferences.reducedMotion });
+  };
+
+  const triggerLobsterUpgrade = () => {
+    setLobsterChecked(true);
+    setLobsterVisible(true);
+
+    if (lobsterAudioRef.current) {
+      lobsterAudioRef.current.currentTime = 0;
+      void lobsterAudioRef.current.play();
+    }
+
+    window.setTimeout(() => {
+      setLobsterChecked(false);
+    }, 150);
+
+    window.setTimeout(() => {
+      setLobsterVisible(false);
+    }, 5000);
   };
 
   return (
@@ -455,6 +478,7 @@ export function SettingsPanel(props: SettingsPanelProps) {
 
           <section id="notifications" className="settings-section">
             <h3>Notifications & Shortcuts</h3>
+            <audio ref={lobsterAudioRef} src={lobsterAudio} preload="auto" />
             <div className="settings-row">
               <span className="settings-row-copy">
                 <strong>Browser notifications</strong>
@@ -506,6 +530,24 @@ export function SettingsPanel(props: SettingsPanelProps) {
               </button>
             </div>
             {notificationHint ? <p className="setting-hint">{notificationHint}</p> : null}
+
+            <label className="settings-row">
+              <span className="settings-row-copy">
+                <strong>Lobster upgrade</strong>
+                <small>Plays the lobster alert and shows the image for 5 seconds.</small>
+              </span>
+              <input
+                className="settings-toggle"
+                type="checkbox"
+                checked={lobsterChecked}
+                onChange={triggerLobsterUpgrade}
+              />
+            </label>
+            {lobsterVisible ? (
+              <div className="lobster-upgrade-preview">
+                <img src={lobsterImage} alt="Lobster upgrade" />
+              </div>
+            ) : null}
 
             <div className="settings-shortcuts">
               <p>Search channels in the left sidebar.</p>

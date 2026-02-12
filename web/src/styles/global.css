@@ -1179,6 +1179,20 @@ button {
   margin: 0;
 }
 
+.lobster-upgrade-preview {
+  margin-top: 10px;
+  max-width: 340px;
+  border-radius: 10px;
+  overflow: hidden;
+  border: 1px solid var(--panel-border);
+  box-shadow: 0 10px 22px rgba(0, 0, 0, 0.35);
+}
+
+.lobster-upgrade-preview img {
+  width: 100%;
+  display: block;
+}
+
 body.theme-light .auth-page {
   background-image:
     linear-gradient(rgba(31, 36, 48, 0.04) 1px, transparent 1px),
