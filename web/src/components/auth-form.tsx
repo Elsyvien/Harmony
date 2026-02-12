@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import harmonyLogo from '../../ressources/logos/logo.png';
 
 interface AuthFormValues {
   username?: string;
@@ -31,7 +32,7 @@ export function AuthForm(props: AuthFormProps) {
       }}
     >
       <div className="auth-brand">
-        <img className="auth-logo" src="/ressources/logos/logo.png" alt="Harmony logo" />
+        <img className="auth-logo" src={harmonyLogo} alt="Harmony logo" />
         <span>Harmony</span>
       </div>
       <h1>{props.mode === 'login' ? 'Welcome Back' : 'Create Account'}</h1>

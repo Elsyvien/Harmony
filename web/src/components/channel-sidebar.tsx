@@ -1,5 +1,6 @@
 import type { Channel } from '../types/api';
 import { useState } from 'react';
+import harmonyLogo from '../../ressources/logos/logo.png';
 
 interface ChannelSidebarProps {
   channels: Channel[];
@@ -56,7 +57,7 @@ export function ChannelSidebar(props: ChannelSidebarProps) {
       <header>
         <div className="channel-header-row">
           <div className="channel-brand">
-            <img className="channel-brand-logo" src="/ressources/logos/logo.png" alt="Harmony logo" />
+            <img className="channel-brand-logo" src={harmonyLogo} alt="Harmony logo" />
             <h2>Harmony</h2>
           </div>
           {props.isAdmin ? (
