@@ -1,7 +1,17 @@
-# Documentation
+# Harmony Documentation
 
-- `docs/SETUP.md`: installation, environment variables, and run/test/build commands
-- `docs/API.md`: REST API and WebSocket event contracts
-- `docs/ROADMAP.md`: implemented features, gaps, and suggested next milestones
+Primary docs site: `docs/index.html`
 
-If you only need to run the app locally, start with `docs/SETUP.md`.
+To view locally in a browser-friendly way:
+
+```bash
+npx serve docs
+```
+
+Then open the printed local URL and navigate to `index.html`.
+
+Reference files:
+
+- `docs/API.md`: API quick reference
+- `docs/SETUP.md`: setup and environment quick reference
+- `docs/ROADMAP.md`: product roadmap notes

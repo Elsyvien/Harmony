@@ -14,6 +14,7 @@ Discord-like chat app with:
 
 ## Documentation
 
+- Full docs website: `docs/index.html`
 - Setup and local development: `docs/SETUP.md`
 - API and websocket contracts: `docs/API.md`
 - Current feature map and next milestones: `docs/ROADMAP.md`
