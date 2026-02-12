@@ -16,6 +16,7 @@ interface WsPluginOptions {
 interface ClientContext {
   userId: string | null;
   username: string | null;
+  avatarUrl: string | null;
   role: 'OWNER' | 'ADMIN' | 'MODERATOR' | 'MEMBER' | null;
   joinedChannels: Set<string>;
   socket: {
@@ -32,7 +33,10 @@ const wsPluginImpl: FastifyPluginAsync<WsPluginOptions> = async (fastify, option
 
   const channelSubscribers = new Map<string, Set<ClientContext>>();
   const userSubscribers = new Map<string, Set<ClientContext>>();
-  const voiceParticipants = new Map<string, Map<string, { userId: string; username: string }>>();
+  const voiceParticipants = new Map<
+    string,
+    Map<string, { userId: string; username: string; avatarUrl?: string }>
+  >();
   const activeVoiceChannelByUser = new Map<string, string>();
 
   const send = (ctx: ClientContext, type: string, payload: unknown) => {
@@ -77,13 +81,16 @@ const wsPluginImpl: FastifyPluginAsync<WsPluginOptions> = async (fastify, option
   };
 
   const getOnlineUsers = () => {
-    const users: Array<{ id: string; username: string }> = [];
+    const users: Array<{ id: string; username: string; avatarUrl?: string }> = [];
     for (const [userId, subscribers] of userSubscribers) {
       const username = [...subscribers]
         .map((client) => client.username)
         .find((value): value is string => Boolean(value));
+      const avatarUrl = [...subscribers]
+        .map((client) => client.avatarUrl)
+        .find((value): value is string => Boolean(value));
       if (username) {
-        users.push({ id: userId, username });
+        users.push({ id: userId, username, avatarUrl });
       }
     }
     return users.sort((a, b) => a.username.localeCompare(b.username));
@@ -149,6 +156,36 @@ const wsPluginImpl: FastifyPluginAsync<WsPluginOptions> = async (fastify, option
       voiceParticipants.delete(currentChannelId);
     }
     broadcastVoiceState(currentChannelId);
+  };
+
+  const applyUserProfileUpdate = (
+    userId: string,
+    profile: { username: string; avatarUrl: string | null },
+  ) => {
+    const subscribers = userSubscribers.get(userId);
+    if (subscribers) {
+      for (const client of subscribers) {
+        client.username = profile.username;
+        client.avatarUrl = profile.avatarUrl;
+      }
+    }
+
+    const channelsToUpdate = new Set<string>();
+    for (const [channelId, participants] of voiceParticipants.entries()) {
+      if (!participants.has(userId)) {
+        continue;
+      }
+      participants.set(userId, {
+        userId,
+        username: profile.username,
+        avatarUrl: profile.avatarUrl ?? undefined,
+      });
+      channelsToUpdate.add(channelId);
+    }
+
+    for (const channelId of channelsToUpdate) {
+      broadcastVoiceState(channelId);
+    }
   };
 
   fastify.decorate('wsGateway', {
@@ -219,12 +256,20 @@ const wsPluginImpl: FastifyPluginAsync<WsPluginOptions> = async (fastify, option
         }
       }
     },
+    broadcastPresence: () => {
+      broadcastPresence();
+    },
+    updateUserProfile: (userId: string, profile: { username: string; avatarUrl: string | null }) => {
+      applyUserProfileUpdate(userId, profile);
+      broadcastPresence();
+    },
   });
 
   fastify.get('/ws', { websocket: true }, (socket) => {
     const ctx: ClientContext = {
       userId: null,
       username: null,
+      avatarUrl: null,
       role: null,
       joinedChannels: new Set<string>(),
       socket: socket,
@@ -251,7 +296,14 @@ const wsPluginImpl: FastifyPluginAsync<WsPluginOptions> = async (fastify, option
           }>(payload.token);
           const dbUser = await prisma.user.findUnique({
             where: { id: user.userId },
-            select: { id: true, role: true, isSuspended: true, suspendedUntil: true },
+            select: {
+              id: true,
+              username: true,
+              avatarUrl: true,
+              role: true,
+              isSuspended: true,
+              suspendedUntil: true,
+            },
           });
           if (!dbUser) {
             throw new AppError('INVALID_SESSION', 401, 'Session is no longer valid. Please log in again.');
@@ -260,7 +312,8 @@ const wsPluginImpl: FastifyPluginAsync<WsPluginOptions> = async (fastify, option
             throw new AppError('ACCOUNT_SUSPENDED', 403, 'Your account is currently suspended');
           }
           ctx.userId = user.userId;
-          ctx.username = user.username;
+          ctx.username = dbUser.username;
+          ctx.avatarUrl = dbUser.avatarUrl;
           ctx.role = dbUser.role;
           const subscribers = userSubscribers.get(user.userId) ?? new Set<ClientContext>();
           subscribers.add(ctx);
@@ -333,7 +386,11 @@ const wsPluginImpl: FastifyPluginAsync<WsPluginOptions> = async (fastify, option
           }
 
           const participants = voiceParticipants.get(payload.channelId) ?? new Map();
-          participants.set(ctx.userId, { userId: ctx.userId, username: ctx.username });
+          participants.set(ctx.userId, {
+            userId: ctx.userId,
+            username: ctx.username,
+            avatarUrl: ctx.avatarUrl ?? undefined,
+          });
           voiceParticipants.set(payload.channelId, participants);
           activeVoiceChannelByUser.set(ctx.userId, payload.channelId);
           broadcastVoiceState(payload.channelId);

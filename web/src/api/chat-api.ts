@@ -84,7 +84,11 @@ export const chatApi = {
     );
   },
 
-  updateVoiceChannelSettings(token: string, channelId: string, input: { voiceBitrateKbps: number }) {
+  updateVoiceChannelSettings(
+    token: string,
+    channelId: string,
+    input: { voiceBitrateKbps?: number; streamBitrateKbps?: number },
+  ) {
     return apiRequest<{ channel: Channel }>(
       `/channels/${channelId}/voice-settings`,
       {

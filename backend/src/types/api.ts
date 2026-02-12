@@ -12,4 +12,5 @@ export interface AuthUser {
   role: UserRole;
   isAdmin: boolean;
   createdAt: Date;
+  avatarUrl?: string;
 }

@@ -29,6 +29,11 @@ declare module 'fastify' {
       ) => void;
       notifyUsers: (userIds: string[], type: string, payload: unknown) => void;
       broadcastSystem: (type: string, payload: unknown) => void;
+      broadcastPresence: () => void;
+      updateUserProfile: (
+        userId: string,
+        profile: { username: string; avatarUrl: string | null },
+      ) => void;
     };
   }
 }

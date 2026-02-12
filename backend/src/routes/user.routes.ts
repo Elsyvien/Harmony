@@ -10,7 +10,7 @@ export const userRoutes: FastifyPluginAsync<UserRoutesOptions> = async (fastify,
         // Authenticate
         try {
             await request.jwtVerify();
-        } catch (err) {
+        } catch {
             reply.code(401).send({ code: 'UNAUTHORIZED', message: 'Unauthorized' });
             return;
         }
@@ -22,6 +22,10 @@ export const userRoutes: FastifyPluginAsync<UserRoutesOptions> = async (fastify,
         }
 
         const user = await options.userService.updateAvatar(request.user.userId, data);
+        fastify.wsGateway.updateUserProfile(user.id, {
+            username: user.username,
+            avatarUrl: user.avatarUrl,
+        });
         return { user };
     });
 };

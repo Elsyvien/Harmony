@@ -1,10 +1,11 @@
 import { useRef } from 'react';
+import { resolveMediaUrl } from '../utils/media-url';
 
 interface UserSidebarProps {
-  users: { id: string; username: string }[];
-  onUserClick?: (user: { id: string; username: string }) => void;
+  users: { id: string; username: string; avatarUrl?: string }[];
+  onUserClick?: (user: { id: string; username: string; avatarUrl?: string }) => void;
   onUserContextMenu?: (
-    user: { id: string; username: string },
+    user: { id: string; username: string; avatarUrl?: string },
     position: { x: number; y: number },
   ) => void;
 }
@@ -35,47 +36,61 @@ export function UserSidebar({ users, onUserClick, onUserContextMenu }: UserSideb
         <h2>ONLINE — {users.length}</h2>
       </header>
       <div className="user-list">
-        {users.map((user) => (
-          <div
-            key={user.id}
-            className="user-item"
-            onClick={() => onUserClick?.(user)}
-            onContextMenu={(event) => {
-              if (!onUserContextMenu) {
-                return;
-              }
-              event.preventDefault();
-              onUserContextMenu(user, { x: event.clientX, y: event.clientY });
-            }}
-            onTouchStart={(event) => {
-              if (!onUserContextMenu) {
-                return;
-              }
-              const touch = event.touches[0];
-              if (!touch) {
-                return;
-              }
-              clearLongPress();
-              longPressTimeoutRef.current = window.setTimeout(() => {
-                onUserContextMenu(user, { x: touch.clientX, y: touch.clientY });
-              }, 440);
-            }}
-            onTouchEnd={clearLongPress}
-            onTouchCancel={clearLongPress}
-            onTouchMove={clearLongPress}
-          >
-            <div className="user-item-avatar-wrapper">
-              <div className="avatar" style={{ backgroundColor: stringToColor(user.username) }}>
-                {user.username.slice(0, 1).toUpperCase()}
+        {users.map((user) => {
+          const avatarUrl = resolveMediaUrl(user.avatarUrl);
+          return (
+            <div
+              key={user.id}
+              className="user-item"
+              onClick={() => onUserClick?.(user)}
+              onContextMenu={(event) => {
+                if (!onUserContextMenu) {
+                  return;
+                }
+                event.preventDefault();
+                onUserContextMenu(user, { x: event.clientX, y: event.clientY });
+              }}
+              onTouchStart={(event) => {
+                if (!onUserContextMenu) {
+                  return;
+                }
+                const touch = event.touches[0];
+                if (!touch) {
+                  return;
+                }
+                clearLongPress();
+                longPressTimeoutRef.current = window.setTimeout(() => {
+                  onUserContextMenu(user, { x: touch.clientX, y: touch.clientY });
+                }, 440);
+              }}
+              onTouchEnd={clearLongPress}
+              onTouchCancel={clearLongPress}
+              onTouchMove={clearLongPress}
+            >
+              <div className="user-item-avatar-wrapper">
+                <div
+                  className="avatar"
+                  style={{ backgroundColor: avatarUrl ? 'transparent' : stringToColor(user.username) }}
+                >
+                  {avatarUrl ? (
+                    <img
+                      src={avatarUrl}
+                      alt={user.username}
+                      style={{ width: '100%', height: '100%', borderRadius: '50%', objectFit: 'cover' }}
+                    />
+                  ) : (
+                    user.username.slice(0, 1).toUpperCase()
+                  )}
+                </div>
+                <div className="status-dot-large online"></div>
               </div>
-              <div className="status-dot-large online"></div>
+              <div className="user-item-info">
+                <span className="username">{user.username}</span>
+                <span className="activity-text"></span>
+              </div>
             </div>
-            <div className="user-item-info">
-              <span className="username">{user.username}</span>
-              <span className="activity-text"></span>
-            </div>
-          </div>
-        ))}
+          );
+        })}
       </div>
     </aside>
   );

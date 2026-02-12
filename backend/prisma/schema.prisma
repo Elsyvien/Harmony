@@ -51,6 +51,7 @@ model Channel {
   type             ChannelType @default(PUBLIC)
   dmKey            String?     @unique
   voiceBitrateKbps Int?
+  streamBitrateKbps Int?
   createdAt        DateTime    @default(now())
 
   members   ChannelMember[]

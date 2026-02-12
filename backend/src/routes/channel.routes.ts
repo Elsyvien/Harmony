@@ -20,7 +20,7 @@ import {
   updateVoiceSettingsBodySchema,
 } from '../schemas/message.schema.js';
 import { AppError } from '../utils/app-error.js';
-import { isAdminRole } from '../utils/roles.js';
+import { isAdminRole, isPrivilegedRole } from '../utils/roles.js';
 import { isSuspensionActive } from '../utils/suspension.js';
 
 interface ChannelRoutesOptions {
@@ -163,16 +163,16 @@ export const channelRoutes: FastifyPluginAsync<ChannelRoutesOptions> = async (fa
       },
     },
     async (request) => {
-      if (!isAdminRole(request.user.role)) {
-        throw new AppError('FORBIDDEN', 403, 'Admin permission required');
+      if (!isPrivilegedRole(request.user.role)) {
+        throw new AppError('FORBIDDEN', 403, 'Moderator permission required');
       }
 
       const { id: channelId } = channelIdParamsSchema.parse(request.params);
       const body = updateVoiceSettingsBodySchema.parse(request.body);
-      const channel = await options.channelService.updateVoiceChannelBitrate(
-        channelId,
-        body.voiceBitrateKbps,
-      );
+      const channel = await options.channelService.updateVoiceChannelSettings(channelId, {
+        voiceBitrateKbps: body.voiceBitrateKbps,
+        streamBitrateKbps: body.streamBitrateKbps,
+      });
       fastify.wsGateway.broadcastSystem('channel:updated', { channel });
       return { channel };
     },

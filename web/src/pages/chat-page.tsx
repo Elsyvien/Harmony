@@ -32,7 +32,17 @@ type UserAudioPreference = { volume: number; muted: boolean };
 type ReplyTarget = { id: string; userId: string; username: string; content: string };
 type MobilePane = 'none' | 'channels' | 'users';
 type MicrophonePermissionState = 'granted' | 'denied' | 'prompt' | 'unsupported' | 'unknown';
+type StreamSource = 'screen' | 'camera';
 const USER_AUDIO_PREFS_KEY = 'harmony_user_audio_prefs_v1';
+const DEFAULT_STREAM_QUALITY = '720p 30fps';
+
+const STREAM_QUALITY_CONSTRAINTS: Record<string, { width: number; height: number; frameRate: number }> = {
+  '480p 15fps': { width: 854, height: 480, frameRate: 15 },
+  '720p 30fps': { width: 1280, height: 720, frameRate: 30 },
+  '1080p 30fps': { width: 1920, height: 1080, frameRate: 30 },
+  '1080p 60fps': { width: 1920, height: 1080, frameRate: 60 },
+  '1440p 30fps': { width: 2560, height: 1440, frameRate: 30 },
+};
 
 function parseUserAudioPrefs(raw: string | null): Record<string, UserAudioPreference> {
   if (!raw) {
@@ -148,10 +158,79 @@ function upsertChannel(existing: Channel[], incoming: Channel) {
   return next.sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
 }
 
+function canModerateVoiceSettings(role: UserRole | null | undefined) {
+  return role === 'OWNER' || role === 'ADMIN' || role === 'MODERATOR';
+}
+
 type VoiceSignalData =
   | { kind: 'offer'; sdp: RTCSessionDescriptionInit }
   | { kind: 'answer'; sdp: RTCSessionDescriptionInit }
   | { kind: 'ice'; candidate: RTCIceCandidateInit };
+
+type VoiceDetailedMediaStats = {
+  bitrateKbps: number | null;
+  packets: number | null;
+  packetsLost: number | null;
+  jitterMs: number | null;
+  framesPerSecond: number | null;
+  frameWidth: number | null;
+  frameHeight: number | null;
+};
+
+type VoiceDetailedConnectionStats = {
+  userId: string;
+  username: string;
+  connectionState: RTCPeerConnectionState;
+  iceConnectionState: RTCIceConnectionState;
+  signalingState: RTCSignalingState;
+  currentRttMs: number | null;
+  availableOutgoingBitrateKbps: number | null;
+  localCandidateType: string | null;
+  remoteCandidateType: string | null;
+  outboundAudio: VoiceDetailedMediaStats;
+  inboundAudio: VoiceDetailedMediaStats;
+  outboundVideo: VoiceDetailedMediaStats;
+  inboundVideo: VoiceDetailedMediaStats;
+};
+
+function createEmptyMediaStats(): VoiceDetailedMediaStats {
+  return {
+    bitrateKbps: null,
+    packets: null,
+    packetsLost: null,
+    jitterMs: null,
+    framesPerSecond: null,
+    frameWidth: null,
+    frameHeight: null,
+  };
+}
+
+function accumulateMediaStats(
+  target: VoiceDetailedMediaStats,
+  update: Partial<VoiceDetailedMediaStats>,
+) {
+  if (typeof update.bitrateKbps === 'number') {
+    target.bitrateKbps = (target.bitrateKbps ?? 0) + update.bitrateKbps;
+  }
+  if (typeof update.packets === 'number') {
+    target.packets = (target.packets ?? 0) + update.packets;
+  }
+  if (typeof update.packetsLost === 'number') {
+    target.packetsLost = (target.packetsLost ?? 0) + update.packetsLost;
+  }
+  if (typeof update.jitterMs === 'number') {
+    target.jitterMs = update.jitterMs;
+  }
+  if (typeof update.framesPerSecond === 'number') {
+    target.framesPerSecond = update.framesPerSecond;
+  }
+  if (typeof update.frameWidth === 'number') {
+    target.frameWidth = update.frameWidth;
+  }
+  if (typeof update.frameHeight === 'number') {
+    target.frameHeight = update.frameHeight;
+  }
+}
 
 function isVoiceSignalData(value: unknown): value is VoiceSignalData {
   if (!value || typeof value !== 'object' || !('kind' in value)) {
@@ -217,7 +296,12 @@ export function ChatPage() {
   const [speakingUserIds, setSpeakingUserIds] = useState<string[]>([]);
   const [remoteScreenShares, setRemoteScreenShares] = useState<Record<string, MediaStream>>({});
   const [localScreenShareStream, setLocalScreenShareStream] = useState<MediaStream | null>(null);
-  const [savingVoiceBitrateChannelId, setSavingVoiceBitrateChannelId] = useState<string | null>(null);
+  const [localStreamSource, setLocalStreamSource] = useState<StreamSource | null>(null);
+  const [streamQualityLabel, setStreamQualityLabel] = useState(DEFAULT_STREAM_QUALITY);
+  const [showDetailedVoiceStats, setShowDetailedVoiceStats] = useState(false);
+  const [voiceConnectionStats, setVoiceConnectionStats] = useState<VoiceDetailedConnectionStats[]>([]);
+  const [voiceStatsUpdatedAt, setVoiceStatsUpdatedAt] = useState<number | null>(null);
+  const [savingVoiceSettingsChannelId, setSavingVoiceSettingsChannelId] = useState<string | null>(null);
 
   const [selectedUser, setSelectedUser] = useState<{
     id: string;
@@ -256,6 +340,7 @@ export function ChatPage() {
   const localVoiceInputDeviceIdRef = useRef<string | null>(null);
   const peerConnectionsRef = useRef<Map<string, RTCPeerConnection>>(new Map());
   const pendingIceRef = useRef<Map<string, RTCIceCandidateInit[]>>(new Map());
+  const previousRtpSnapshotsRef = useRef<Map<string, { bytes: number; timestamp: number }>>(new Map());
   const voiceParticipantIdsByChannelRef = useRef<Map<string, Set<string>>>(new Map());
   const activeVoiceChannelIdRef = useRef<string | null>(null);
   const sendVoiceSignalRef = useRef((() => false) as (channelId: string, targetUserId: string, data: unknown) => boolean);
@@ -270,6 +355,8 @@ export function ChatPage() {
     [channels, activeVoiceChannelId],
   );
   const activeVoiceBitrateKbps = activeVoiceChannel?.voiceBitrateKbps ?? 64;
+  const activeStreamBitrateKbps = activeVoiceChannel?.streamBitrateKbps ?? 2500;
+  const canEditVoiceSettings = canModerateVoiceSettings(auth.user?.role);
   const subscribedChannelIds = useMemo(() => channels.map((channel) => channel.id), [channels]);
 
   const voiceParticipantCounts = useMemo(() => {
@@ -293,6 +380,181 @@ export function ChatPage() {
     }
     return voiceParticipantsByChannel[activeVoiceChannelId] ?? [];
   }, [activeVoiceChannelId, voiceParticipantsByChannel]);
+
+  const voiceStreamingUserIdsByChannel = useMemo(() => {
+    const byChannel: Record<string, string[]> = {};
+    if (!activeVoiceChannelId) {
+      return byChannel;
+    }
+    const liveUserIds = new Set<string>(Object.keys(remoteScreenShares));
+    if (localScreenShareStream && auth.user?.id) {
+      liveUserIds.add(auth.user.id);
+    }
+    byChannel[activeVoiceChannelId] = [...liveUserIds];
+    return byChannel;
+  }, [activeVoiceChannelId, remoteScreenShares, localScreenShareStream, auth.user?.id]);
+
+  const computeKbpsFromSnapshot = useCallback((snapshotKey: string, bytes: number, timestamp: number) => {
+    const previous = previousRtpSnapshotsRef.current.get(snapshotKey);
+    previousRtpSnapshotsRef.current.set(snapshotKey, { bytes, timestamp });
+    if (!previous || timestamp <= previous.timestamp || bytes < previous.bytes) {
+      return null;
+    }
+    const deltaBytes = bytes - previous.bytes;
+    const deltaMs = timestamp - previous.timestamp;
+    if (deltaMs <= 0) {
+      return null;
+    }
+    return (deltaBytes * 8) / deltaMs;
+  }, []);
+
+  const collectVoiceConnectionStats = useCallback(async () => {
+    const connections = Array.from(peerConnectionsRef.current.entries());
+    if (connections.length === 0) {
+      setVoiceConnectionStats([]);
+      setVoiceStatsUpdatedAt(Date.now());
+      return;
+    }
+
+    const participantNameById = new Map(joinedVoiceParticipants.map((participant) => [participant.userId, participant.username]));
+    const nextStats: VoiceDetailedConnectionStats[] = [];
+
+    for (const [peerUserId, connection] of connections) {
+      try {
+        const report = await connection.getStats();
+        const outboundAudio = createEmptyMediaStats();
+        const inboundAudio = createEmptyMediaStats();
+        const outboundVideo = createEmptyMediaStats();
+        const inboundVideo = createEmptyMediaStats();
+
+        const localCandidates = new Map<string, { candidateType?: string }>();
+        const remoteCandidates = new Map<string, { candidateType?: string }>();
+        let selectedPair: (RTCIceCandidatePairStats & {
+          availableOutgoingBitrate?: number;
+        }) | null = null;
+
+        for (const stat of report.values()) {
+          if (stat.type === 'local-candidate') {
+            localCandidates.set(stat.id, stat as unknown as { candidateType?: string });
+            continue;
+          }
+          if (stat.type === 'remote-candidate') {
+            remoteCandidates.set(stat.id, stat as unknown as { candidateType?: string });
+            continue;
+          }
+          if (stat.type === 'candidate-pair') {
+            const pair = stat as RTCIceCandidatePairStats & {
+              selected?: boolean;
+              availableOutgoingBitrate?: number;
+            };
+            if (pair.nominated || pair.selected) {
+              selectedPair = pair;
+            }
+            continue;
+          }
+
+          if (stat.type === 'outbound-rtp') {
+            const rtp = stat as RTCOutboundRtpStreamStats & {
+              kind?: string;
+              mediaType?: string;
+              isRemote?: boolean;
+              frameWidth?: number;
+              frameHeight?: number;
+              framesPerSecond?: number;
+            };
+            if (rtp.isRemote) {
+              continue;
+            }
+            const mediaKind = rtp.kind ?? rtp.mediaType ?? 'audio';
+            const bitrateKbps =
+              typeof rtp.bytesSent === 'number'
+                ? computeKbpsFromSnapshot(`${peerUserId}:out:${rtp.id}`, rtp.bytesSent, rtp.timestamp)
+                : null;
+            if (mediaKind === 'video') {
+              accumulateMediaStats(outboundVideo, {
+                bitrateKbps,
+                packets: typeof rtp.packetsSent === 'number' ? rtp.packetsSent : null,
+                framesPerSecond:
+                  typeof rtp.framesPerSecond === 'number' ? rtp.framesPerSecond : null,
+                frameWidth: typeof rtp.frameWidth === 'number' ? rtp.frameWidth : null,
+                frameHeight: typeof rtp.frameHeight === 'number' ? rtp.frameHeight : null,
+              });
+            } else {
+              accumulateMediaStats(outboundAudio, {
+                bitrateKbps,
+                packets: typeof rtp.packetsSent === 'number' ? rtp.packetsSent : null,
+              });
+            }
+            continue;
+          }
+
+          if (stat.type === 'inbound-rtp') {
+            const rtp = stat as RTCInboundRtpStreamStats & {
+              kind?: string;
+              mediaType?: string;
+              frameWidth?: number;
+              frameHeight?: number;
+              framesPerSecond?: number;
+            };
+            const mediaKind = rtp.kind ?? rtp.mediaType ?? 'audio';
+            const bitrateKbps =
+              typeof rtp.bytesReceived === 'number'
+                ? computeKbpsFromSnapshot(`${peerUserId}:in:${rtp.id}`, rtp.bytesReceived, rtp.timestamp)
+                : null;
+            const update: Partial<VoiceDetailedMediaStats> = {
+              bitrateKbps,
+              packets: typeof rtp.packetsReceived === 'number' ? rtp.packetsReceived : null,
+              packetsLost: typeof rtp.packetsLost === 'number' ? rtp.packetsLost : null,
+              jitterMs: typeof rtp.jitter === 'number' ? rtp.jitter * 1000 : null,
+              framesPerSecond: typeof rtp.framesPerSecond === 'number' ? rtp.framesPerSecond : null,
+              frameWidth: typeof rtp.frameWidth === 'number' ? rtp.frameWidth : null,
+              frameHeight: typeof rtp.frameHeight === 'number' ? rtp.frameHeight : null,
+            };
+            if (mediaKind === 'video') {
+              accumulateMediaStats(inboundVideo, update);
+            } else {
+              accumulateMediaStats(inboundAudio, update);
+            }
+          }
+        }
+
+        const localCandidate = selectedPair?.localCandidateId
+          ? localCandidates.get(selectedPair.localCandidateId)
+          : null;
+        const remoteCandidate = selectedPair?.remoteCandidateId
+          ? remoteCandidates.get(selectedPair.remoteCandidateId)
+          : null;
+
+        nextStats.push({
+          userId: peerUserId,
+          username: participantNameById.get(peerUserId) ?? 'Unknown',
+          connectionState: connection.connectionState,
+          iceConnectionState: connection.iceConnectionState,
+          signalingState: connection.signalingState,
+          currentRttMs:
+            typeof selectedPair?.currentRoundTripTime === 'number'
+              ? selectedPair.currentRoundTripTime * 1000
+              : null,
+          availableOutgoingBitrateKbps:
+            typeof selectedPair?.availableOutgoingBitrate === 'number'
+              ? selectedPair.availableOutgoingBitrate / 1000
+              : null,
+          localCandidateType: localCandidate?.candidateType ?? null,
+          remoteCandidateType: remoteCandidate?.candidateType ?? null,
+          outboundAudio,
+          inboundAudio,
+          outboundVideo,
+          inboundVideo,
+        });
+      } catch {
+        // Ignore stats collection failures for a single peer and continue.
+      }
+    }
+
+    nextStats.sort((a, b) => a.username.localeCompare(b.username));
+    setVoiceConnectionStats(nextStats);
+    setVoiceStatsUpdatedAt(Date.now());
+  }, [computeKbpsFromSnapshot, joinedVoiceParticipants]);
 
   const activeRemoteAudioUsers = useMemo(() => {
     if (!auth.user) {
@@ -620,6 +882,7 @@ export function ChatPage() {
       }
       localScreenStreamRef.current = null;
       setLocalScreenShareStream(null);
+      setLocalStreamSource(null);
     }
     if (localAnalyserSourceRef.current) {
       localAnalyserSourceRef.current.disconnect();
@@ -779,6 +1042,32 @@ export function ChatPage() {
     [],
   );
 
+  const applyVideoBitrateToConnection = useCallback(
+    async (connection: RTCPeerConnection, bitrateKbps: number) => {
+      const bitrateBps = Math.max(128, bitrateKbps) * 1000;
+      for (const sender of connection.getSenders()) {
+        if (!sender.track || sender.track.kind !== 'video') {
+          continue;
+        }
+        try {
+          const parameters = sender.getParameters();
+          const existingEncodings =
+            parameters.encodings && parameters.encodings.length > 0
+              ? parameters.encodings
+              : [{}];
+          parameters.encodings = existingEncodings.map((encoding) => ({
+            ...encoding,
+            maxBitrate: bitrateBps,
+          }));
+          await sender.setParameters(parameters);
+        } catch {
+          // Browser may not allow dynamic sender parameter updates.
+        }
+      }
+    },
+    [],
+  );
+
   const flushPendingIceCandidates = useCallback(async (peerUserId: string, connection: RTCPeerConnection) => {
     const queued = pendingIceRef.current.get(peerUserId);
     if (!queued?.length || !connection.remoteDescription) {
@@ -815,6 +1104,7 @@ export function ChatPage() {
         }
       }
       await applyAudioBitrateToConnection(connection, activeVoiceBitrateKbps);
+      await applyVideoBitrateToConnection(connection, activeStreamBitrateKbps);
 
       connection.onicecandidate = (event) => {
         if (!event.candidate) {
@@ -827,10 +1117,7 @@ export function ChatPage() {
       };
 
       connection.ontrack = (event) => {
-        const streamFromTrack = event.streams[0];
-        if (!streamFromTrack) {
-          return;
-        }
+        const streamFromTrack = event.streams[0] ?? new MediaStream([event.track]);
         if (event.track.kind === 'audio') {
           setRemoteAudioStreams((prev) => ({
             ...prev,
@@ -841,6 +1128,16 @@ export function ChatPage() {
             ...prev,
             [peerUserId]: streamFromTrack,
           }));
+          event.track.onended = () => {
+            setRemoteScreenShares((prev) => {
+              if (!prev[peerUserId]) {
+                return prev;
+              }
+              const next = { ...prev };
+              delete next[peerUserId];
+              return next;
+            });
+          };
         }
       };
 
@@ -856,12 +1153,19 @@ export function ChatPage() {
       peerConnectionsRef.current.set(peerUserId, connection);
       return connection;
     },
-    [applyAudioBitrateToConnection, closePeerConnection, getLocalVoiceStream, activeVoiceBitrateKbps],
+    [
+      applyAudioBitrateToConnection,
+      applyVideoBitrateToConnection,
+      closePeerConnection,
+      getLocalVoiceStream,
+      activeVoiceBitrateKbps,
+      activeStreamBitrateKbps,
+    ],
   );
 
   const createOfferForPeer = useCallback(
     async (peerUserId: string, channelId: string) => {
-      if (!auth.user || auth.user.id > peerUserId) {
+      if (!auth.user) {
         return;
       }
       const connection = await ensurePeerConnection(peerUserId, channelId);
@@ -870,6 +1174,7 @@ export function ChatPage() {
       }
       const offer = await connection.createOffer({
         offerToReceiveAudio: true,
+        offerToReceiveVideo: true,
       });
       await connection.setLocalDescription(offer);
       sendVoiceSignalRef.current(channelId, peerUserId, {
@@ -1095,6 +1400,35 @@ export function ChatPage() {
   useEffect(() => {
     activeVoiceChannelIdRef.current = activeVoiceChannelId;
   }, [activeVoiceChannelId]);
+
+  useEffect(() => {
+    if (activeChannel?.isVoice) {
+      return;
+    }
+    setShowDetailedVoiceStats(false);
+  }, [activeChannel?.isVoice]);
+
+  useEffect(() => {
+    if (activeVoiceChannelId) {
+      return;
+    }
+    setVoiceConnectionStats([]);
+    setVoiceStatsUpdatedAt(null);
+    previousRtpSnapshotsRef.current.clear();
+  }, [activeVoiceChannelId]);
+
+  useEffect(() => {
+    if (!showDetailedVoiceStats || !activeVoiceChannelId || !ws.connected) {
+      return;
+    }
+    void collectVoiceConnectionStats();
+    const intervalId = window.setInterval(() => {
+      void collectVoiceConnectionStats();
+    }, 2000);
+    return () => {
+      window.clearInterval(intervalId);
+    };
+  }, [showDetailedVoiceStats, activeVoiceChannelId, ws.connected, collectVoiceConnectionStats]);
 
   useEffect(() => {
     return () => {
@@ -1348,6 +1682,16 @@ export function ChatPage() {
   }, [applyAudioBitrateToConnection, activeVoiceBitrateKbps]);
 
   useEffect(() => {
+    const connections = Array.from(peerConnectionsRef.current.values());
+    if (connections.length === 0) {
+      return;
+    }
+    for (const connection of connections) {
+      void applyVideoBitrateToConnection(connection, activeStreamBitrateKbps);
+    }
+  }, [applyVideoBitrateToConnection, activeStreamBitrateKbps]);
+
+  useEffect(() => {
     applyLocalVoiceTrackState(localVoiceStreamRef.current);
   }, [applyLocalVoiceTrackState]);
 
@@ -1426,103 +1770,149 @@ export function ChatPage() {
     });
   }, [preferences.showVoiceActivity, viewedRemoteAudioUsers, auth.user?.id]);
 
-  const toggleScreenShare = useCallback(async () => {
-    if (localScreenStreamRef.current) {
-      for (const track of localScreenStreamRef.current.getTracks()) {
-        track.stop();
-      }
-      localScreenStreamRef.current = null;
-      setLocalScreenShareStream(null);
-
-      if (activeVoiceChannelIdRef.current) {
-        for (const [peerUserId, connection] of peerConnectionsRef.current) {
-          const senders = connection.getSenders();
-          for (const sender of senders) {
-            if (sender.track?.kind === 'video') {
-              connection.removeTrack(sender);
-            }
-          }
-          void createOfferForPeer(peerUserId, activeVoiceChannelIdRef.current);
-        }
-      }
-    } else {
-      try {
-        const stream = await navigator.mediaDevices.getDisplayMedia({
-          video: true,
-          audio: false,
-        });
-        localScreenStreamRef.current = stream;
-        setLocalScreenShareStream(stream);
-
-        const videoTrack = stream.getVideoTracks()[0];
-        if (videoTrack) {
-          videoTrack.onended = () => {
-            localScreenStreamRef.current = null;
-            setLocalScreenShareStream(null);
-            if (activeVoiceChannelIdRef.current) {
-              for (const [peerUserId, connection] of peerConnectionsRef.current) {
-                const senders = connection.getSenders();
-                for (const sender of senders) {
-                  if (sender.track?.kind === 'video') {
-                    connection.removeTrack(sender);
-                  }
-                }
-                void createOfferForPeer(peerUserId, activeVoiceChannelIdRef.current);
-              }
-            }
-          };
-        }
-
-        if (activeVoiceChannelId) {
-          const videoTrack = stream.getVideoTracks()[0];
-          if (videoTrack) {
-            for (const [peerUserId, connection] of peerConnectionsRef.current) {
-              const senders = connection.getSenders();
-              let replacedExistingVideo = false;
-
-              for (const sender of senders) {
-                if (sender.track?.kind === 'video') {
-                  // Replace any existing video track (for example, camera) with the screen share track.
-                  // This avoids having multiple video tracks on the same connection.
-                  // eslint-disable-next-line @typescript-eslint/no-floating-promises
-                  sender.replaceTrack(videoTrack);
-                  replacedExistingVideo = true;
-                }
-              }
-
-              if (!replacedExistingVideo) {
-                connection.addTrack(videoTrack, stream);
-              }
-
-              void createOfferForPeer(peerUserId, activeVoiceChannelId);
-            }
-          }
-        }
-      } catch (err) {
-        // User cancelled or not supported
-        console.error('Failed to get display media', err);
-      }
-    }
-  }, [activeVoiceChannelId, createOfferForPeer]);
-
-  const updateScreenShareQuality = useCallback((height: number, frameRate: number) => {
-    const stream = localScreenStreamRef.current;
-    if (!stream) {
-      return;
-    }
+  const applyStreamQualityToStream = useCallback((stream: MediaStream, presetLabel: string) => {
+    const preset = STREAM_QUALITY_CONSTRAINTS[presetLabel] ?? STREAM_QUALITY_CONSTRAINTS[DEFAULT_STREAM_QUALITY];
     const [track] = stream.getVideoTracks();
     if (!track) {
       return;
     }
-    track
+    void track
       .applyConstraints({
-        height: { ideal: height },
-        frameRate: { ideal: frameRate },
+        width: { ideal: preset.width },
+        height: { ideal: preset.height },
+        frameRate: { ideal: preset.frameRate, max: preset.frameRate },
       })
       .catch((err) => {
-        console.error('Failed to apply screen share constraints', err);
+        console.error('Failed to apply stream constraints', err);
       });
   }, []);
+
+  const stopLocalVideoShare = useCallback(
+    (renegotiatePeers = true) => {
+      const stream = localScreenStreamRef.current;
+      if (!stream) {
+        setLocalScreenShareStream(null);
+        setLocalStreamSource(null);
+        return;
+      }
+
+      for (const track of stream.getTracks()) {
+        track.onended = null;
+        track.stop();
+      }
+      localScreenStreamRef.current = null;
+      setLocalScreenShareStream(null);
+      setLocalStreamSource(null);
+
+      if (!renegotiatePeers || !activeVoiceChannelIdRef.current) {
+        return;
+      }
+      for (const [peerUserId, connection] of peerConnectionsRef.current) {
+        const senders = connection.getSenders();
+        for (const sender of senders) {
+          if (sender.track?.kind === 'video') {
+            connection.removeTrack(sender);
+          }
+        }
+        void createOfferForPeer(peerUserId, activeVoiceChannelIdRef.current);
+      }
+    },
+    [createOfferForPeer],
+  );
+
+  const toggleVideoShare = useCallback(
+    async (source: StreamSource) => {
+      if (localScreenStreamRef.current && localStreamSource === source) {
+        stopLocalVideoShare(true);
+        return;
+      }
+      if (localScreenStreamRef.current) {
+        stopLocalVideoShare(false);
+      }
+
+      try {
+        const stream =
+          source === 'screen'
+            ? await navigator.mediaDevices.getDisplayMedia({
+                video: true,
+                audio: false,
+              })
+            : await navigator.mediaDevices.getUserMedia({
+                video: {
+                  width: { ideal: 1280 },
+                  height: { ideal: 720 },
+                  frameRate: { ideal: 30, max: 60 },
+                },
+                audio: false,
+              });
+
+        localScreenStreamRef.current = stream;
+        setLocalScreenShareStream(stream);
+        setLocalStreamSource(source);
+        applyStreamQualityToStream(stream, streamQualityLabel);
+
+        const videoTrack = stream.getVideoTracks()[0];
+        if (videoTrack) {
+          videoTrack.onended = () => {
+            if (localScreenStreamRef.current === stream) {
+              stopLocalVideoShare(true);
+            }
+          };
+        }
+
+        const currentVoiceChannelId = activeVoiceChannelIdRef.current;
+        if (!currentVoiceChannelId || !videoTrack) {
+          return;
+        }
+
+        for (const [peerUserId, connection] of peerConnectionsRef.current) {
+          const senders = connection.getSenders();
+          let replacedExistingVideo = false;
+
+          for (const sender of senders) {
+            if (sender.track?.kind === 'video') {
+              // eslint-disable-next-line @typescript-eslint/no-floating-promises
+              sender.replaceTrack(videoTrack);
+              replacedExistingVideo = true;
+            }
+          }
+
+          if (!replacedExistingVideo) {
+            connection.addTrack(videoTrack, stream);
+          }
+
+          void applyVideoBitrateToConnection(connection, activeStreamBitrateKbps);
+          void createOfferForPeer(peerUserId, currentVoiceChannelId);
+        }
+      } catch (err) {
+        console.error('Failed to start video share', err);
+      }
+    },
+    [
+      localStreamSource,
+      stopLocalVideoShare,
+      applyStreamQualityToStream,
+      streamQualityLabel,
+      applyVideoBitrateToConnection,
+      activeStreamBitrateKbps,
+      createOfferForPeer,
+    ],
+  );
+
+  const handleStreamQualityChange = useCallback(
+    (value: string) => {
+      if (!STREAM_QUALITY_CONSTRAINTS[value]) {
+        return;
+      }
+      setStreamQualityLabel(value);
+      const stream = localScreenStreamRef.current;
+      if (!stream) {
+        return;
+      }
+      applyStreamQualityToStream(stream, value);
+    },
+    [applyStreamQualityToStream],
+  );
 
   const loadAdminStats = useCallback(async () => {
     if (!auth.token || !auth.user?.isAdmin) {
@@ -2114,21 +2504,22 @@ export function ChatPage() {
     }
   };
 
-  const updateVoiceChannelBitrate = async (channelId: string, bitrateKbps: number) => {
-    if (!auth.token || !auth.user?.isAdmin) {
+  const updateVoiceChannelSettings = async (
+    channelId: string,
+    input: { voiceBitrateKbps?: number; streamBitrateKbps?: number },
+  ) => {
+    if (!auth.token || !canEditVoiceSettings) {
       return;
     }
-    setSavingVoiceBitrateChannelId(channelId);
+    setSavingVoiceSettingsChannelId(channelId);
     try {
-      const response = await chatApi.updateVoiceChannelSettings(auth.token, channelId, {
-        voiceBitrateKbps: bitrateKbps,
-      });
+      const response = await chatApi.updateVoiceChannelSettings(auth.token, channelId, input);
       setChannels((prev) => upsertChannel(prev, response.channel));
       setError(null);
     } catch (err) {
       setError(getErrorMessage(err, 'Could not update voice quality'));
     } finally {
-      setSavingVoiceBitrateChannelId((current) => (current === channelId ? null : current));
+      setSavingVoiceSettingsChannelId((current) => (current === channelId ? null : current));
     }
   };
 
@@ -2250,6 +2641,9 @@ export function ChatPage() {
         deletingChannelId={deletingChannelId}
         activeVoiceChannelId={activeVoiceChannelId}
         voiceParticipantCounts={voiceParticipantCounts}
+        voiceParticipantsByChannel={voiceParticipantsByChannel}
+        voiceStreamingUserIdsByChannel={voiceStreamingUserIdsByChannel}
+        speakingUserIds={speakingUserIds}
         onJoinVoice={joinVoiceChannel}
         onLeaveVoice={leaveVoiceChannel}
         isSelfMuted={isSelfMuted}
@@ -2312,7 +2706,7 @@ export function ChatPage() {
                 {voiceSessionStatus}
               </span>
               <small>
-                {activeVoiceBitrateKbps} kbps • {activeRemoteAudioUsers.length} remote stream(s)
+                Voice {activeVoiceBitrateKbps} kbps • Stream {activeStreamBitrateKbps} kbps • {activeRemoteAudioUsers.length} remote stream(s)
               </small>
             </div>
             <button
@@ -2336,12 +2730,16 @@ export function ChatPage() {
                 currentUserId={auth.user.id}
                 localAudioReady={localAudioReady}
                 remoteAudioUsers={viewedRemoteAudioUsers}
-                bitrateKbps={activeChannel.voiceBitrateKbps ?? 64}
-                onBitrateChange={(nextBitrate) => {
-                  void updateVoiceChannelBitrate(activeChannel.id, nextBitrate);
+                voiceBitrateKbps={activeChannel.voiceBitrateKbps ?? 64}
+                streamBitrateKbps={activeChannel.streamBitrateKbps ?? 2500}
+                onVoiceBitrateChange={(nextBitrate) => {
+                  void updateVoiceChannelSettings(activeChannel.id, { voiceBitrateKbps: nextBitrate });
                 }}
-                canEditQuality={auth.user.isAdmin}
-                qualityBusy={savingVoiceBitrateChannelId === activeChannel.id}
+                onStreamBitrateChange={(nextBitrate) => {
+                  void updateVoiceChannelSettings(activeChannel.id, { streamBitrateKbps: nextBitrate });
+                }}
+                canEditChannelBitrate={canEditVoiceSettings}
+                qualityBusy={savingVoiceSettingsChannelId === activeChannel.id}
                 joined={activeVoiceChannelId === activeChannel.id}
                 busy={voiceBusyChannelId === activeChannel.id}
                 wsConnected={ws.connected}
@@ -2359,9 +2757,17 @@ export function ChatPage() {
                 }
                 getParticipantAudioState={(userId) => getUserAudioState(userId)}
                 localScreenShareStream={localScreenShareStream}
+                localStreamSource={localStreamSource}
                 remoteScreenShares={remoteScreenShares}
-                onToggleScreenShare={toggleScreenShare}
-                onScreenShareQualityChange={updateScreenShareQuality}
+                onToggleVideoShare={toggleVideoShare}
+                streamQualityLabel={streamQualityLabel}
+                onStreamQualityChange={handleStreamQualityChange}
+                showDetailedStats={showDetailedVoiceStats}
+                onToggleDetailedStats={() =>
+                  setShowDetailedVoiceStats((current) => !current)
+                }
+                connectionStats={voiceConnectionStats}
+                statsUpdatedAt={voiceStatsUpdatedAt}
               />
             ) : (
               <>

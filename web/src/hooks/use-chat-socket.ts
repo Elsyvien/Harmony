@@ -19,11 +19,13 @@ export interface DmNewEventPayload {
 export interface PresenceUser {
   id: string;
   username: string;
+  avatarUrl?: string;
 }
 
 export interface VoiceParticipant {
   userId: string;
   username: string;
+  avatarUrl?: string;
 }
 
 export interface VoiceStatePayload {
@@ -309,16 +311,6 @@ export function useChatSocket(params: {
   }, [connected]);
 
   const [ping, setPing] = useState<number | null>(null);
-
-  // In the existing onmessage handler, we need to handle 'pong'. 
-  // Since we can't easily inject into the large useEffect, let's modify the socket.onmessage wrapper if possible or add a separate listener mechanism if the architecture supports it.
-  // Actually, looking at the file, the onmessage is inside the main useEffect. I should probably rewrite that useEffect to include pong handling.
-  // BUT `replace_file_content` on a huge block is risky.
-  // Let's see if we can just modify the onmessage handler block.
-
-  // Wait, I can't modify the onmessage handler easily without replacing the whole useEffect or a large chunk.
-  // The onmessage handler is lines 127-208.
-  // I will replace the onmessage handler to include 'pong' case.
 
   return { connected, sendMessage, joinVoice, leaveVoice, sendVoiceSignal, ping };
 }

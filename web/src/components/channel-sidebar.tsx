@@ -2,6 +2,7 @@ import type { Channel } from '../types/api';
 import { useState } from 'react';
 import harmonyLogo from '../../ressources/logos/logo.png';
 import { resolveMediaUrl } from '../utils/media-url';
+import type { VoiceParticipant } from '../hooks/use-chat-socket';
 
 interface ChannelSidebarProps {
   channels: Channel[];
@@ -18,6 +19,9 @@ interface ChannelSidebarProps {
   deletingChannelId: string | null;
   activeVoiceChannelId: string | null;
   voiceParticipantCounts: Record<string, number>;
+  voiceParticipantsByChannel: Record<string, VoiceParticipant[]>;
+  voiceStreamingUserIdsByChannel: Record<string, string[]>;
+  speakingUserIds: string[];
   onJoinVoice: (channelId: string) => Promise<void> | void;
   onLeaveVoice: () => Promise<void> | void;
   isSelfMuted: boolean;
@@ -28,6 +32,15 @@ interface ChannelSidebarProps {
   incomingFriendRequests: number;
   avatarUrl?: string;
   ping: number | null;
+}
+
+function stringToColor(str: string) {
+  let hash = 0;
+  for (let i = 0; i < str.length; i += 1) {
+    hash = str.charCodeAt(i) + ((hash << 5) - hash);
+  }
+  const c = (hash & 0x00ffffff).toString(16).toUpperCase();
+  return '#' + '00000'.substring(0, 6 - c.length) + c;
 }
 
 export function ChannelSidebar(props: ChannelSidebarProps) {
@@ -55,6 +68,7 @@ export function ChannelSidebar(props: ChannelSidebarProps) {
   const voiceChannels = filteredChannels.filter((channel) => !channel.isDirect && channel.isVoice);
   const hasUnread = (channelId: string) => (props.unreadChannelCounts[channelId] ?? 0) > 0;
   const avatarUrl = resolveMediaUrl(props.avatarUrl);
+  const speakingSet = new Set(props.speakingUserIds);
 
   return (
     <aside className="channel-sidebar">
@@ -208,56 +222,97 @@ export function ChannelSidebar(props: ChannelSidebarProps) {
           const isDeleting = props.deletingChannelId === channel.id;
           const canDelete = props.isAdmin;
           const isJoined = props.activeVoiceChannelId === channel.id;
+          const channelParticipants = props.voiceParticipantsByChannel[channel.id] ?? [];
+          const streamingSet = new Set(props.voiceStreamingUserIdsByChannel[channel.id] ?? []);
+          const connectedCount = channelParticipants.length;
           const participants = props.voiceParticipantCounts[channel.id] ?? 0;
           const isTransitioning = props.joiningVoiceChannelId === channel.id;
           const isOtherTransition =
             Boolean(props.joiningVoiceChannelId) && props.joiningVoiceChannelId !== channel.id;
           return (
-            <div key={channel.id} className="channel-row">
-              <button
-                className={channel.id === props.activeChannelId ? 'channel-item active' : 'channel-item'}
-                onClick={() => props.onSelect(channel.id)}
-              >
-                <span>~{channel.name}</span>
-                <span className="channel-item-meta">
-                  {hasUnread(channel.id) ? <span className="channel-unread-dot" aria-hidden="true"></span> : null}
-                  <span className="channel-voice-count">{participants}</span>
-                </span>
-              </button>
-              <button
-                className={isJoined ? 'channel-voice-btn leave' : 'channel-voice-btn'}
-                disabled={isTransitioning || isOtherTransition}
-                onClick={async () => {
-                  if (isJoined) {
-                    await props.onLeaveVoice();
-                    return;
-                  }
-                  await props.onJoinVoice(channel.id);
-                }}
-              >
-                {isTransitioning ? '...' : isJoined ? 'Leave' : 'Join'}
-              </button>
-              {canDelete ? (
+            <div key={channel.id} className="voice-channel-block">
+              <div className="channel-row">
                 <button
-                  className="channel-delete-btn"
-                  title={`Delete ~${channel.name}`}
-                  aria-label={`Delete ~${channel.name}`}
-                  disabled={Boolean(props.deletingChannelId)}
+                  className={channel.id === props.activeChannelId ? 'channel-item active' : 'channel-item'}
+                  onClick={() => props.onSelect(channel.id)}
+                >
+                  <span>~{channel.name}</span>
+                  <span className="channel-item-meta">
+                    {hasUnread(channel.id) ? <span className="channel-unread-dot" aria-hidden="true"></span> : null}
+                    <span className="channel-voice-count">{participants}</span>
+                  </span>
+                </button>
+                <button
+                  className={isJoined ? 'channel-voice-btn leave' : 'channel-voice-btn'}
+                  disabled={isTransitioning || isOtherTransition}
                   onClick={async () => {
-                    if (props.deletingChannelId) {
+                    if (isJoined) {
+                      await props.onLeaveVoice();
                       return;
                     }
-                    const confirmed = window.confirm(
-                      `Delete ~${channel.name}? This will remove the voice channel.`
-                    );
-                    if (!confirmed) {
-                      return;
-                    }
-                    await props.onDeleteChannel(channel.id);
+                    await props.onJoinVoice(channel.id);
                   }}
                 >
-                  {isDeleting ? '...' : 'x'}
+                  {isTransitioning ? '...' : isJoined ? 'Leave' : 'Join'}
                 </button>
+                {canDelete ? (
+                  <button
+                    className="channel-delete-btn"
+                    title={`Delete ~${channel.name}`}
+                    aria-label={`Delete ~${channel.name}`}
+                    disabled={Boolean(props.deletingChannelId)}
+                    onClick={async () => {
+                      if (props.deletingChannelId) {
+                        return;
+                      }
+                      const confirmed = window.confirm(
+                        `Delete ~${channel.name}? This will remove the voice channel.`
+                      );
+                      if (!confirmed) {
+                        return;
+                      }
+                      await props.onDeleteChannel(channel.id);
+                    }}
+                  >
+                    {isDeleting ? '...' : 'x'}
+                  </button>
+                ) : null}
+              </div>
+              {channelParticipants.length > 0 ? (
+                <div className="channel-connected-users">
+                  {channelParticipants.map((participant) => {
+                    const isLive = streamingSet.has(participant.userId);
+                    const isSpeaking = speakingSet.has(participant.userId);
+                    return (
+                      <div
+                        key={participant.userId}
+                        className={`channel-connected-user ${isSpeaking ? 'speaking' : ''}`}
+                      >
+                        <div
+                          className="channel-connected-avatar"
+                          style={{ backgroundColor: stringToColor(participant.username) }}
+                          aria-hidden="true"
+                        >
+                          {participant.username.slice(0, 1).toUpperCase()}
+                        </div>
+                        <span className="channel-connected-name">{participant.username}</span>
+                        {isLive ? <span className="channel-connected-live">LIVE</span> : null}
+                        <span
+                          className="channel-connected-audience"
+                          title={`${connectedCount} connected in ${channel.name}`}
+                        >
+                          <svg width="10" height="10" viewBox="0 0 24 24" aria-hidden="true">
+                            <path
+                              fill="currentColor"
+                              d="M12 12c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4Zm0 2c-3.31 0-6 1.79-6 4v1h12v-1c0-2.21-2.69-4-6-4Z"
+                            />
+                          </svg>
+                          <span>{connectedCount}</span>
+                        </span>
+                      </div>
+                    );
+                  })}
+                </div>
               ) : null}
             </div>
           );

@@ -53,9 +53,19 @@ export const createChannelBodySchema = z.object({
   type: z.enum(['TEXT', 'VOICE']).default('TEXT'),
 });
 
-export const updateVoiceSettingsBodySchema = z.object({
-  voiceBitrateKbps: z.coerce.number().int().min(16).max(1536),
-});
+export const updateVoiceSettingsBodySchema = z
+  .object({
+    voiceBitrateKbps: z.coerce.number().int().min(16).max(1536).optional(),
+    streamBitrateKbps: z.coerce.number().int().min(250).max(10000).optional(),
+  })
+  .refine(
+    (payload) =>
+      payload.voiceBitrateKbps !== undefined || payload.streamBitrateKbps !== undefined,
+    {
+      message: 'At least one voice setting must be provided',
+      path: ['voiceBitrateKbps'],
+    },
+  );
 
 export const directChannelParamsSchema = z.object({
   userId: z.string().uuid(),

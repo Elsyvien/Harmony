@@ -5,9 +5,16 @@ interface DropdownSelectProps {
   value: string;
   onChange: (value: string) => void;
   placeholder?: string;
+  disabled?: boolean;
 }
 
-export function DropdownSelect({ options, value, onChange, placeholder = 'Select...' }: DropdownSelectProps) {
+export function DropdownSelect({
+  options,
+  value,
+  onChange,
+  placeholder = 'Select...',
+  disabled = false,
+}: DropdownSelectProps) {
   const [isOpen, setIsOpen] = useState(false);
   const [rotations, setRotations] = useState(0);
   const wrapperRef = useRef<HTMLDivElement>(null);
@@ -37,7 +44,18 @@ export function DropdownSelect({ options, value, onChange, placeholder = 'Select
     };
   }, [isOpen]);
 
+  useEffect(() => {
+    if (!disabled || !isOpen) {
+      return;
+    }
+    setIsOpen(false);
+    setRotations((prev) => prev + 1);
+  }, [disabled, isOpen]);
+
   const handleToggle = () => {
+    if (disabled) {
+      return;
+    }
     setIsOpen((open) => !open);
     setRotations((prev) => prev + 1);
   };
@@ -47,6 +65,7 @@ export function DropdownSelect({ options, value, onChange, placeholder = 'Select
       <button
         className={`select-button ${isOpen ? 'open' : ''} ${value ? 'selected' : ''}`}
         onClick={handleToggle}
+        disabled={disabled}
       >
         <span className="select-button-label">
           {value || placeholder}
@@ -60,6 +79,7 @@ export function DropdownSelect({ options, value, onChange, placeholder = 'Select
             <button
               key={`${option}-${index}`}
               className={`select-option ${value === option ? 'selected' : ''}`}
+              disabled={disabled}
               onClick={() => {
                 onChange(option);
                 setIsOpen(false);

@@ -22,7 +22,11 @@ export interface ChannelRepository {
   deleteById(id: string): Promise<void>;
   createPublic(params: { name: string }): Promise<ChannelWithMembers>;
   createVoice(params: { name: string }): Promise<ChannelWithMembers>;
-  updateVoiceBitrate(params: { id: string; voiceBitrateKbps: number }): Promise<ChannelWithMembers>;
+  updateVoiceSettings(params: {
+    id: string;
+    voiceBitrateKbps?: number;
+    streamBitrateKbps?: number;
+  }): Promise<ChannelWithMembers>;
   ensurePublicByName(name: string): Promise<ChannelWithMembers>;
   findDirectByDmKey(dmKey: string): Promise<ChannelWithMembers | null>;
   createDirect(params: {
@@ -99,6 +103,7 @@ export class PrismaChannelRepository implements ChannelRepository {
         name: params.name,
         type: 'PUBLIC',
         voiceBitrateKbps: null,
+        streamBitrateKbps: null,
       },
       include: includeMembers,
     });
@@ -110,16 +115,22 @@ export class PrismaChannelRepository implements ChannelRepository {
         name: params.name,
         type: 'VOICE',
         voiceBitrateKbps: 64,
+        streamBitrateKbps: 2500,
       },
       include: includeMembers,
     });
   }
 
-  updateVoiceBitrate(params: { id: string; voiceBitrateKbps: number }) {
+  updateVoiceSettings(params: {
+    id: string;
+    voiceBitrateKbps?: number;
+    streamBitrateKbps?: number;
+  }) {
     return prisma.channel.update({
       where: { id: params.id },
       data: {
         voiceBitrateKbps: params.voiceBitrateKbps,
+        streamBitrateKbps: params.streamBitrateKbps,
       },
       include: includeMembers,
     });
@@ -132,11 +143,13 @@ export class PrismaChannelRepository implements ChannelRepository {
         type: 'PUBLIC',
         dmKey: null,
         voiceBitrateKbps: null,
+        streamBitrateKbps: null,
       },
       create: {
         name,
         type: 'PUBLIC',
         voiceBitrateKbps: null,
+        streamBitrateKbps: null,
       },
       include: includeMembers,
     });
@@ -157,6 +170,7 @@ export class PrismaChannelRepository implements ChannelRepository {
           type: 'DIRECT',
           dmKey: params.dmKey,
           voiceBitrateKbps: null,
+          streamBitrateKbps: null,
         },
       });
       await tx.channelMember.createMany({

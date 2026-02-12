@@ -94,6 +94,7 @@ export class AuthService {
     email: string;
     role: UserRole;
     createdAt: Date;
+    avatarUrl: string | null;
   }): AuthUser {
     return {
       id: user.id,
@@ -102,6 +103,7 @@ export class AuthService {
       role: user.role,
       isAdmin: isAdminRole(user.role),
       createdAt: user.createdAt,
+      avatarUrl: user.avatarUrl ?? undefined,
     };
   }
 }

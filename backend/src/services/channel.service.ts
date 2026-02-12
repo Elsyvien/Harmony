@@ -11,6 +11,7 @@ export interface ChannelSummary {
   isDirect: boolean;
   isVoice: boolean;
   voiceBitrateKbps: number | null;
+  streamBitrateKbps: number | null;
   directUser: {
     id: string;
     username: string;
@@ -49,6 +50,8 @@ export class ChannelService {
         isVoice: channel.type === 'VOICE',
         voiceBitrateKbps:
           channel.type === 'VOICE' ? (channel.voiceBitrateKbps ?? 64) : null,
+        streamBitrateKbps:
+          channel.type === 'VOICE' ? (channel.streamBitrateKbps ?? 2500) : null,
         directUser: null,
       };
     }
@@ -61,6 +64,7 @@ export class ChannelService {
       isDirect: true,
       isVoice: false,
       voiceBitrateKbps: null,
+      streamBitrateKbps: null,
       directUser: directUser
         ? {
             id: directUser.id,
@@ -115,7 +119,10 @@ export class ChannelService {
     return { deletedChannelId: channelId };
   }
 
-  async updateVoiceChannelBitrate(channelId: string, voiceBitrateKbps: number) {
+  async updateVoiceChannelSettings(
+    channelId: string,
+    input: { voiceBitrateKbps?: number; streamBitrateKbps?: number },
+  ) {
     const channel = await this.channelRepo.findById(channelId);
     if (!channel) {
       throw new AppError('CHANNEL_NOT_FOUND', 404, 'Channel not found');
@@ -124,11 +131,16 @@ export class ChannelService {
       throw new AppError('INVALID_VOICE_CHANNEL', 400, 'Channel is not a voice channel');
     }
 
-    const updated = await this.channelRepo.updateVoiceBitrate({
+    const updated = await this.channelRepo.updateVoiceSettings({
       id: channelId,
-      voiceBitrateKbps,
+      voiceBitrateKbps: input.voiceBitrateKbps,
+      streamBitrateKbps: input.streamBitrateKbps,
     });
     return this.toSummary(updated, '');
+  }
+
+  async updateVoiceChannelBitrate(channelId: string, voiceBitrateKbps: number) {
+    return this.updateVoiceChannelSettings(channelId, { voiceBitrateKbps });
   }
 
   async ensureChannelExists(channelId: string) {

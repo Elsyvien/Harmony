@@ -1,15 +1,44 @@
 import { useRef, useState, useEffect, memo } from 'react';
 import { DropdownSelect } from './dropdown-select';
+import { resolveMediaUrl } from '../utils/media-url';
+
+export interface VoiceDetailedMediaStats {
+  bitrateKbps: number | null;
+  packets: number | null;
+  packetsLost: number | null;
+  jitterMs: number | null;
+  framesPerSecond: number | null;
+  frameWidth: number | null;
+  frameHeight: number | null;
+}
+
+export interface VoiceDetailedConnectionStats {
+  userId: string;
+  username: string;
+  connectionState: RTCPeerConnectionState;
+  iceConnectionState: RTCIceConnectionState;
+  signalingState: RTCSignalingState;
+  currentRttMs: number | null;
+  availableOutgoingBitrateKbps: number | null;
+  localCandidateType: string | null;
+  remoteCandidateType: string | null;
+  outboundAudio: VoiceDetailedMediaStats;
+  inboundAudio: VoiceDetailedMediaStats;
+  outboundVideo: VoiceDetailedMediaStats;
+  inboundVideo: VoiceDetailedMediaStats;
+}
 
 interface VoiceChannelPanelProps {
   channelName: string;
-  participants: Array<{ userId: string; username: string }>;
+  participants: Array<{ userId: string; username: string; avatarUrl?: string }>;
   currentUserId: string;
   localAudioReady: boolean;
   remoteAudioUsers: Array<{ userId: string; username: string; stream: MediaStream }>;
-  bitrateKbps: number;
-  onBitrateChange: (bitrateKbps: number) => void;
-  canEditQuality: boolean;
+  voiceBitrateKbps: number;
+  streamBitrateKbps: number;
+  onVoiceBitrateChange: (bitrateKbps: number) => void;
+  onStreamBitrateChange: (bitrateKbps: number) => void;
+  canEditChannelBitrate: boolean;
   qualityBusy: boolean;
   joined: boolean;
   busy: boolean;
@@ -21,14 +50,79 @@ interface VoiceChannelPanelProps {
   onJoin: () => Promise<void> | void;
   onLeave: () => Promise<void> | void;
   onParticipantContextMenu?: (
-    participant: { userId: string; username: string },
+    participant: { userId: string; username: string; avatarUrl?: string },
     position: { x: number; y: number },
   ) => void;
   getParticipantAudioState?: (userId: string) => { volume: number; muted: boolean } | null;
   localScreenShareStream: MediaStream | null;
+  localStreamSource: 'screen' | 'camera' | null;
   remoteScreenShares: Record<string, MediaStream>;
-  onToggleScreenShare: () => void;
-  onScreenShareQualityChange?: (height: number, frameRate: number) => void;
+  onToggleVideoShare: (source: 'screen' | 'camera') => void;
+  streamQualityLabel: string;
+  onStreamQualityChange: (value: string) => void;
+  showDetailedStats: boolean;
+  onToggleDetailedStats: () => void;
+  connectionStats: VoiceDetailedConnectionStats[];
+  statsUpdatedAt: number | null;
+}
+
+function stringToColor(str: string) {
+  let hash = 0;
+  for (let i = 0; i < str.length; i++) {
+    hash = str.charCodeAt(i) + ((hash << 5) - hash);
+  }
+  const c = (hash & 0x00ffffff).toString(16).toUpperCase();
+  return `#${'00000'.substring(0, 6 - c.length)}${c}`;
+}
+
+function formatMetric(value: number | null, digits = 1) {
+  if (value === null || Number.isNaN(value)) {
+    return '--';
+  }
+  return value.toFixed(digits);
+}
+
+const VOICE_BITRATE_OPTIONS = [
+  24, 40, 64, 96, 128, 192, 256, 320, 384, 500, 640, 700, 768, 896, 1024, 1280, 1411, 1536,
+];
+
+const STREAM_BITRATE_OPTIONS = [500, 1000, 1500, 2500, 4000, 6000, 8000, 10000];
+
+const STREAM_QUALITY_OPTIONS = ['480p 15fps', '720p 30fps', '1080p 30fps', '1080p 60fps', '1440p 30fps'];
+
+function formatVoiceBitrateOption(bitrateKbps: number) {
+  if (bitrateKbps === 24) {
+    return '24 kbps (Low)';
+  }
+  if (bitrateKbps === 64) {
+    return '64 kbps (Default)';
+  }
+  if (bitrateKbps === 128) {
+    return '128 kbps (High)';
+  }
+  if (bitrateKbps === 1411) {
+    return '1411 kbps (CD Quality)';
+  }
+  if (bitrateKbps === 1536) {
+    return '1536 kbps (Hi-Res Max)';
+  }
+  return `${bitrateKbps} kbps`;
+}
+
+function formatStreamBitrateOption(bitrateKbps: number) {
+  if (bitrateKbps === 500) {
+    return '500 kbps (Low)';
+  }
+  if (bitrateKbps === 2500) {
+    return '2500 kbps (Default)';
+  }
+  if (bitrateKbps === 6000) {
+    return '6000 kbps (High)';
+  }
+  if (bitrateKbps === 10000) {
+    return '10000 kbps (Max)';
+  }
+  return `${bitrateKbps} kbps`;
 }
 
 const ScreenShareItem = memo(function ScreenShareItem({
@@ -93,8 +187,6 @@ export function VoiceChannelPanel(props: VoiceChannelPanelProps) {
   const speakingSet = new Set(props.speakingUserIds);
   const longPressTimeoutRef = useRef<number | null>(null);
   const [maximizedStreamId, setMaximizedStreamId] = useState<string | null>(null);
-  // Default quality label to match initial state
-  const [qualityLabel, setQualityLabel] = useState('720p 30fps');
 
   const clearLongPress = () => {
     if (!longPressTimeoutRef.current) {
@@ -130,15 +222,10 @@ export function VoiceChannelPanel(props: VoiceChannelPanelProps) {
     }
   };
 
-  const handleQualityChange = (val: string) => {
-    setQualityLabel(val);
-    const [res, fpsStr] = val.split(' ');
-    const height = parseInt(res.replace('p', ''), 10);
-    const fps = parseInt(fpsStr.replace('fps', ''), 10);
-    props.onScreenShareQualityChange?.(height, fps);
-  };
-
   const hasScreenShares = props.localScreenShareStream || Object.keys(props.remoteScreenShares).length > 0;
+  const canEditBitrates = props.canEditChannelBitrate && !props.qualityBusy;
+  const localShareTitle =
+    props.localStreamSource === 'camera' ? 'You are sharing your camera' : 'You are sharing your screen';
 
   return (
     <section className="voice-panel">
@@ -166,15 +253,33 @@ export function VoiceChannelPanel(props: VoiceChannelPanelProps) {
             {props.busy ? 'Working...' : props.joined ? 'Leave Voice' : 'Join Voice'}
           </button>
           {props.joined ? (
-            <button
-              className={props.localScreenShareStream ? 'ghost-btn danger small' : 'ghost-btn small'}
-              onClick={props.onToggleScreenShare}
-              disabled={props.busy || !props.wsConnected}
-              title="Share your screen"
-            >
-              {props.localScreenShareStream ? 'Stop Sharing' : 'Share Screen'}
-            </button>
+            <div className="voice-share-controls">
+              <button
+                className={props.localStreamSource === 'screen' ? 'ghost-btn danger small' : 'ghost-btn small'}
+                onClick={() => props.onToggleVideoShare('screen')}
+                disabled={props.busy || !props.wsConnected}
+                title="Share your screen"
+              >
+                {props.localStreamSource === 'screen' ? 'Stop Screen' : 'Share Screen'}
+              </button>
+              <button
+                className={props.localStreamSource === 'camera' ? 'ghost-btn danger small' : 'ghost-btn small'}
+                onClick={() => props.onToggleVideoShare('camera')}
+                disabled={props.busy || !props.wsConnected}
+                title="Share your camera"
+              >
+                {props.localStreamSource === 'camera' ? 'Stop Camera' : 'Share Camera'}
+              </button>
+            </div>
           ) : null}
+          <button
+            className={props.showDetailedStats ? 'ghost-btn small active' : 'ghost-btn small'}
+            disabled={!props.joined}
+            onClick={props.onToggleDetailedStats}
+            title="Detailed connection statistics"
+          >
+            Detailed Statistics
+          </button>
         </div>
       </header>
 
@@ -194,29 +299,53 @@ export function VoiceChannelPanel(props: VoiceChannelPanelProps) {
           <div className="voice-setting-col">
             <label className="voice-quality-label">Voice Quality</label>
             <DropdownSelect
-              options={['24 kbps (Low)', '40 kbps', '64 kbps (Default)', '96 kbps', '128 kbps (High)', '192 kbps', '256 kbps', '320 kbps', '384 kbps', '500 kbps', '640 kbps', '700 kbps', '768 kbps', '896 kbps', '1024 kbps', '1280 kbps', '1411 kbps (CD Quality)', '1536 kbps (Hi-Res Max)']}
-              value={`${props.bitrateKbps} kbps${props.bitrateKbps === 24 ? ' (Low)' : props.bitrateKbps === 64 ? ' (Default)' : props.bitrateKbps === 128 ? ' (High)' : ''}`}
+              options={VOICE_BITRATE_OPTIONS.map(formatVoiceBitrateOption)}
+              value={formatVoiceBitrateOption(props.voiceBitrateKbps)}
+              disabled={!canEditBitrates}
               onChange={(val) => {
-                if (!props.canEditQuality || props.qualityBusy) {
+                if (!canEditBitrates) {
                   return;
                 }
                 const bitrate = parseInt(val.split(' ')[0], 10);
-                props.onBitrateChange(bitrate);
+                props.onVoiceBitrateChange(bitrate);
               }}
             />
-            {props.qualityBusy ? <small>Saving...</small> : null}
+            {props.qualityBusy ? <small>Saving...</small> : <small>Channel-wide setting</small>}
           </div>
 
-          {props.localScreenShareStream && (
-            <div className="voice-setting-col">
-              <label className="voice-quality-label">Stream Quality</label>
-              <DropdownSelect
-                options={['480p 15fps', '720p 30fps', '1080p 30fps', '1080p 60fps']}
-                value={qualityLabel}
-                onChange={handleQualityChange}
-              />
-            </div>
-          )}
+          <div className="voice-setting-col">
+            <label className="voice-quality-label">Stream Bitrate</label>
+            <DropdownSelect
+              options={STREAM_BITRATE_OPTIONS.map(formatStreamBitrateOption)}
+              value={formatStreamBitrateOption(props.streamBitrateKbps)}
+              disabled={!canEditBitrates}
+              onChange={(val) => {
+                if (!canEditBitrates) {
+                  return;
+                }
+                const bitrate = parseInt(val.split(' ')[0], 10);
+                props.onStreamBitrateChange(bitrate);
+              }}
+            />
+            {props.qualityBusy ? <small>Saving...</small> : <small>Channel-wide setting</small>}
+          </div>
+
+          <div className="voice-setting-col">
+            <label className="voice-quality-label">Live Stream Resolution</label>
+            <DropdownSelect
+              options={STREAM_QUALITY_OPTIONS}
+              value={props.streamQualityLabel}
+              disabled={!props.localScreenShareStream}
+              onChange={props.onStreamQualityChange}
+            />
+            <small>
+              {props.localScreenShareStream
+                ? props.localStreamSource === 'camera'
+                  ? 'Applies to your camera stream'
+                  : 'Applies to your screen stream'
+                : 'Start a stream to apply this preset'}
+            </small>
+          </div>
         </div>
       )}
 
@@ -226,10 +355,15 @@ export function VoiceChannelPanel(props: VoiceChannelPanelProps) {
           {props.localScreenShareStream ? (
             <ScreenShareItem
               stream={props.localScreenShareStream}
-              label="You are sharing"
+              label={localShareTitle}
               isMaximized={maximizedStreamId === 'local'}
               onMaximize={() => setMaximizedStreamId(maximizedStreamId === 'local' ? null : 'local')}
-              onPopOut={() => handlePopOut(props.localScreenShareStream!, 'My Screen Share')}
+              onPopOut={() =>
+                handlePopOut(
+                  props.localScreenShareStream!,
+                  props.localStreamSource === 'camera' ? 'My Camera Stream' : 'My Screen Share',
+                )
+              }
             />
           ) : null}
           {Object.entries(props.remoteScreenShares).map(([userId, stream]) => {
@@ -239,15 +373,98 @@ export function VoiceChannelPanel(props: VoiceChannelPanelProps) {
               <ScreenShareItem
                 key={userId}
                 stream={stream}
-                label={`${name}'s Screen`}
+                label={`${name}'s Stream`}
                 isMaximized={maximizedStreamId === userId}
                 onMaximize={() => setMaximizedStreamId(maximizedStreamId === userId ? null : userId)}
-                onPopOut={() => handlePopOut(stream, `${name}'s Screen`)}
+                onPopOut={() => handlePopOut(stream, `${name}'s Stream`)}
               />
             );
           })}
         </div>
       )}
+
+      {props.showDetailedStats ? (
+        <section className="voice-detailed-stats">
+          <header className="voice-detailed-stats-header">
+            <strong>Detailed Connection Statistics</strong>
+            <small>
+              {props.statsUpdatedAt
+                ? `Updated ${new Date(props.statsUpdatedAt).toLocaleTimeString()}`
+                : 'Waiting for samples...'}
+            </small>
+          </header>
+          {props.connectionStats.length === 0 ? (
+            <p className="muted">No active peer connection stats yet.</p>
+          ) : (
+            <div className="voice-detailed-stats-grid">
+              {props.connectionStats.map((stats) => (
+                <article key={stats.userId} className="voice-detailed-stat-card">
+                  <header>
+                    <strong>{stats.username}</strong>
+                    <small>
+                      {stats.connectionState} • {stats.iceConnectionState} • {stats.signalingState}
+                    </small>
+                  </header>
+                  <div className="voice-detailed-metrics">
+                    <div>
+                      <label>RTT</label>
+                      <span>{formatMetric(stats.currentRttMs, 1)} ms</span>
+                    </div>
+                    <div>
+                      <label>Available Out</label>
+                      <span>{formatMetric(stats.availableOutgoingBitrateKbps, 1)} kbps</span>
+                    </div>
+                    <div>
+                      <label>Local Candidate</label>
+                      <span>{stats.localCandidateType ?? '--'}</span>
+                    </div>
+                    <div>
+                      <label>Remote Candidate</label>
+                      <span>{stats.remoteCandidateType ?? '--'}</span>
+                    </div>
+                    <div>
+                      <label>Outbound Audio</label>
+                      <span>{formatMetric(stats.outboundAudio.bitrateKbps, 1)} kbps</span>
+                    </div>
+                    <div>
+                      <label>Inbound Audio</label>
+                      <span>{formatMetric(stats.inboundAudio.bitrateKbps, 1)} kbps</span>
+                    </div>
+                    <div>
+                      <label>Inbound Audio Loss</label>
+                      <span>{formatMetric(stats.inboundAudio.packetsLost, 0)}</span>
+                    </div>
+                    <div>
+                      <label>Inbound Audio Jitter</label>
+                      <span>{formatMetric(stats.inboundAudio.jitterMs, 2)} ms</span>
+                    </div>
+                    <div>
+                      <label>Outbound Video</label>
+                      <span>{formatMetric(stats.outboundVideo.bitrateKbps, 1)} kbps</span>
+                    </div>
+                    <div>
+                      <label>Inbound Video</label>
+                      <span>{formatMetric(stats.inboundVideo.bitrateKbps, 1)} kbps</span>
+                    </div>
+                    <div>
+                      <label>Inbound Video FPS</label>
+                      <span>{formatMetric(stats.inboundVideo.framesPerSecond, 1)}</span>
+                    </div>
+                    <div>
+                      <label>Inbound Video Size</label>
+                      <span>
+                        {stats.inboundVideo.frameWidth && stats.inboundVideo.frameHeight
+                          ? `${formatMetric(stats.inboundVideo.frameWidth, 0)}x${formatMetric(stats.inboundVideo.frameHeight, 0)}`
+                          : '--'}
+                      </span>
+                    </div>
+                  </div>
+                </article>
+              ))}
+            </div>
+          )}
+        </section>
+      ) : null}
 
       <div className="voice-participant-list">
         {props.participants.length === 0 ? <p className="muted">No one in this voice channel yet.</p> : null}
@@ -256,6 +473,7 @@ export function VoiceChannelPanel(props: VoiceChannelPanelProps) {
           const hasAudio = props.remoteAudioUsers.some((user) => user.userId === participant.userId);
           const isSpeaking = props.showVoiceActivity && speakingSet.has(participant.userId);
           const localAudioState = !isSelf ? props.getParticipantAudioState?.(participant.userId) : null;
+          const avatarUrl = resolveMediaUrl(participant.avatarUrl);
           return (
             <div
               key={participant.userId}
@@ -290,12 +508,26 @@ export function VoiceChannelPanel(props: VoiceChannelPanelProps) {
               onTouchCancel={clearLongPress}
               onTouchMove={clearLongPress}
             >
-              <span>
-                {participant.username}
-                {props.showVoiceActivity ? (
-                  <em className={`voice-speaking-dot ${isSpeaking ? 'active' : ''}`} aria-hidden="true" />
-                ) : null}
-              </span>
+              <div className="voice-participant-main">
+                <div
+                  className="voice-participant-avatar"
+                  style={{
+                    backgroundColor: avatarUrl ? 'transparent' : stringToColor(participant.username),
+                  }}
+                >
+                  {avatarUrl ? (
+                    <img src={avatarUrl} alt={participant.username} />
+                  ) : (
+                    participant.username.slice(0, 1).toUpperCase()
+                  )}
+                </div>
+                <span>
+                  {participant.username}
+                  {props.showVoiceActivity ? (
+                    <em className={`voice-speaking-dot ${isSpeaking ? 'active' : ''}`} aria-hidden="true" />
+                  ) : null}
+                </span>
+              </div>
               <small>
                 {isSelf
                   ? props.joined
