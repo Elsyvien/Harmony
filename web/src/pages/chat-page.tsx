@@ -186,6 +186,7 @@ export function ChatPage() {
   const [isSelfMuted, setIsSelfMuted] = useState(false);
   const [isSelfDeafened, setIsSelfDeafened] = useState(false);
   const [remoteAudioStreams, setRemoteAudioStreams] = useState<Record<string, MediaStream>>({});
+  const [speakingUserIds, setSpeakingUserIds] = useState<string[]>([]);
   const [savingVoiceBitrateChannelId, setSavingVoiceBitrateChannelId] = useState<string | null>(null);
 
   const [selectedUser, setSelectedUser] = useState<{ id: string; username: string } | null>(null);
@@ -193,6 +194,9 @@ export function ChatPage() {
   const pendingSignaturesRef = useRef(new Set<string>());
   const pendingTimeoutsRef = useRef(new Map<string, number>());
   const localVoiceStreamRef = useRef<MediaStream | null>(null);
+  const localAnalyserRef = useRef<AnalyserNode | null>(null);
+  const localAnalyserContextRef = useRef<AudioContext | null>(null);
+  const localAnalyserSourceRef = useRef<MediaStreamAudioSourceNode | null>(null);
   const peerConnectionsRef = useRef<Map<string, RTCPeerConnection>>(new Map());
   const pendingIceRef = useRef<Map<string, RTCIceCandidateInit[]>>(new Map());
   const voiceParticipantIdsByChannelRef = useRef<Map<string, Set<string>>>(new Map());
@@ -462,7 +466,17 @@ export function ChatPage() {
       }
       localVoiceStreamRef.current = null;
     }
+    if (localAnalyserSourceRef.current) {
+      localAnalyserSourceRef.current.disconnect();
+      localAnalyserSourceRef.current = null;
+    }
+    localAnalyserRef.current = null;
+    if (localAnalyserContextRef.current) {
+      void localAnalyserContextRef.current.close();
+      localAnalyserContextRef.current = null;
+    }
     setLocalAudioReady(false);
+    setSpeakingUserIds([]);
     setRemoteAudioStreams({});
   }, [closePeerConnection]);
 
@@ -484,6 +498,21 @@ export function ChatPage() {
     });
     localVoiceStreamRef.current = stream;
     applyLocalVoiceTrackState(stream);
+
+    const AudioContextClass =
+      window.AudioContext ||
+      (window as typeof window & { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
+    if (AudioContextClass && !localAnalyserRef.current) {
+      const analyserContext = new AudioContextClass();
+      const analyser = analyserContext.createAnalyser();
+      analyser.fftSize = 1024;
+      const source = analyserContext.createMediaStreamSource(stream);
+      source.connect(analyser);
+      localAnalyserContextRef.current = analyserContext;
+      localAnalyserSourceRef.current = source;
+      localAnalyserRef.current = analyser;
+    }
+
     setLocalAudioReady(true);
     return stream;
   }, [applyLocalVoiceTrackState]);
@@ -990,6 +1019,81 @@ export function ChatPage() {
   useEffect(() => {
     applyLocalVoiceTrackState(localVoiceStreamRef.current);
   }, [applyLocalVoiceTrackState]);
+
+  // Speaking detection – local mic
+  useEffect(() => {
+    const micMuted = isSelfMuted || isSelfDeafened;
+    if (!preferences.showVoiceActivity || !auth.user || !activeVoiceChannelId || !localAudioReady || micMuted) {
+      setSpeakingUserIds((prev) => (prev.length === 0 ? prev : []));
+      return;
+    }
+
+    const analyser = localAnalyserRef.current;
+    if (!analyser) {
+      return;
+    }
+
+    const selfId = auth.user.id;
+    let frame = 0;
+    const data = new Uint8Array(analyser.fftSize);
+
+    const tick = () => {
+      analyser.getByteTimeDomainData(data);
+      let sum = 0;
+      for (let i = 0; i < data.length; i += 1) {
+        const normalized = (data[i] - 128) / 128;
+        sum += normalized * normalized;
+      }
+      const rms = Math.sqrt(sum / data.length);
+      const speaking = rms >= preferences.voiceInputSensitivity;
+      setSpeakingUserIds((prev) => {
+        const hasSelf = prev.includes(selfId);
+        if (speaking && !hasSelf) {
+          return [...prev, selfId];
+        }
+        if (!speaking && hasSelf) {
+          return prev.filter((id) => id !== selfId);
+        }
+        return prev;
+      });
+      frame = window.requestAnimationFrame(tick);
+    };
+
+    frame = window.requestAnimationFrame(tick);
+    return () => {
+      window.cancelAnimationFrame(frame);
+      setSpeakingUserIds((prev) => prev.filter((id) => id !== selfId));
+    };
+  }, [
+    preferences.showVoiceActivity,
+    preferences.voiceInputSensitivity,
+    auth.user,
+    activeVoiceChannelId,
+    localAudioReady,
+    isSelfMuted,
+    isSelfDeafened,
+  ]);
+
+  // Speaking detection – remote audio
+  useEffect(() => {
+    if (!preferences.showVoiceActivity) {
+      setSpeakingUserIds((prev) => prev.filter((id) => id === auth.user?.id));
+      return;
+    }
+
+    const nextRemoteSpeaking = viewedRemoteAudioUsers
+      .filter(({ stream }) => stream.active)
+      .map(({ userId }) => userId);
+
+    setSpeakingUserIds((prev) => {
+      const localSelf = prev.filter((id) => id === auth.user?.id);
+      const merged = [...new Set([...localSelf, ...nextRemoteSpeaking])];
+      if (merged.length === prev.length && merged.every((id, index) => id === prev[index])) {
+        return prev;
+      }
+      return merged;
+    });
+  }, [preferences.showVoiceActivity, viewedRemoteAudioUsers, auth.user?.id]);
 
   const loadAdminStats = useCallback(async () => {
     if (!auth.token || !auth.user?.isAdmin) {
@@ -1636,6 +1740,10 @@ export function ChatPage() {
                 joined={activeVoiceChannelId === activeChannel.id}
                 busy={voiceBusyChannelId === activeChannel.id}
                 wsConnected={ws.connected}
+                isMuted={isSelfMuted || isSelfDeafened}
+                onToggleMute={toggleSelfMute}
+                speakingUserIds={speakingUserIds}
+                showVoiceActivity={preferences.showVoiceActivity}
                 onJoin={() => joinVoiceChannel(activeChannel.id)}
                 onLeave={leaveVoiceChannel}
               />

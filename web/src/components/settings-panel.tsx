@@ -180,6 +180,76 @@ export function SettingsPanel(props: SettingsPanelProps) {
           </label>
         </article>
 
+
+
+        <article className="setting-card">
+          <h3>Voice & Audio</h3>
+
+          <label className="field-stack">
+            <span>
+              <strong>Input sensitivity</strong>
+              <small>Lower values react faster to quieter voices.</small>
+            </span>
+            <input
+              type="range"
+              min={0.005}
+              max={0.12}
+              step={0.005}
+              value={props.preferences.voiceInputSensitivity}
+              onChange={(event) =>
+                props.onUpdatePreferences({ voiceInputSensitivity: Number(event.target.value) })
+              }
+            />
+            <small>{props.preferences.voiceInputSensitivity.toFixed(3)}</small>
+          </label>
+
+          <label className="field-stack">
+            <span>
+              <strong>Output volume</strong>
+              <small>Applies to all incoming voice streams.</small>
+            </span>
+            <input
+              type="range"
+              min={0}
+              max={200}
+              step={5}
+              value={props.preferences.voiceOutputVolume}
+              onChange={(event) =>
+                props.onUpdatePreferences({ voiceOutputVolume: Number(event.target.value) })
+              }
+            />
+            <small>{props.preferences.voiceOutputVolume}%</small>
+          </label>
+
+          <label className="toggle-row">
+            <input
+              type="checkbox"
+              checked={props.preferences.showVoiceActivity}
+              onChange={(event) =>
+                props.onUpdatePreferences({ showVoiceActivity: event.target.checked })
+              }
+            />
+            <span>
+              <strong>Show speaking indicators</strong>
+              <small>Highlight users while they are actively speaking.</small>
+            </span>
+          </label>
+
+          <label className="toggle-row">
+            <input
+              type="checkbox"
+              checked={props.preferences.autoMuteOnJoin}
+              onChange={(event) =>
+                props.onUpdatePreferences({ autoMuteOnJoin: event.target.checked })
+              }
+            />
+            <span>
+              <strong>Join voice muted</strong>
+              <small>Keep microphone muted until you explicitly unmute.</small>
+            </span>
+          </label>
+        </article>
+
         <article className="setting-card">
           <h3>Notifications & Shortcuts</h3>
           <p>
