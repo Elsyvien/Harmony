@@ -31,7 +31,7 @@ export function AuthForm(props: AuthFormProps) {
       }}
     >
       <h1>{props.mode === 'login' ? 'Welcome Back' : 'Create Account'}</h1>
-      <p className="auth-subtitle">DiscordClone MVP</p>
+      <p className="auth-subtitle">Harmony</p>
 
       {props.mode === 'register' ? (
         <label className="field">

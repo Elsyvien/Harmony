@@ -35,7 +35,7 @@
 - [ ] **Block List:** User-side moderation.
 
 ## ⚪ Phase 5: Architecture Expansion
-**Goal:** Transform from a "Team Chat" to a "Platform" (Discord-like).
+**Goal:** Transform from a "Team Chat" to a "Platform" (Harmony-like).
 - [ ] **Multi-Server Support (Guilds):**
     - Create `Server` model.
     - Scoping channels and roles to specific servers.

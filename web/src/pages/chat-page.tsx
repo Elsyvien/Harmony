@@ -755,7 +755,7 @@ export function ChatPage() {
   }, []);
 
   useEffect(() => {
-    document.title = hiddenUnreadCount > 0 ? `(${hiddenUnreadCount}) DiscordClone` : 'DiscordClone';
+    document.title = hiddenUnreadCount > 0 ? `(${hiddenUnreadCount}) Harmony` : 'Harmony';
   }, [hiddenUnreadCount]);
 
   useEffect(() => {

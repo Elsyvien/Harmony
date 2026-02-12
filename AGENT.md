@@ -1,6 +1,6 @@
 # 🤖 AGENT.md - Project Context & Guidelines
 
-This file is for AI agents to understand the context, conventions, and architectural decisions of the **DiscordClone** project.
+This file is for AI agents to understand the context, conventions, and architectural decisions of the **Harmony** project.
 
 ## 🏗️ Tech Stack
 

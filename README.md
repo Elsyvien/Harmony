@@ -1,6 +1,6 @@
 # Harmony
 
-Discord-like chat app with:
+Harmony chat app with:
 - JWT auth (register/login/logout)
 - Channel-based chat
 - Realtime delivery via WebSocket with polling fallback
