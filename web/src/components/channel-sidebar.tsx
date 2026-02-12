@@ -25,6 +25,8 @@ interface ChannelSidebarProps {
   onToggleDeafen: () => void;
   joiningVoiceChannelId: string | null;
   incomingFriendRequests: number;
+  avatarUrl?: string;
+  ping: number | null;
 }
 
 export function ChannelSidebar(props: ChannelSidebarProps) {
@@ -264,14 +266,21 @@ export function ChannelSidebar(props: ChannelSidebarProps) {
       <footer>
         <div className="user-panel">
           <div className="user-info">
-             <div className="user-avatar-small">
-               {props.username.slice(0, 1).toUpperCase()}
-               <div className="status-dot online"></div>
-             </div>
-             <div className="name-tag">
-               <span className="username">{props.username}</span>
-               <span className="user-id">#{userTag}</span>
-             </div>
+            <div className="user-avatar-small">
+              {props.username.slice(0, 1).toUpperCase()}
+              <div className="status-dot online"></div>
+            </div>
+            <div className="name-tag">
+              <span className="username">{props.username}</span>
+              {props.activeVoiceChannelId && props.ping !== null ? (
+                <span className="user-ping" title={`${props.ping}ms ping`}>
+                  <span className={`ping-dot ${props.ping < 100 ? 'good' : props.ping < 200 ? 'fair' : 'bad'}`}></span>
+                  {props.ping}ms
+                </span>
+              ) : (
+                <span className="user-id">#{userTag}</span>
+              )}
+            </div>
           </div>
           <div className="user-controls">
             <button
