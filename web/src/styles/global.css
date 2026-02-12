@@ -676,6 +676,18 @@ button {
   background-color: rgba(88, 101, 242, 0.15);
   color: #8fa0ff;
 }
+
+.control-btn.control-btn-mute.active,
+.control-btn.control-btn-deafen.active {
+  background-color: rgba(237, 66, 69, 0.18);
+  color: #ff9fa2;
+}
+
+.control-btn.control-btn-mute:hover:not(:disabled),
+.control-btn.control-btn-deafen:hover:not(:disabled) {
+  background-color: rgba(237, 66, 69, 0.12);
+  color: #ffc2c4;
+}
 .control-btn:disabled {
   opacity: 0.5;
   cursor: not-allowed;

@@ -241,6 +241,7 @@ export function ChatPage() {
   const [hiddenUnreadCount, setHiddenUnreadCount] = useState(0);
   const pendingSignaturesRef = useRef(new Set<string>());
   const pendingTimeoutsRef = useRef(new Map<string, number>());
+  const muteStateBeforeDeafenRef = useRef<boolean | null>(null);
   const localVoiceStreamRef = useRef<MediaStream | null>(null);
   const localAnalyserRef = useRef<AnalyserNode | null>(null);
   const localAnalyserContextRef = useRef<AudioContext | null>(null);
@@ -543,14 +544,17 @@ export function ChatPage() {
   }, [isSelfDeafened]);
 
   const toggleSelfDeafen = useCallback(() => {
-    setIsSelfDeafened((current) => {
-      const next = !current;
-      if (next) {
-        setIsSelfMuted(true);
-      }
-      return next;
-    });
-  }, []);
+    if (!isSelfDeafened) {
+      muteStateBeforeDeafenRef.current = isSelfMuted;
+      setIsSelfMuted(true);
+      setIsSelfDeafened(true);
+      return;
+    }
+    const restoreMutedState = muteStateBeforeDeafenRef.current ?? false;
+    setIsSelfDeafened(false);
+    setIsSelfMuted(restoreMutedState);
+    muteStateBeforeDeafenRef.current = null;
+  }, [isSelfDeafened, isSelfMuted]);
 
   const closePeerConnection = useCallback((peerUserId: string) => {
     const connection = peerConnectionsRef.current.get(peerUserId);
