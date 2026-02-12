@@ -32,6 +32,7 @@ export function SettingsPanel(props: SettingsPanelProps) {
   const [requestingNotifications, setRequestingNotifications] = useState(false);
   const [notificationHint, setNotificationHint] = useState<string | null>(null);
   const [loggingOut, setLoggingOut] = useState(false);
+  const [activeSection, setActiveSection] = useState('account');
 
   const createdAt = useMemo(
     () =>
@@ -47,6 +48,14 @@ export function SettingsPanel(props: SettingsPanelProps) {
     notificationPermission !== 'unsupported' &&
     notificationPermission !== 'granted' &&
     !requestingNotifications;
+  const jumpToSection = (sectionId: string) => {
+    const node = document.getElementById(sectionId);
+    if (!node) {
+      return;
+    }
+    setActiveSection(sectionId);
+    node.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  };
 
   return (
     <section className="settings-panel discord-settings-panel">
@@ -63,11 +72,41 @@ export function SettingsPanel(props: SettingsPanelProps) {
           </div>
           <p className="settings-nav-title">User Settings</p>
           <nav className="settings-nav-list" aria-label="Settings sections">
-            <a className="settings-nav-item" href="#account">My Account</a>
-            <a className="settings-nav-item" href="#appearance">Appearance</a>
-            <a className="settings-nav-item" href="#messages">Messages & Time</a>
-            <a className="settings-nav-item" href="#voice">Voice & Audio</a>
-            <a className="settings-nav-item" href="#notifications">Notifications</a>
+            <button
+              type="button"
+              className={`settings-nav-item ${activeSection === 'account' ? 'active' : ''}`}
+              onClick={() => jumpToSection('account')}
+            >
+              My Account
+            </button>
+            <button
+              type="button"
+              className={`settings-nav-item ${activeSection === 'appearance' ? 'active' : ''}`}
+              onClick={() => jumpToSection('appearance')}
+            >
+              Appearance
+            </button>
+            <button
+              type="button"
+              className={`settings-nav-item ${activeSection === 'messages' ? 'active' : ''}`}
+              onClick={() => jumpToSection('messages')}
+            >
+              Messages & Time
+            </button>
+            <button
+              type="button"
+              className={`settings-nav-item ${activeSection === 'voice' ? 'active' : ''}`}
+              onClick={() => jumpToSection('voice')}
+            >
+              Voice & Audio
+            </button>
+            <button
+              type="button"
+              className={`settings-nav-item ${activeSection === 'notifications' ? 'active' : ''}`}
+              onClick={() => jumpToSection('notifications')}
+            >
+              Notifications
+            </button>
           </nav>
         </aside>
 

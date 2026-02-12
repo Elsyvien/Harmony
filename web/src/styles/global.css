@@ -833,11 +833,15 @@ button {
 
 .settings-nav-item {
   display: block;
+  width: 100%;
+  text-align: left;
   color: var(--text-muted);
   padding: 7px 10px;
   border-radius: 6px;
   border: 1px solid transparent;
   font-size: 13px;
+  background: transparent;
+  cursor: pointer;
 }
 
 .settings-nav-item:hover {
@@ -845,6 +849,12 @@ button {
   text-decoration: none;
   background-color: rgba(63, 68, 84, 0.35);
   border-color: rgba(255, 255, 255, 0.05);
+}
+
+.settings-nav-item.active {
+  color: var(--text-header);
+  background-color: rgba(88, 101, 242, 0.18);
+  border-color: rgba(88, 101, 242, 0.45);
 }
 
 .settings-content {
