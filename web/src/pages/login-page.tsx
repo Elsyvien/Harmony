@@ -1,5 +1,5 @@
 import { Link, Navigate, useNavigate } from 'react-router-dom';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { chatApi } from '../api/chat-api';
 import { AuthForm } from '../components/auth-form';
 import { useAuth } from '../store/auth-store';
@@ -10,6 +10,10 @@ export function LoginPage() {
   const auth = useAuth();
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    document.title = 'Harmony';
+  }, []);
 
   if (auth.token) {
     return <Navigate to="/chat" replace />;

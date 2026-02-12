@@ -30,8 +30,12 @@ export function AuthForm(props: AuthFormProps) {
         });
       }}
     >
+      <div className="auth-brand">
+        <img className="auth-logo" src="/ressources/logos/logo.png" alt="Harmony logo" />
+        <span>Harmony</span>
+      </div>
       <h1>{props.mode === 'login' ? 'Welcome Back' : 'Create Account'}</h1>
-      <p className="auth-subtitle">DiscordClone MVP</p>
+      <p className="auth-subtitle">Stay in sync with your community.</p>
 
       {props.mode === 'register' ? (
         <label className="field">

@@ -55,7 +55,10 @@ export function ChannelSidebar(props: ChannelSidebarProps) {
     <aside className="channel-sidebar">
       <header>
         <div className="channel-header-row">
-          <h2>Channels</h2>
+          <div className="channel-brand">
+            <img className="channel-brand-logo" src="/ressources/logos/logo.png" alt="Harmony logo" />
+            <h2>Harmony</h2>
+          </div>
           {props.isAdmin ? (
             <button
               className={showCreateChannel ? 'channel-add-btn active' : 'channel-add-btn'}
