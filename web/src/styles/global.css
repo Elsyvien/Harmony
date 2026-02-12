@@ -833,11 +833,18 @@ button {
 
 .settings-nav-item {
   display: block;
+  width: 100%;
+  text-align: left;
   color: var(--text-muted);
-  padding: 7px 10px;
-  border-radius: 6px;
+  background: transparent;
+  padding: 8px 10px;
+  border-radius: 8px;
   border: 1px solid transparent;
   font-size: 13px;
+  font-weight: 600;
+  appearance: none;
+  -webkit-appearance: none;
+  transition: background-color 0.12s ease, border-color 0.12s ease, color 0.12s ease;
 }
 
 .settings-nav-item:hover {
@@ -845,6 +852,17 @@ button {
   text-decoration: none;
   background-color: rgba(63, 68, 84, 0.35);
   border-color: rgba(255, 255, 255, 0.05);
+}
+
+.settings-nav-item.active {
+  color: var(--text-header);
+  background-color: rgba(88, 101, 242, 0.2);
+  border-color: rgba(88, 101, 242, 0.45);
+}
+
+.settings-nav-item:focus-visible {
+  outline: 2px solid rgba(88, 101, 242, 0.65);
+  outline-offset: 1px;
 }
 
 .settings-content {
@@ -1096,6 +1114,16 @@ body.theme-light .composer form {
 body.theme-light .settings-sidebar,
 body.theme-light .settings-section {
   background-color: rgba(255, 255, 255, 0.86);
+}
+
+body.theme-light .settings-nav-item:hover {
+  background-color: rgba(42, 58, 82, 0.1);
+  border-color: rgba(42, 58, 82, 0.15);
+}
+
+body.theme-light .settings-nav-item.active {
+  background-color: rgba(88, 101, 242, 0.14);
+  border-color: rgba(88, 101, 242, 0.35);
 }
 
 body.theme-light .settings-row,

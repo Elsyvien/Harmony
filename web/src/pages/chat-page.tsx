@@ -320,6 +320,32 @@ export function ChatPage() {
       );
   }, [activeVoiceParticipants, remoteAudioStreams, auth.user]);
 
+  const selectedUserFriendRequestState = useMemo<
+    'self' | 'none' | 'friends' | 'outgoing' | 'incoming'
+  >(() => {
+    if (!selectedUser || !auth.user) {
+      return 'none';
+    }
+
+    if (selectedUser.id === auth.user.id) {
+      return 'self';
+    }
+
+    if (friends.some((friend) => friend.user.id === selectedUser.id)) {
+      return 'friends';
+    }
+
+    if (outgoingRequests.some((request) => request.to.id === selectedUser.id)) {
+      return 'outgoing';
+    }
+
+    if (incomingRequests.some((request) => request.from.id === selectedUser.id)) {
+      return 'incoming';
+    }
+
+    return 'none';
+  }, [selectedUser, auth.user, friends, outgoingRequests, incomingRequests]);
+
   const filteredMessages = useMemo(() => {
     const query = messageQuery.trim().toLowerCase();
     if (!query) {
@@ -1191,6 +1217,7 @@ export function ChatPage() {
       setMessageQuery('');
       return;
     }
+    setMessages([]);
     setMessageQuery('');
     void loadMessages(activeChannelId);
   }, [activeChannelId, activeChannel?.isVoice, loadMessages]);
@@ -2363,7 +2390,14 @@ export function ChatPage() {
         </div>
       ) : null}
 
-      <UserProfile user={selectedUser} onClose={() => setSelectedUser(null)} currentUser={auth.user} />
+      <UserProfile
+        user={selectedUser}
+        onClose={() => setSelectedUser(null)}
+        currentUser={auth.user}
+        friendRequestState={selectedUserFriendRequestState}
+        sendingFriendRequest={submittingFriendRequest}
+        onSendFriendRequest={sendFriendRequest}
+      />
 
       {mobilePane !== 'none' ? (
         <button
