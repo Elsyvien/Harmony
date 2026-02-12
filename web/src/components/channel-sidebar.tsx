@@ -68,6 +68,7 @@ export function ChannelSidebar(props: ChannelSidebarProps) {
   const textChannels = filteredChannels.filter((channel) => !channel.isDirect && !channel.isVoice);
   const voiceChannels = filteredChannels.filter((channel) => !channel.isDirect && channel.isVoice);
   const hasUnread = (channelId: string) => (props.unreadChannelCounts[channelId] ?? 0) > 0;
+  const isChatView = props.activeView === 'chat';
   const avatarUrl = resolveMediaUrl(props.avatarUrl);
   const speakingSet = new Set(props.speakingUserIds);
 
@@ -168,7 +169,7 @@ export function ChannelSidebar(props: ChannelSidebarProps) {
           <button
             key={channel.id}
             className={
-              channel.id === props.activeChannelId
+              isChatView && channel.id === props.activeChannelId
                 ? 'channel-item direct-channel-item active'
                 : 'channel-item direct-channel-item'
             }
@@ -186,7 +187,9 @@ export function ChannelSidebar(props: ChannelSidebarProps) {
           return (
             <div key={channel.id} className="channel-row">
               <button
-                className={channel.id === props.activeChannelId ? 'channel-item active' : 'channel-item'}
+                className={
+                  isChatView && channel.id === props.activeChannelId ? 'channel-item active' : 'channel-item'
+                }
                 onClick={() => props.onSelect(channel.id)}
               >
                 <span>#{channel.name}</span>
@@ -233,7 +236,9 @@ export function ChannelSidebar(props: ChannelSidebarProps) {
             <div key={channel.id} className="voice-channel-block">
               <div className="channel-row">
                 <button
-                  className={channel.id === props.activeChannelId ? 'channel-item active' : 'channel-item'}
+                  className={
+                    isChatView && channel.id === props.activeChannelId ? 'channel-item active' : 'channel-item'
+                  }
                   onClick={() => props.onSelect(channel.id)}
                 >
                   <span>~{channel.name}</span>

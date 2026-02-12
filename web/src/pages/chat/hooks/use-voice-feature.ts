@@ -13,7 +13,7 @@ type AudioContextMenuState = {
 };
 
 const USER_AUDIO_PREFS_KEY = 'harmony_user_audio_prefs_v1';
-const MAX_USER_AUDIO_VOLUME = 200;
+const MAX_USER_AUDIO_VOLUME = 100;
 
 function parseUserAudioPrefs(raw: string | null): Record<string, UserAudioPreference> {
   if (!raw) {
@@ -48,8 +48,9 @@ type UseVoiceFeatureOptions = {
   activeChannelId: string | null;
   activeVoiceChannelId: string | null;
   voiceParticipantsByChannel: Record<string, VoiceParticipant[]>;
-  remoteStreamingUserIds: string[];
+  remoteScreenShares: Record<string, MediaStream>;
   localScreenShareStream: MediaStream | null;
+  localStreamSource: 'screen' | 'camera' | null;
   authUserId: string | undefined;
   authUserRole: UserRole | null | undefined;
 };
@@ -59,8 +60,9 @@ export function useVoiceFeature({
   activeChannelId,
   activeVoiceChannelId,
   voiceParticipantsByChannel,
-  remoteStreamingUserIds,
+  remoteScreenShares,
   localScreenShareStream,
+  localStreamSource,
   authUserId,
   authUserRole,
 }: UseVoiceFeatureOptions) {
@@ -104,13 +106,13 @@ export function useVoiceFeature({
     if (!activeVoiceChannelId) {
       return byChannel;
     }
-    const liveUserIds = new Set<string>(remoteStreamingUserIds);
-    if (localScreenShareStream && authUserId) {
+    const liveUserIds = new Set<string>(Object.keys(remoteScreenShares));
+    if (localStreamSource === 'screen' && localScreenShareStream && authUserId) {
       liveUserIds.add(authUserId);
     }
     byChannel[activeVoiceChannelId] = [...liveUserIds];
     return byChannel;
-  }, [activeVoiceChannelId, remoteStreamingUserIds, localScreenShareStream, authUserId]);
+  }, [activeVoiceChannelId, remoteScreenShares, localScreenShareStream, localStreamSource, authUserId]);
 
   const getUserAudioState = useCallback(
     (userId: string): UserAudioPreference => userAudioPrefs[userId] ?? { volume: 100, muted: false },

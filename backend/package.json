@@ -5,13 +5,13 @@
   "type": "module",
   "scripts": {
     "dev": "tsx watch src/server.ts",
-    "build": "prisma generate && tsc -p tsconfig.json",
+    "build": "node scripts/run-prisma.mjs generate && tsc -p tsconfig.json",
     "start": "node dist/src/server.js",
     "lint": "eslint \"src/**/*.ts\" \"tests/**/*.ts\"",
     "test": "vitest run",
-    "prisma:generate": "prisma generate",
-    "prisma:migrate": "prisma migrate dev",
-    "prisma:deploy": "prisma migrate deploy",
+    "prisma:generate": "node scripts/run-prisma.mjs generate",
+    "prisma:migrate": "node scripts/run-prisma.mjs migrate dev",
+    "prisma:deploy": "node scripts/run-prisma.mjs migrate deploy",
     "prisma:seed": "tsx prisma/seed.ts"
   },
   "dependencies": {
