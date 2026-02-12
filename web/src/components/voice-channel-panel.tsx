@@ -168,6 +168,21 @@ const ScreenShareItem = memo(function ScreenShareItem({
     void videoRef.current.play().catch(() => {
       // Best effort: some browsers delay autoplay until gesture.
     });
+
+    // Re-trigger play() when a video track unmutes (e.g. after replaceTrack
+    // propagates media) so the element doesn't stay paused/black.
+    const videoTrack = stream.getVideoTracks()[0];
+    if (videoTrack) {
+      const onUnmute = () => {
+        if (videoRef.current && videoRef.current.paused) {
+          void videoRef.current.play().catch(() => {});
+        }
+      };
+      videoTrack.addEventListener('unmute', onUnmute);
+      return () => {
+        videoTrack.removeEventListener('unmute', onUnmute);
+      };
+    }
   }, [stream]);
 
   // When not maximized but another stream IS maximized, this component might differ visually 
