@@ -2976,9 +2976,11 @@ body.font-scale-lg {
 
 .select-arrow::after {
   content: "▾";
-  font-size: 24px;
+  font-size: 20px;
   font-weight: 700;
   display: inline-block;
+  line-height: 1;
+  transform: scaleY(0.8);
   transform-origin: center;
 }
 
@@ -2999,7 +3001,7 @@ body.font-scale-lg {
 
 .select-option {
   width: 100%;
-  padding: 10px 12px;
+  padding: 6px 12px;
   background: transparent;
   border: none;
   color: var(--text-normal);
