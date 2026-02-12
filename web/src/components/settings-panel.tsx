@@ -234,7 +234,7 @@ export function SettingsPanel(props: SettingsPanelProps) {
               aria-label="Change avatar"
             >
               {avatarUrl ? (
-                <img src={avatarUrl} alt={props.user.username} />
+                <img crossOrigin="anonymous" src={avatarUrl} alt={props.user.username} />
               ) : (
                 props.user.username.slice(0, 1).toUpperCase()
               )}

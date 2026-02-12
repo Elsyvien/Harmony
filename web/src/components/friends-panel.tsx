@@ -145,7 +145,7 @@ export function FriendsPanel(props: FriendsPanelProps) {
                 <div className="friend-info">
                   <div className="friend-avatar-small">
                     {avatarUrl ? (
-                      <img src={avatarUrl} alt={friend.user.username} />
+                      <img crossOrigin="anonymous" src={avatarUrl} alt={friend.user.username} />
                     ) : (
                       friend.user.username.slice(0, 1).toUpperCase()
                     )}

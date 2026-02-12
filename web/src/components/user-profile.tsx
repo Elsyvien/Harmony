@@ -56,7 +56,7 @@ export function UserProfile({
         <header className="profile-banner"></header>
         <div className="profile-avatar">
           {avatarUrl ? (
-            <img src={avatarUrl} alt={user.username} style={{ width: '100%', height: '100%', borderRadius: '50%', objectFit: 'cover', border: '4px solid var(--modal-bg)' }} />
+            <img crossOrigin="anonymous" src={avatarUrl} alt={user.username} style={{ width: '100%', height: '100%', borderRadius: '50%', objectFit: 'cover', border: '4px solid var(--modal-bg)' }} />
           ) : (
             user.username.slice(0, 1).toUpperCase()
           )}

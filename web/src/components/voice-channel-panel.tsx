@@ -556,7 +556,7 @@ export function VoiceChannelPanel(props: VoiceChannelPanelProps) {
                   }}
                 >
                   {avatarUrl ? (
-                    <img src={avatarUrl} alt={participant.username} />
+                    <img crossOrigin="anonymous" src={avatarUrl} alt={participant.username} />
                   ) : (
                     participant.username.slice(0, 1).toUpperCase()
                   )}

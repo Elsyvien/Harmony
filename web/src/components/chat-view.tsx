@@ -349,7 +349,7 @@ export function ChatView(props: ChatViewProps) {
                   onClick={() => props.onUserClick?.(message.user)}
                 >
                   {avatarUrl ? (
-                    <img src={avatarUrl} alt={message.user.username} style={{ width: '100%', height: '100%', borderRadius: '50%', objectFit: 'cover' }} />
+                    <img crossOrigin="anonymous" src={avatarUrl} alt={message.user.username} style={{ width: '100%', height: '100%', borderRadius: '50%', objectFit: 'cover' }} />
                   ) : (
                     message.user.username.slice(0, 1).toUpperCase()
                   )}
@@ -390,7 +390,7 @@ export function ChatView(props: ChatViewProps) {
                       rel="noreferrer"
                     >
                       {isImageAttachment ? (
-                        <img src={attachmentUrl} alt={message.attachment.name} className="message-attachment-preview" />
+                        <img crossOrigin="anonymous" src={attachmentUrl} alt={message.attachment.name} className="message-attachment-preview" />
                       ) : null}
                       <span className="message-attachment-name">{message.attachment.name}</span>
                       <span className="message-attachment-meta">

@@ -340,7 +340,7 @@ export function ChannelSidebar(props: ChannelSidebarProps) {
           <div className="user-info">
             <div className="user-avatar-small">
               {avatarUrl ? (
-                <img src={avatarUrl} alt={props.username} />
+                <img crossOrigin="anonymous" src={avatarUrl} alt={props.username} />
               ) : (
                 props.username.slice(0, 1).toUpperCase()
               )}

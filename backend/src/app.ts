@@ -76,6 +76,11 @@ export async function buildApp() {
   await app.register(fastifyStatic, {
     root: uploadsDir,
     prefix: '/uploads/',
+    setHeaders(res) {
+      res.setHeader('Access-Control-Allow-Origin', '*');
+      res.setHeader('Access-Control-Allow-Methods', 'GET, HEAD, OPTIONS');
+      res.setHeader('Cross-Origin-Resource-Policy', 'cross-origin');
+    },
   });
 
   const userRepo = new PrismaUserRepository();

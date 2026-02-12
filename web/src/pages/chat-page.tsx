@@ -209,7 +209,16 @@ function getVoiceIceServers(): RTCIceServer[] {
       .map((entry) => entry.trim())
       .filter(Boolean) ?? [];
 
-  const servers: RTCIceServer[] = [{ urls: 'stun:stun.l.google.com:19302' }];
+  const servers: RTCIceServer[] = [
+    {
+      urls: [
+        'stun:stun.l.google.com:19302',
+        'stun:stun1.l.google.com:19302',
+        'stun:stun2.l.google.com:19302',
+      ],
+    },
+  ];
+
   if (turnUrls.length > 0) {
     const turnServer: RTCIceServer = { urls: turnUrls };
     if (turnUsername) {
@@ -219,6 +228,19 @@ function getVoiceIceServers(): RTCIceServer[] {
       turnServer.credential = turnCredential;
     }
     servers.push(turnServer);
+  } else {
+    // Free Open Relay TURN server as fallback.
+    // This is meant for development and testing only.
+    // For production, configure VITE_TURN_URLS with a dedicated TURN service.
+    servers.push({
+      urls: [
+        'turn:openrelay.metered.ca:80',
+        'turn:openrelay.metered.ca:443',
+        'turns:openrelay.metered.ca:443',
+      ],
+      username: 'openrelayproject',
+      credential: 'openrelayproject',
+    });
   }
 
   return servers;
@@ -1345,11 +1367,33 @@ export function ChatPage() {
       };
 
       connection.onconnectionstatechange = () => {
-        if (
-          connection.connectionState === 'closed' ||
-          connection.connectionState === 'failed'
-        ) {
+        if (connection.connectionState === 'closed') {
           closePeerConnection(peerUserId);
+          return;
+        }
+        if (connection.connectionState === 'failed') {
+          // Attempt ICE restart before giving up
+          const activeChannelId = activeVoiceChannelIdRef.current;
+          if (activeChannelId) {
+            connection.restartIce();
+            (async () => {
+              try {
+                const offer = await connection.createOffer({ iceRestart: true });
+                await connection.setLocalDescription(offer);
+                const ld = connection.localDescription;
+                if (ld && ld.type === 'offer') {
+                  sendVoiceSignalRef.current(activeChannelId, peerUserId, {
+                    kind: 'offer',
+                    sdp: ld,
+                  } satisfies VoiceSignalData);
+                }
+              } catch {
+                closePeerConnection(peerUserId);
+              }
+            })();
+          } else {
+            closePeerConnection(peerUserId);
+          }
         }
       };
 
