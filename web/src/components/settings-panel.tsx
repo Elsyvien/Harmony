@@ -4,7 +4,7 @@ import type { UserPreferences } from '../types/preferences';
 import { chatApi } from '../api/chat-api';
 import { useAuth } from '../store/auth-store';
 import { DropdownSelect } from './dropdown-select';
-import { smoothScrollTo } from '../utils/smooth-scroll';
+import { resolveMediaUrl } from '../utils/media-url';
 import lobsterImage from '../../ressources/logos/images/maxresdefault.jpg';
 import lobsterAudio from '../../ressources/logos/audio/lobster.wav';
 
@@ -83,6 +83,7 @@ export function SettingsPanel(props: SettingsPanelProps) {
   );
 
   const connectionLabel = props.wsConnected ? 'Connected (WebSocket)' : 'Polling fallback';
+  const avatarUrl = resolveMediaUrl(props.user.avatarUrl);
   const canRequestNotifications =
     notificationPermission !== 'unsupported' &&
     notificationPermission !== 'granted' &&
@@ -104,7 +105,10 @@ export function SettingsPanel(props: SettingsPanelProps) {
     const nodeRect = node.getBoundingClientRect();
     const targetTop = Math.max(0, nodeRect.top - containerRect.top + container.scrollTop - 8);
 
-    smoothScrollTo(container, targetTop, { reducedMotion: props.preferences.reducedMotion });
+    container.scrollTo({
+      top: targetTop,
+      behavior: props.preferences.reducedMotion ? 'auto' : 'smooth',
+    });
   };
 
   const triggerLobsterUpgrade = () => {
@@ -138,8 +142,8 @@ export function SettingsPanel(props: SettingsPanelProps) {
               role="button"
               tabIndex={0}
             >
-              {props.user.avatarUrl ? (
-                <img src={props.user.avatarUrl} alt={props.user.username} />
+              {avatarUrl ? (
+                <img src={avatarUrl} alt={props.user.username} />
               ) : (
                 props.user.username.slice(0, 1).toUpperCase()
               )}

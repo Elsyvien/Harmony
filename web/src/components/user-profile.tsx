@@ -1,3 +1,5 @@
+import { resolveMediaUrl } from '../utils/media-url';
+
 interface UserProfileProps {
   user: { id: string; username: string; email?: string; createdAt?: string; avatarUrl?: string } | null;
   onClose: () => void;
@@ -25,6 +27,8 @@ export function UserProfile({
 }: UserProfileProps) {
   if (!user) return null;
 
+  const avatarUrl = resolveMediaUrl(user.avatarUrl);
+
   const isSelf = currentUser?.id === user.id || friendRequestState === 'self';
   const canSendFriendRequest = !isSelf && friendRequestState === 'none' && Boolean(onSendFriendRequest);
   const canAcceptFriendRequest =
@@ -51,8 +55,8 @@ export function UserProfile({
       <div className="user-profile-modal" onClick={(e) => e.stopPropagation()}>
         <header className="profile-banner"></header>
         <div className="profile-avatar">
-          {user.avatarUrl ? (
-            <img src={user.avatarUrl} alt={user.username} style={{ width: '100%', height: '100%', borderRadius: '50%', objectFit: 'cover', border: '4px solid var(--modal-bg)' }} />
+          {avatarUrl ? (
+            <img src={avatarUrl} alt={user.username} style={{ width: '100%', height: '100%', borderRadius: '50%', objectFit: 'cover', border: '4px solid var(--modal-bg)' }} />
           ) : (
             user.username.slice(0, 1).toUpperCase()
           )}

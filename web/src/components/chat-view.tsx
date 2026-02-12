@@ -1,8 +1,9 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { Message } from '../types/api';
 import { MarkdownMessage } from './markdown-message';
 import { cancelSmoothScroll, smoothScrollTo } from '../utils/smooth-scroll';
 import { useRecentEmojis } from '../hooks/use-recent-emojis';
+import { resolveMediaUrl } from '../utils/media-url';
 
 const MESSAGE_REACTION_PANEL_EMOJIS = ['👍', '❤️', '😂', '🎉', '🔥', '😮', '👏', '😢'];
 
@@ -68,7 +69,7 @@ export function ChatView(props: ChatViewProps) {
     return distanceToBottom <= 80;
   };
 
-  const scrollToLatest = (animated: boolean) => {
+  const scrollToLatest = useCallback((animated: boolean) => {
     const element = messageListRef.current;
     if (!element) {
       return;
@@ -80,7 +81,7 @@ export function ChatView(props: ChatViewProps) {
       return;
     }
     smoothScrollTo(element, targetTop, { reducedMotion: props.reducedMotion });
-  };
+  }, [props.reducedMotion]);
 
   useEffect(() => {
     previousLastMessageIdRef.current = null;
@@ -92,8 +93,9 @@ export function ChatView(props: ChatViewProps) {
   }, [props.activeChannelId]);
 
   useEffect(() => {
+    const listElement = messageListRef.current;
     return () => {
-      cancelSmoothScroll(messageListRef.current);
+      cancelSmoothScroll(listElement);
     };
   }, []);
 
@@ -199,7 +201,7 @@ export function ChatView(props: ChatViewProps) {
 
     previousLastMessageIdRef.current = lastMessageId;
     previousMessageCountRef.current = props.messages.length;
-  }, [lastMessageId, props.messages.length]);
+  }, [lastMessageId, props.messages.length, scrollToLatest]);
 
   const formatMessageTime = (value: string) =>
     new Date(value).toLocaleString([], {
@@ -255,6 +257,7 @@ export function ChatView(props: ChatViewProps) {
               : message.attachment?.url
                 ? `${apiBaseUrl}${message.attachment.url}`
                 : null;
+            const avatarUrl = resolveMediaUrl(message.user.avatarUrl);
             const isImageAttachment = Boolean(
               message.attachment?.type.toLowerCase().startsWith('image/') && attachmentUrl,
             );
@@ -285,13 +288,13 @@ export function ChatView(props: ChatViewProps) {
                 <div
                   className="message-avatar"
                   style={{
-                    backgroundColor: message.user.avatarUrl ? 'transparent' : stringToColor(message.user.username),
+                    backgroundColor: avatarUrl ? 'transparent' : stringToColor(message.user.username),
                     cursor: 'pointer'
                   }}
                   onClick={() => props.onUserClick?.(message.user)}
                 >
-                  {message.user.avatarUrl ? (
-                    <img src={message.user.avatarUrl} alt={message.user.username} style={{ width: '100%', height: '100%', borderRadius: '50%', objectFit: 'cover' }} />
+                  {avatarUrl ? (
+                    <img src={avatarUrl} alt={message.user.username} style={{ width: '100%', height: '100%', borderRadius: '50%', objectFit: 'cover' }} />
                   ) : (
                     message.user.username.slice(0, 1).toUpperCase()
                   )}

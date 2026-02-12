@@ -99,6 +99,7 @@ class InMemoryChannelRepo implements ChannelRepository {
         user: {
           id: userId,
           username: `user-${userId}`,
+          avatarUrl: null,
         },
       })),
     };
@@ -134,6 +135,7 @@ const noOpUserRepo: UserRepository = {
       isSuspended: false,
       suspendedUntil: null,
       createdAt: new Date(),
+      avatarUrl: null,
     };
   },
 };

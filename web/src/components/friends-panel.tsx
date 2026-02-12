@@ -1,5 +1,6 @@
 import { useMemo, useState } from 'react';
 import type { FriendRequestSummary, FriendSummary } from '../types/api';
+import { resolveMediaUrl } from '../utils/media-url';
 
 type FriendsTab = 'friends' | 'incoming' | 'outgoing' | 'add';
 
@@ -138,12 +139,13 @@ export function FriendsPanel(props: FriendsPanelProps) {
           {filteredFriends.map((friend) => {
             const busy = props.actionBusyId === friend.id;
             const openingDm = props.openingDmUserId === friend.user.id;
+            const avatarUrl = resolveMediaUrl(friend.user.avatarUrl);
             return (
               <article key={friend.id} className="friend-card">
                 <div className="friend-info">
                   <div className="friend-avatar-small">
-                    {friend.user.avatarUrl ? (
-                      <img src={friend.user.avatarUrl} alt={friend.user.username} />
+                    {avatarUrl ? (
+                      <img src={avatarUrl} alt={friend.user.username} />
                     ) : (
                       friend.user.username.slice(0, 1).toUpperCase()
                     )}

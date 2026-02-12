@@ -55,6 +55,7 @@ class InMemoryMessageRepo implements MessageRepository {
                 user: {
                   id: params.userId,
                   username: 'test-user',
+                  avatarUrl: null,
                 },
               }
             : null
@@ -64,6 +65,7 @@ class InMemoryMessageRepo implements MessageRepository {
       user: {
         id: params.userId,
         username: 'test-user',
+        avatarUrl: null,
       },
     };
     this.items.push(message);

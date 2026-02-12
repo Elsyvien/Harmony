@@ -18,6 +18,7 @@ class InMemoryUserRepo implements UserRepository {
     isSuspended: boolean;
     suspendedUntil: Date | null;
     createdAt: Date;
+    avatarUrl: string | null;
   }> = [];
 
   async findById(id: string) {
@@ -49,6 +50,7 @@ class InMemoryUserRepo implements UserRepository {
       isSuspended: false,
       suspendedUntil: null,
       createdAt: now,
+      avatarUrl: null,
     };
     this.users.push(user);
     return user;

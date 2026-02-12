@@ -1,6 +1,7 @@
 import type { MultipartFile } from '@fastify/multipart';
 import { randomUUID } from 'node:crypto';
-import { writeFile } from 'node:fs/promises';
+import { createWriteStream } from 'node:fs';
+import { mkdir } from 'node:fs/promises';
 import path from 'node:path';
 import { pipeline } from 'node:stream/promises';
 import { AppError } from '../utils/app-error.js';
@@ -12,29 +13,16 @@ export class UserService {
             throw new AppError('INVALID_FILE_TYPE', 400, 'Only image files are allowed');
         }
 
-        const fileExtension = path.extname(file.filename);
+        const fileExtension = path.extname(file.filename) || '.png';
         const fileName = `${userId}-${randomUUID()}${fileExtension}`;
-        const uploadPath = path.join(process.cwd(), 'uploads', 'avatars');
-        const filePath = path.join(uploadPath, fileName);
-
-        // Ensure directory exists (app.ts creates 'uploads', but maybe not 'uploads/avatars')
-        // For simplicity, let's put it in 'uploads' root or ensure 'avatars' exists.
-        // app.ts does: await mkdir(uploadsDir, { recursive: true });
-        // Let's just put it in uploads/ for now to match app.ts static serving from root of uploads
-        // actually app.ts serves uploadsDir at /uploads/
-
-        const finalFileName = `avatars/${fileName}`; // Subdir structure
         const fullUploadPath = path.join(process.cwd(), 'uploads', 'avatars');
+        await mkdir(fullUploadPath, { recursive: true });
 
-        // We need to ensure the avatars subdirectory exists
-        const fs = await import('node:fs/promises');
-        await fs.mkdir(fullUploadPath, { recursive: true });
-
-        await pipeline(file.file, fs.createWriteStream(path.join(fullUploadPath, fileName)));
+        await pipeline(file.file, createWriteStream(path.join(fullUploadPath, fileName)));
 
         const avatarUrl = `/uploads/avatars/${fileName}`;
 
-        const user = await prisma.user.update({
+        return prisma.user.update({
             where: { id: userId },
             data: { avatarUrl },
             select: {
@@ -47,7 +35,5 @@ export class UserService {
                 avatarUrl: true,
             },
         });
-
-        return user;
     }
 }

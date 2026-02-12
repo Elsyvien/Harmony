@@ -43,6 +43,7 @@ function parseStoredUser(raw: string | null): User | null {
       username: parsed.username,
       email: parsed.email,
       createdAt: parsed.createdAt,
+      avatarUrl: parsed.avatarUrl,
       role,
       isAdmin,
     };

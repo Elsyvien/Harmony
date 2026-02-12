@@ -20,6 +20,7 @@ function createUser(params: { id: string; username: string; role?: UserRole; sus
     isSuspended: Boolean(params.suspended),
     suspendedUntil: params.suspended ? null : null,
     createdAt: new Date('2026-01-01T00:00:00.000Z'),
+    avatarUrl: null,
   };
 }
 
@@ -91,9 +92,14 @@ class InMemoryFriendshipRepo implements FriendshipRepository {
 
     return {
       ...record,
-      userA: { id: userA.id, username: userA.username, role: userA.role },
-      userB: { id: userB.id, username: userB.username, role: userB.role },
-      requestedBy: { id: requestedBy.id, username: requestedBy.username, role: requestedBy.role },
+      userA: { id: userA.id, username: userA.username, role: userA.role, avatarUrl: userA.avatarUrl },
+      userB: { id: userB.id, username: userB.username, role: userB.role, avatarUrl: userB.avatarUrl },
+      requestedBy: {
+        id: requestedBy.id,
+        username: requestedBy.username,
+        role: requestedBy.role,
+        avatarUrl: requestedBy.avatarUrl,
+      },
     };
   }
 

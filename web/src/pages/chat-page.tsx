@@ -2259,7 +2259,7 @@ export function ChatPage() {
         joiningVoiceChannelId={voiceBusyChannelId}
         incomingFriendRequests={incomingRequests.length}
         avatarUrl={auth.user.avatarUrl}
-        ping={ping}
+        ping={ws.ping}
       />
 
       <section className="chat-panel">

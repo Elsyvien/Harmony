@@ -34,14 +34,12 @@ interface VoiceChannelPanelProps {
 const ScreenShareItem = memo(function ScreenShareItem({
   stream,
   label,
-  isLocal,
   isMaximized,
   onMaximize,
   onPopOut,
 }: {
   stream: MediaStream;
   label: string;
-  isLocal: boolean;
   isMaximized: boolean;
   onMaximize: () => void;
   onPopOut: () => void;
@@ -60,7 +58,10 @@ const ScreenShareItem = memo(function ScreenShareItem({
   // but we can ensure we aren't using high-res rendering resources.
 
   return (
-    <div className={`voice-screen-share-item ${isMaximized ? 'maximized' : ''}`} onClick={onMaximize}>
+    <div
+      className={`voice-screen-share-item ${isMaximized ? 'maximized' : ''}`}
+      onClick={onMaximize}
+    >
       <video
         ref={videoRef}
         autoPlay
@@ -226,7 +227,6 @@ export function VoiceChannelPanel(props: VoiceChannelPanelProps) {
             <ScreenShareItem
               stream={props.localScreenShareStream}
               label="You are sharing"
-              isLocal={true}
               isMaximized={maximizedStreamId === 'local'}
               onMaximize={() => setMaximizedStreamId(maximizedStreamId === 'local' ? null : 'local')}
               onPopOut={() => handlePopOut(props.localScreenShareStream!, 'My Screen Share')}
@@ -240,7 +240,6 @@ export function VoiceChannelPanel(props: VoiceChannelPanelProps) {
                 key={userId}
                 stream={stream}
                 label={`${name}'s Screen`}
-                isLocal={false}
                 isMaximized={maximizedStreamId === userId}
                 onMaximize={() => setMaximizedStreamId(maximizedStreamId === userId ? null : userId)}
                 onPopOut={() => handlePopOut(stream, `${name}'s Screen`)}
