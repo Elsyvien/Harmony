@@ -94,6 +94,11 @@ a:hover {
   to { transform: rotate(360deg); }
 }
 
+@keyframes arrowFlip {
+  from { transform: rotateZ(0deg); }
+  to { transform: rotateZ(180deg); }
+}
+
 /* Scrollbar */
 ::-webkit-scrollbar {
   width: 8px;
@@ -1021,6 +1026,7 @@ button {
   outline: none;
   border-color: var(--accent);
   background-color: rgba(88, 101, 242, 0.12);
+  animation: arrowFlip 0.3s ease;
 }
 
 .settings-row-stacked {
@@ -2850,25 +2856,25 @@ body.font-scale-lg {
   cursor: pointer;
   font-size: 14px;
   font-weight: 500;
-  transition: all 0.1s ease;
+  transition: all 0.15s ease;
   display: flex;
   align-items: center;
   justify-content: space-between;
 }
 
 .select-option:hover {
-  background-color: var(--bg-hover);
+  background-color: rgba(88, 101, 242, 0.12);
   color: var(--text-header);
 }
 
 .select-option.selected {
-  background-color: rgba(88, 101, 242, 0.15);
-  color: var(--accent);
+  background-color: rgba(88, 101, 242, 0.25);
+  color: #ffffff;
   font-weight: 600;
 }
 
 .select-option.selected::after {
   content: "✓";
-  color: var(--accent);
+  color: #ffffff;
   font-weight: 700;
 }
