@@ -1467,11 +1467,28 @@ export function ChatPage() {
         };
 
         if (activeVoiceChannelId) {
-          for (const [peerUserId, connection] of peerConnectionsRef.current) {
-            for (const track of stream.getTracks()) {
-              connection.addTrack(track, stream);
+          const videoTrack = stream.getVideoTracks()[0];
+          if (videoTrack) {
+            for (const [peerUserId, connection] of peerConnectionsRef.current) {
+              const senders = connection.getSenders();
+              let replacedExistingVideo = false;
+
+              for (const sender of senders) {
+                if (sender.track?.kind === 'video') {
+                  // Replace any existing video track (for example, camera) with the screen share track.
+                  // This avoids having multiple video tracks on the same connection.
+                  // eslint-disable-next-line @typescript-eslint/no-floating-promises
+                  sender.replaceTrack(videoTrack);
+                  replacedExistingVideo = true;
+                }
+              }
+
+              if (!replacedExistingVideo) {
+                connection.addTrack(videoTrack, stream);
+              }
+
+              void createOfferForPeer(peerUserId, activeVoiceChannelId);
             }
-            void createOfferForPeer(peerUserId, activeVoiceChannelId);
           }
         }
       } catch (err) {
