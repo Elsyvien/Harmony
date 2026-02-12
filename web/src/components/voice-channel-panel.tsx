@@ -1,3 +1,5 @@
+import { useRef } from 'react';
+
 interface VoiceChannelPanelProps {
   channelName: string;
   participants: Array<{ userId: string; username: string }>;
@@ -17,10 +19,24 @@ interface VoiceChannelPanelProps {
   showVoiceActivity: boolean;
   onJoin: () => Promise<void> | void;
   onLeave: () => Promise<void> | void;
+  onParticipantContextMenu?: (
+    participant: { userId: string; username: string },
+    position: { x: number; y: number },
+  ) => void;
+  getParticipantAudioState?: (userId: string) => { volume: number; muted: boolean } | null;
 }
 
 export function VoiceChannelPanel(props: VoiceChannelPanelProps) {
   const speakingSet = new Set(props.speakingUserIds);
+  const longPressTimeoutRef = useRef<number | null>(null);
+
+  const clearLongPress = () => {
+    if (!longPressTimeoutRef.current) {
+      return;
+    }
+    window.clearTimeout(longPressTimeoutRef.current);
+    longPressTimeoutRef.current = null;
+  };
 
   return (
     <section className="voice-panel">
@@ -96,8 +112,41 @@ export function VoiceChannelPanel(props: VoiceChannelPanelProps) {
           const isSelf = participant.userId === props.currentUserId;
           const hasAudio = props.remoteAudioUsers.some((user) => user.userId === participant.userId);
           const isSpeaking = props.showVoiceActivity && speakingSet.has(participant.userId);
+          const localAudioState = !isSelf ? props.getParticipantAudioState?.(participant.userId) : null;
           return (
-            <div key={participant.userId} className={`voice-participant-item ${isSpeaking ? 'speaking' : ''}`}>
+            <div
+              key={participant.userId}
+              className={`voice-participant-item ${isSpeaking ? 'speaking' : ''}`}
+              onContextMenu={(event) => {
+                if (!props.onParticipantContextMenu) {
+                  return;
+                }
+                event.preventDefault();
+                props.onParticipantContextMenu(participant, {
+                  x: event.clientX,
+                  y: event.clientY,
+                });
+              }}
+              onTouchStart={(event) => {
+                if (!props.onParticipantContextMenu) {
+                  return;
+                }
+                const touch = event.touches[0];
+                if (!touch) {
+                  return;
+                }
+                clearLongPress();
+                longPressTimeoutRef.current = window.setTimeout(() => {
+                  props.onParticipantContextMenu?.(participant, {
+                    x: touch.clientX,
+                    y: touch.clientY,
+                  });
+                }, 440);
+              }}
+              onTouchEnd={clearLongPress}
+              onTouchCancel={clearLongPress}
+              onTouchMove={clearLongPress}
+            >
               <span>
                 {participant.username}
                 {props.showVoiceActivity ? (
@@ -120,6 +169,11 @@ export function VoiceChannelPanel(props: VoiceChannelPanelProps) {
                       ? 'Speaking'
                       : 'Audio Connected'
                     : 'Signaling'}
+                {!isSelf && localAudioState
+                  ? localAudioState.muted
+                    ? ' • Muted locally'
+                    : ` • ${localAudioState.volume}%`
+                  : ''}
               </small>
             </div>
           );

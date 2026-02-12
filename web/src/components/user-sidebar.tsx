@@ -1,6 +1,12 @@
+import { useRef } from 'react';
+
 interface UserSidebarProps {
   users: { id: string; username: string }[];
   onUserClick?: (user: { id: string; username: string }) => void;
+  onUserContextMenu?: (
+    user: { id: string; username: string },
+    position: { x: number; y: number },
+  ) => void;
 }
 
 function stringToColor(str: string) {
@@ -12,7 +18,17 @@ function stringToColor(str: string) {
   return '#' + '00000'.substring(0, 6 - c.length) + c;
 }
 
-export function UserSidebar({ users, onUserClick }: UserSidebarProps) {
+export function UserSidebar({ users, onUserClick, onUserContextMenu }: UserSidebarProps) {
+  const longPressTimeoutRef = useRef<number | null>(null);
+
+  const clearLongPress = () => {
+    if (!longPressTimeoutRef.current) {
+      return;
+    }
+    window.clearTimeout(longPressTimeoutRef.current);
+    longPressTimeoutRef.current = null;
+  };
+
   return (
     <aside className="user-sidebar">
       <header>
@@ -20,7 +36,34 @@ export function UserSidebar({ users, onUserClick }: UserSidebarProps) {
       </header>
       <div className="user-list">
         {users.map((user) => (
-          <div key={user.id} className="user-item" onClick={() => onUserClick?.(user)}>
+          <div
+            key={user.id}
+            className="user-item"
+            onClick={() => onUserClick?.(user)}
+            onContextMenu={(event) => {
+              if (!onUserContextMenu) {
+                return;
+              }
+              event.preventDefault();
+              onUserContextMenu(user, { x: event.clientX, y: event.clientY });
+            }}
+            onTouchStart={(event) => {
+              if (!onUserContextMenu) {
+                return;
+              }
+              const touch = event.touches[0];
+              if (!touch) {
+                return;
+              }
+              clearLongPress();
+              longPressTimeoutRef.current = window.setTimeout(() => {
+                onUserContextMenu(user, { x: touch.clientX, y: touch.clientY });
+              }, 440);
+            }}
+            onTouchEnd={clearLongPress}
+            onTouchCancel={clearLongPress}
+            onTouchMove={clearLongPress}
+          >
             <div className="user-item-avatar-wrapper">
               <div className="avatar" style={{ backgroundColor: stringToColor(user.username) }}>
                 {user.username.slice(0, 1).toUpperCase()}

@@ -44,6 +44,10 @@ function parsePreferences(raw: string | null): UserPreferences {
         typeof parsed.autoMuteOnJoin === 'boolean'
           ? parsed.autoMuteOnJoin
           : DEFAULT_USER_PREFERENCES.autoMuteOnJoin,
+      voiceInputDeviceId:
+        typeof parsed.voiceInputDeviceId === 'string'
+          ? parsed.voiceInputDeviceId
+          : DEFAULT_USER_PREFERENCES.voiceInputDeviceId,
     };
   } catch {
     return DEFAULT_USER_PREFERENCES;

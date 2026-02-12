@@ -11,12 +11,7 @@ import { UserProfile } from '../components/user-profile';
 import { UserSidebar } from '../components/user-sidebar';
 import { VoiceChannelPanel } from '../components/voice-channel-panel';
 import { useChatSocket } from '../hooks/use-chat-socket';
-import type {
-  MessageReactionEventPayload,
-  PresenceUser,
-  VoiceParticipant,
-  VoiceStatePayload,
-} from '../hooks/use-chat-socket';
+import type { PresenceUser, VoiceParticipant, VoiceStatePayload } from '../hooks/use-chat-socket';
 import { useUserPreferences } from '../hooks/use-user-preferences';
 import { useAuth } from '../store/auth-store';
 import type {
@@ -33,6 +28,31 @@ import type {
 import { getErrorMessage } from '../utils/error-message';
 
 type MainView = 'chat' | 'friends' | 'settings' | 'admin';
+type UserAudioPreference = { volume: number; muted: boolean };
+type MicrophonePermissionState = 'granted' | 'denied' | 'prompt' | 'unsupported' | 'unknown';
+const USER_AUDIO_PREFS_KEY = 'harmony_user_audio_prefs_v1';
+
+function parseUserAudioPrefs(raw: string | null): Record<string, UserAudioPreference> {
+  if (!raw) {
+    return {};
+  }
+  try {
+    const parsed = JSON.parse(raw) as Record<string, Partial<UserAudioPreference>>;
+    const normalized: Record<string, UserAudioPreference> = {};
+    for (const [userId, pref] of Object.entries(parsed)) {
+      if (!pref) {
+        continue;
+      }
+      const volume =
+        typeof pref.volume === 'number' ? Math.min(200, Math.max(0, Math.round(pref.volume))) : 100;
+      const muted = Boolean(pref.muted);
+      normalized[userId] = { volume, muted };
+    }
+    return normalized;
+  } catch {
+    return {};
+  }
+}
 
 function mergeMessages(existing: Message[], incoming: Message[]) {
   const map = new Map<string, Message>();
@@ -49,9 +69,8 @@ function messageSignature(
   userId: string,
   content: string,
   attachmentUrl?: string,
-  replyToMessageId?: string,
 ) {
-  return `${channelId}:${userId}:${content.trim().toLowerCase()}:${attachmentUrl ?? ''}:${replyToMessageId ?? ''}`;
+  return `${channelId}:${userId}:${content.trim().toLowerCase()}:${attachmentUrl ?? ''}`;
 }
 
 function isLogicalSameMessage(a: Message, b: Message) {
@@ -59,9 +78,6 @@ function isLogicalSameMessage(a: Message, b: Message) {
     return false;
   }
   if (a.content.trim() !== b.content.trim()) {
-    return false;
-  }
-  if ((a.replyToMessageId ?? null) !== (b.replyToMessageId ?? null)) {
     return false;
   }
   const aAttachmentUrl = a.attachment?.url ?? null;
@@ -88,8 +104,7 @@ function reconcileIncomingMessage(existing: Message[], incoming: Message) {
       !item.failed &&
       item.channelId === incoming.channelId &&
       item.userId === incoming.userId &&
-      item.content === incoming.content &&
-      (item.replyToMessageId ?? null) === (incoming.replyToMessageId ?? null),
+      item.content === incoming.content,
   );
 
   if (optimisticIndex >= 0) {
@@ -106,8 +121,7 @@ function reconcileIncomingMessage(existing: Message[], incoming: Message) {
     if (
       item.channelId !== incoming.channelId ||
       item.userId !== incoming.userId ||
-      item.content !== incoming.content ||
-      (item.replyToMessageId ?? null) !== (incoming.replyToMessageId ?? null)
+      item.content !== incoming.content
     ) {
       return false;
     }
@@ -158,13 +172,11 @@ export function ChatPage() {
   const [channels, setChannels] = useState<Channel[]>([]);
   const [activeChannelId, setActiveChannelId] = useState<string | null>(null);
   const [messages, setMessages] = useState<Message[]>([]);
-  const [replyingToMessageId, setReplyingToMessageId] = useState<string | null>(null);
   const [messageQuery, setMessageQuery] = useState('');
   const [loadingMessages, setLoadingMessages] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [activeView, setActiveView] = useState<MainView>('chat');
-  const [mobileDrawer, setMobileDrawer] = useState<'channels' | 'users' | null>(null);
 
   const [adminStats, setAdminStats] = useState<AdminStats | null>(null);
   const [loadingAdminStats, setLoadingAdminStats] = useState(false);
@@ -186,7 +198,6 @@ export function ChatPage() {
   const [friendsError, setFriendsError] = useState<string | null>(null);
   const [friendActionBusyId, setFriendActionBusyId] = useState<string | null>(null);
   const [submittingFriendRequest, setSubmittingFriendRequest] = useState(false);
-  const [sendingProfileFriendRequest, setSendingProfileFriendRequest] = useState(false);
   const [openingDmUserId, setOpeningDmUserId] = useState<string | null>(null);
   const [deletingChannelId, setDeletingChannelId] = useState<string | null>(null);
   const [unreadChannelCounts, setUnreadChannelCounts] = useState<Record<string, number>>({});
@@ -204,6 +215,25 @@ export function ChatPage() {
   const [savingVoiceBitrateChannelId, setSavingVoiceBitrateChannelId] = useState<string | null>(null);
 
   const [selectedUser, setSelectedUser] = useState<{ id: string; username: string } | null>(null);
+  const [composerInsertRequest, setComposerInsertRequest] = useState<{
+    key: number;
+    text: string;
+  } | null>(null);
+  const [audioInputDevices, setAudioInputDevices] = useState<
+    Array<{ deviceId: string; label: string }>
+  >([]);
+  const [microphonePermission, setMicrophonePermission] =
+    useState<MicrophonePermissionState>('unknown');
+  const [requestingMicrophonePermission, setRequestingMicrophonePermission] = useState(false);
+  const [userAudioPrefs, setUserAudioPrefs] = useState<Record<string, UserAudioPreference>>(() =>
+    parseUserAudioPrefs(localStorage.getItem(USER_AUDIO_PREFS_KEY)),
+  );
+  const [audioContextMenu, setAudioContextMenu] = useState<{
+    userId: string;
+    username: string;
+    x: number;
+    y: number;
+  } | null>(null);
   const [hiddenUnreadCount, setHiddenUnreadCount] = useState(0);
   const pendingSignaturesRef = useRef(new Set<string>());
   const pendingTimeoutsRef = useRef(new Map<string, number>());
@@ -211,6 +241,7 @@ export function ChatPage() {
   const localAnalyserRef = useRef<AnalyserNode | null>(null);
   const localAnalyserContextRef = useRef<AudioContext | null>(null);
   const localAnalyserSourceRef = useRef<MediaStreamAudioSourceNode | null>(null);
+  const localVoiceInputDeviceIdRef = useRef<string | null>(null);
   const peerConnectionsRef = useRef<Map<string, RTCPeerConnection>>(new Map());
   const pendingIceRef = useRef<Map<string, RTCIceCandidateInit[]>>(new Map());
   const voiceParticipantIdsByChannelRef = useRef<Map<string, Set<string>>>(new Map());
@@ -297,31 +328,48 @@ export function ChatPage() {
     );
   }, [messages, messageQuery]);
 
-  const replyingToMessage = useMemo(
-    () => messages.find((message) => message.id === replyingToMessageId) ?? null,
-    [messages, replyingToMessageId],
+  const getUserAudioState = useCallback(
+    (userId: string): UserAudioPreference => userAudioPrefs[userId] ?? { volume: 100, muted: false },
+    [userAudioPrefs],
   );
 
-  const selectedUserFriendRequestState = useMemo<
-    'self' | 'none' | 'friends' | 'outgoing' | 'incoming'
-  >(() => {
-    if (!selectedUser) {
-      return 'none';
+  const refreshMicrophonePermission = useCallback(async () => {
+    if (!navigator.mediaDevices?.getUserMedia) {
+      setMicrophonePermission('unsupported');
+      return;
     }
-    if (selectedUser.id === auth.user?.id) {
-      return 'self';
+    if (!navigator.permissions?.query) {
+      setMicrophonePermission('unknown');
+      return;
     }
-    if (friends.some((friend) => friend.user.id === selectedUser.id)) {
-      return 'friends';
+    try {
+      const result = await navigator.permissions.query({
+        name: 'microphone' as PermissionName,
+      });
+      setMicrophonePermission(result.state as MicrophonePermissionState);
+    } catch {
+      setMicrophonePermission('unknown');
     }
-    if (outgoingRequests.some((request) => request.to.id === selectedUser.id)) {
-      return 'outgoing';
+  }, []);
+
+  const enumerateAudioInputDevices = useCallback(async () => {
+    if (!navigator.mediaDevices?.enumerateDevices) {
+      setAudioInputDevices([]);
+      return;
     }
-    if (incomingRequests.some((request) => request.from.id === selectedUser.id)) {
-      return 'incoming';
+    try {
+      const devices = await navigator.mediaDevices.enumerateDevices();
+      const inputs = devices
+        .filter((device) => device.kind === 'audioinput')
+        .map((device, index) => ({
+          deviceId: device.deviceId,
+          label: device.label || `Microphone ${index + 1}`,
+        }));
+      setAudioInputDevices(inputs);
+    } catch {
+      setAudioInputDevices([]);
     }
-    return 'none';
-  }, [selectedUser, auth.user?.id, friends, outgoingRequests, incomingRequests]);
+  }, []);
 
   const loadMessages = useCallback(
     async (channelId: string, before?: string, prepend = false) => {
@@ -505,6 +553,7 @@ export function ChatPage() {
         track.stop();
       }
       localVoiceStreamRef.current = null;
+      localVoiceInputDeviceIdRef.current = null;
     }
     if (localAnalyserSourceRef.current) {
       localAnalyserSourceRef.current.disconnect();
@@ -520,42 +569,122 @@ export function ChatPage() {
     setRemoteAudioStreams({});
   }, [closePeerConnection]);
 
-  const getLocalVoiceStream = useCallback(async () => {
-    if (localVoiceStreamRef.current) {
-      applyLocalVoiceTrackState(localVoiceStreamRef.current);
-      return localVoiceStreamRef.current;
+  const resetLocalAnalyser = useCallback(() => {
+    if (localAnalyserSourceRef.current) {
+      localAnalyserSourceRef.current.disconnect();
+      localAnalyserSourceRef.current = null;
     }
-    if (!navigator.mediaDevices?.getUserMedia) {
-      throw new Error('Voice is not supported in this browser');
+    localAnalyserRef.current = null;
+    if (localAnalyserContextRef.current) {
+      void localAnalyserContextRef.current.close();
+      localAnalyserContextRef.current = null;
     }
-    const stream = await navigator.mediaDevices.getUserMedia({
-      audio: {
-        echoCancellation: true,
-        noiseSuppression: true,
-        autoGainControl: true,
-      },
-      video: false,
-    });
-    localVoiceStreamRef.current = stream;
-    applyLocalVoiceTrackState(stream);
+  }, []);
 
+  const initLocalAnalyser = useCallback((stream: MediaStream) => {
     const AudioContextClass =
       window.AudioContext ||
       (window as typeof window & { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
-    if (AudioContextClass && !localAnalyserRef.current) {
-      const analyserContext = new AudioContextClass();
-      const analyser = analyserContext.createAnalyser();
-      analyser.fftSize = 1024;
-      const source = analyserContext.createMediaStreamSource(stream);
-      source.connect(analyser);
-      localAnalyserContextRef.current = analyserContext;
-      localAnalyserSourceRef.current = source;
-      localAnalyserRef.current = analyser;
+    if (!AudioContextClass) {
+      return;
     }
+    resetLocalAnalyser();
+    const analyserContext = new AudioContextClass();
+    const analyser = analyserContext.createAnalyser();
+    analyser.fftSize = 1024;
+    const source = analyserContext.createMediaStreamSource(stream);
+    source.connect(analyser);
+    localAnalyserContextRef.current = analyserContext;
+    localAnalyserSourceRef.current = source;
+    localAnalyserRef.current = analyser;
+  }, [resetLocalAnalyser]);
+
+  const getLocalVoiceStream = useCallback(async () => {
+    if (!navigator.mediaDevices?.getUserMedia) {
+      throw new Error('Voice is not supported in this browser');
+    }
+    const preferredDeviceId = preferences.voiceInputDeviceId || null;
+    let resolvedDeviceId = preferredDeviceId;
+
+    if (
+      localVoiceStreamRef.current &&
+      localVoiceInputDeviceIdRef.current === preferredDeviceId
+    ) {
+      applyLocalVoiceTrackState(localVoiceStreamRef.current);
+      return localVoiceStreamRef.current;
+    }
+
+    const audioConstraints: MediaTrackConstraints = {
+      echoCancellation: true,
+      noiseSuppression: true,
+      autoGainControl: true,
+      ...(preferredDeviceId ? { deviceId: { exact: preferredDeviceId } } : {}),
+    };
+
+    let stream: MediaStream;
+    try {
+      stream = await navigator.mediaDevices.getUserMedia({
+        audio: audioConstraints,
+        video: false,
+      });
+    } catch (err) {
+      if (!preferredDeviceId) {
+        throw err;
+      }
+      updatePreferences({ voiceInputDeviceId: null });
+      resolvedDeviceId = null;
+      stream = await navigator.mediaDevices.getUserMedia({
+        audio: {
+          echoCancellation: true,
+          noiseSuppression: true,
+          autoGainControl: true,
+        },
+        video: false,
+      });
+    }
+
+    const nextTrack = stream.getAudioTracks()[0] ?? null;
+    if (!nextTrack) {
+      throw new Error('No microphone track available');
+    }
+
+    const previousStream = localVoiceStreamRef.current;
+    localVoiceStreamRef.current = stream;
+    localVoiceInputDeviceIdRef.current = resolvedDeviceId;
+
+    if (previousStream) {
+      for (const connection of peerConnectionsRef.current.values()) {
+        for (const sender of connection.getSenders()) {
+          if (sender.track?.kind !== 'audio') {
+            continue;
+          }
+          try {
+            await sender.replaceTrack(nextTrack);
+          } catch {
+            // Ignore replacement errors; next reconnection cycle can recover.
+          }
+        }
+      }
+      for (const track of previousStream.getTracks()) {
+        track.stop();
+      }
+    }
+
+    applyLocalVoiceTrackState(stream);
+    initLocalAnalyser(stream);
+    void refreshMicrophonePermission();
+    void enumerateAudioInputDevices();
 
     setLocalAudioReady(true);
     return stream;
-  }, [applyLocalVoiceTrackState]);
+  }, [
+    applyLocalVoiceTrackState,
+    enumerateAudioInputDevices,
+    initLocalAnalyser,
+    preferences.voiceInputDeviceId,
+    refreshMicrophonePermission,
+    updatePreferences,
+  ]);
 
   const applyAudioBitrateToConnection = useCallback(
     async (connection: RTCPeerConnection, bitrateKbps: number) => {
@@ -817,27 +946,6 @@ export function ChatPage() {
       }
       setMessages((prev) => reconcileIncomingMessage(prev, message));
     },
-    onMessageUpdated: (message) => {
-      if (message.channelId !== activeChannelId) {
-        return;
-      }
-      setMessages((prev) => mergeMessages(prev, [message]));
-    },
-    onMessageDeleted: (message) => {
-      if (message.channelId !== activeChannelId) {
-        return;
-      }
-      setMessages((prev) => mergeMessages(prev, [message]));
-      if (replyingToMessageId === message.id) {
-        setReplyingToMessageId(null);
-      }
-    },
-    onMessageReaction: (payload: MessageReactionEventPayload) => {
-      if (payload.message.channelId !== activeChannelId) {
-        return;
-      }
-      setMessages((prev) => mergeMessages(prev, [payload.message]));
-    },
     onFriendEvent: () => {
       void loadFriendData();
     },
@@ -916,6 +1024,58 @@ export function ChatPage() {
   }, [hiddenUnreadCount]);
 
   useEffect(() => {
+    void refreshMicrophonePermission();
+    void enumerateAudioInputDevices();
+    if (!navigator.mediaDevices?.addEventListener) {
+      return;
+    }
+    const handleDeviceChange = () => {
+      void enumerateAudioInputDevices();
+    };
+    navigator.mediaDevices.addEventListener('devicechange', handleDeviceChange);
+    return () => {
+      navigator.mediaDevices.removeEventListener('devicechange', handleDeviceChange);
+    };
+  }, [refreshMicrophonePermission, enumerateAudioInputDevices]);
+
+  useEffect(() => {
+    if (!preferences.voiceInputDeviceId) {
+      return;
+    }
+    if (audioInputDevices.length === 0) {
+      return;
+    }
+    if (audioInputDevices.some((device) => device.deviceId === preferences.voiceInputDeviceId)) {
+      return;
+    }
+    updatePreferences({ voiceInputDeviceId: null });
+  }, [audioInputDevices, preferences.voiceInputDeviceId, updatePreferences]);
+
+  useEffect(() => {
+    localStorage.setItem(USER_AUDIO_PREFS_KEY, JSON.stringify(userAudioPrefs));
+  }, [userAudioPrefs]);
+
+  useEffect(() => {
+    if (!audioContextMenu) {
+      return;
+    }
+    const close = () => setAudioContextMenu(null);
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        close();
+      }
+    };
+    window.addEventListener('mousedown', close);
+    window.addEventListener('scroll', close, true);
+    window.addEventListener('keydown', onKeyDown);
+    return () => {
+      window.removeEventListener('mousedown', close);
+      window.removeEventListener('scroll', close, true);
+      window.removeEventListener('keydown', onKeyDown);
+    };
+  }, [audioContextMenu]);
+
+  useEffect(() => {
     if (!notice) {
       return;
     }
@@ -982,34 +1142,22 @@ export function ChatPage() {
   }, [activeView, activeChannelId]);
 
   useEffect(() => {
+    setAudioContextMenu(null);
+  }, [activeView, activeChannelId]);
+
+  useEffect(() => {
     if (!activeChannelId) {
       setMessages([]);
-      setReplyingToMessageId(null);
       return;
     }
     if (activeChannel?.isVoice) {
       setMessages([]);
       setMessageQuery('');
-      setReplyingToMessageId(null);
       return;
     }
     setMessageQuery('');
     void loadMessages(activeChannelId);
   }, [activeChannelId, activeChannel?.isVoice, loadMessages]);
-
-  useEffect(() => {
-    if (!replyingToMessageId) {
-      return;
-    }
-    if (messages.some((message) => message.id === replyingToMessageId)) {
-      return;
-    }
-    setReplyingToMessageId(null);
-  }, [messages, replyingToMessageId]);
-
-  useEffect(() => {
-    setMobileDrawer(null);
-  }, [activeView, activeChannelId]);
 
   useEffect(() => {
     if (!ws.connected || !activeVoiceChannelId || !auth.user) {
@@ -1289,26 +1437,6 @@ export function ChatPage() {
     [auth.token, loadFriendData],
   );
 
-  const sendFriendRequestFromProfile = useCallback(
-    async (username: string) => {
-      if (!auth.token) {
-        return;
-      }
-      setSendingProfileFriendRequest(true);
-      try {
-        await chatApi.sendFriendRequest(auth.token, username);
-        await loadFriendData();
-        setFriendsError(null);
-        setNotice(`Friend request sent to @${username}`);
-      } catch (err) {
-        setFriendsError(getErrorMessage(err, 'Could not send friend request'));
-      } finally {
-        setSendingProfileFriendRequest(false);
-      }
-    },
-    [auth.token, loadFriendData],
-  );
-
   const acceptFriendRequest = useCallback(
     async (requestId: string) => {
       if (!auth.token) {
@@ -1450,6 +1578,73 @@ export function ChatPage() {
     [ws, activeVoiceChannelId, playVoiceStateSound],
   );
 
+  const openUserAudioMenu = useCallback(
+    (user: { id: string; username: string }, position: { x: number; y: number }) => {
+      if (!auth.user || user.id === auth.user.id) {
+        return;
+      }
+      const menuWidth = 280;
+      const menuHeight = 190;
+      const x = Math.max(8, Math.min(position.x, window.innerWidth - menuWidth - 8));
+      const y = Math.max(8, Math.min(position.y, window.innerHeight - menuHeight - 8));
+      setAudioContextMenu({
+        userId: user.id,
+        username: user.username,
+        x,
+        y,
+      });
+    },
+    [auth.user],
+  );
+
+  const setUserVolume = useCallback((userId: string, volume: number) => {
+    setUserAudioPrefs((prev) => ({
+      ...prev,
+      [userId]: {
+        volume: Math.min(200, Math.max(0, Math.round(volume))),
+        muted: prev[userId]?.muted ?? false,
+      },
+    }));
+  }, []);
+
+  const toggleUserMuted = useCallback((userId: string) => {
+    setUserAudioPrefs((prev) => {
+      const current = prev[userId] ?? { volume: 100, muted: false };
+      return {
+        ...prev,
+        [userId]: {
+          ...current,
+          muted: !current.muted,
+        },
+      };
+    });
+  }, []);
+
+  const requestMicrophonePermission = useCallback(async () => {
+    if (!navigator.mediaDevices?.getUserMedia) {
+      setMicrophonePermission('unsupported');
+      return;
+    }
+    if (!window.isSecureContext) {
+      setError('Microphone permission requires HTTPS (or localhost).');
+      return;
+    }
+    setRequestingMicrophonePermission(true);
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
+      for (const track of stream.getTracks()) {
+        track.stop();
+      }
+      await Promise.all([refreshMicrophonePermission(), enumerateAudioInputDevices()]);
+      setError(null);
+    } catch (err) {
+      setError(getErrorMessage(err, 'Microphone permission was denied'));
+      await refreshMicrophonePermission();
+    } finally {
+      setRequestingMicrophonePermission(false);
+    }
+  }, [enumerateAudioInputDevices, refreshMicrophonePermission]);
+
   useEffect(() => {
     if (activeView !== 'admin' || !auth.user?.isAdmin) {
       return;
@@ -1519,20 +1714,12 @@ export function ChatPage() {
     return <Navigate to="/login" replace />;
   }
 
-  const sendMessage = async (payload: {
-    content: string;
-    attachment?: MessageAttachment;
-    replyToMessageId?: string;
-  }) => {
+  const sendMessage = async (payload: { content: string; attachment?: MessageAttachment }) => {
     if (!auth.token || !activeChannelId || !auth.user) {
       return;
     }
     const trimmedContent = payload.content.trim();
     const attachment = payload.attachment;
-    const replyToMessageId = payload.replyToMessageId;
-    const replyTo = replyToMessageId
-      ? messages.find((message) => message.id === replyToMessageId)
-      : null;
     if (!trimmedContent && !attachment) {
       return;
     }
@@ -1542,7 +1729,6 @@ export function ChatPage() {
       auth.user.id,
       trimmedContent,
       attachment?.url,
-      replyToMessageId,
     );
     if (pendingSignaturesRef.current.has(signature)) {
       return;
@@ -1558,17 +1744,8 @@ export function ChatPage() {
       attachment: attachment ?? null,
       editedAt: null,
       deletedAt: null,
-      replyToMessageId: replyToMessageId ?? null,
-      replyTo: replyTo
-        ? {
-            id: replyTo.id,
-            userId: replyTo.userId,
-            content: replyTo.content,
-            createdAt: replyTo.createdAt,
-            deletedAt: replyTo.deletedAt,
-            user: replyTo.user,
-          }
-        : null,
+      replyToMessageId: null,
+      replyTo: null,
       reactions: [],
       createdAt: new Date().toISOString(),
       optimistic: true,
@@ -1577,11 +1754,10 @@ export function ChatPage() {
     setMessages((prev) => mergeMessages(prev, [optimisticMessage]));
 
     const wsSent =
-      !attachment && !replyToMessageId && trimmedContent && ws.connected
+      !attachment && trimmedContent && ws.connected
         ? ws.sendMessage(activeChannelId, trimmedContent)
         : false;
     if (wsSent) {
-      setReplyingToMessageId(null);
       return;
     }
 
@@ -1591,10 +1767,8 @@ export function ChatPage() {
         activeChannelId,
         trimmedContent,
         attachment,
-        replyToMessageId,
       );
       clearPendingSignature(signature);
-      setReplyingToMessageId(null);
       setMessages((prev) => {
         const replaced = prev.map((item) => (item.id === optimisticMessage.id ? response.message : item));
         return mergeMessages(replaced, []);
@@ -1629,51 +1803,6 @@ export function ChatPage() {
       return;
     }
     await loadMessages(activeChannelId, messages[0].createdAt, true);
-  };
-
-  const editMessage = async (messageId: string, content: string) => {
-    if (!auth.token || !activeChannelId) {
-      return;
-    }
-    try {
-      const response = await chatApi.updateMessage(auth.token, activeChannelId, messageId, content);
-      setMessages((prev) => mergeMessages(prev, [response.message]));
-      setError(null);
-    } catch (err) {
-      setError(getErrorMessage(err, 'Could not edit message'));
-      throw err;
-    }
-  };
-
-  const deleteMessage = async (messageId: string) => {
-    if (!auth.token || !activeChannelId) {
-      return;
-    }
-    try {
-      const response = await chatApi.deleteMessage(auth.token, activeChannelId, messageId);
-      setMessages((prev) => mergeMessages(prev, [response.message]));
-      if (replyingToMessageId === messageId) {
-        setReplyingToMessageId(null);
-      }
-      setError(null);
-    } catch (err) {
-      setError(getErrorMessage(err, 'Could not delete message'));
-      throw err;
-    }
-  };
-
-  const toggleMessageReaction = async (messageId: string, emoji: string) => {
-    if (!auth.token || !activeChannelId) {
-      return;
-    }
-    try {
-      const response = await chatApi.toggleMessageReaction(auth.token, activeChannelId, messageId, emoji);
-      setMessages((prev) => mergeMessages(prev, [response.message]));
-      setError(null);
-    } catch (err) {
-      setError(getErrorMessage(err, 'Could not update reaction'));
-      throw err;
-    }
   };
 
   const logout = async () => {
@@ -1802,18 +1931,13 @@ export function ChatPage() {
         : 'Connecting...';
 
   return (
-    <main
-      className={`chat-layout${mobileDrawer === 'channels' ? ' mobile-channels-open' : ''}${
-        mobileDrawer === 'users' ? ' mobile-users-open' : ''
-      }`}
-    >
+    <main className="chat-layout">
       <ChannelSidebar
         channels={channels}
         activeChannelId={activeChannelId}
         onSelect={(channelId) => {
           setActiveChannelId(channelId);
           setActiveView('chat');
-          setMobileDrawer(null);
           setUnreadChannelCounts((prev) => {
             if (!prev[channelId]) {
               return prev;
@@ -1825,10 +1949,7 @@ export function ChatPage() {
         }}
         unreadChannelCounts={unreadChannelCounts}
         activeView={activeView}
-        onChangeView={(view) => {
-          setActiveView(view);
-          setMobileDrawer(null);
-        }}
+        onChangeView={setActiveView}
         onLogout={logout}
         username={auth.user.username}
         isAdmin={auth.user.isAdmin}
@@ -1847,32 +1968,10 @@ export function ChatPage() {
         incomingFriendRequests={incomingRequests.length}
       />
 
-      {mobileDrawer ? (
-        <button
-          className="mobile-drawer-backdrop"
-          aria-label="Close mobile drawer"
-          onClick={() => setMobileDrawer(null)}
-        />
-      ) : null}
-
       <section className="chat-panel">
         <header className="panel-header">
           <div className="panel-header-main">
-            <button
-              className="mobile-pane-toggle"
-              onClick={() => setMobileDrawer((current) => (current === 'channels' ? null : 'channels'))}
-            >
-              Channels
-            </button>
             <h1>{panelTitle}</h1>
-            {activeView === 'chat' ? (
-              <button
-                className="mobile-pane-toggle"
-                onClick={() => setMobileDrawer((current) => (current === 'users' ? null : 'users'))}
-              >
-                People
-              </button>
-            ) : null}
             {error ? <p className="error-banner">{error}</p> : null}
             {!error && notice ? <p className="info-banner">{notice}</p> : null}
           </div>
@@ -1940,6 +2039,13 @@ export function ChatPage() {
                 showVoiceActivity={preferences.showVoiceActivity}
                 onJoin={() => joinVoiceChannel(activeChannel.id)}
                 onLeave={leaveVoiceChannel}
+                onParticipantContextMenu={(participant, position) =>
+                  openUserAudioMenu(
+                    { id: participant.userId, username: participant.username },
+                    position,
+                  )
+                }
+                getParticipantAudioState={(userId) => getUserAudioState(userId)}
               />
             ) : (
               <>
@@ -1950,31 +2056,19 @@ export function ChatPage() {
                   wsConnected={ws.connected}
                   use24HourClock={preferences.use24HourClock}
                   showSeconds={preferences.showSeconds}
-                  currentUserId={auth.user.id}
-                  currentUsername={auth.user.username}
-                  replyingToMessageId={replyingToMessageId}
                   onLoadOlder={loadOlder}
                   onUserClick={setSelectedUser}
-                  onReplyToMessage={(message) => {
-                    setReplyingToMessageId(message.id);
+                  onMentionUser={(user) => {
+                    setComposerInsertRequest({
+                      key: Date.now(),
+                      text: `@${user.username}`,
+                    });
                   }}
-                  onEditMessage={editMessage}
-                  onDeleteMessage={deleteMessage}
-                  onToggleReaction={toggleMessageReaction}
                 />
                 <MessageComposer
                   disabled={!activeChannelId}
                   enterToSend={preferences.enterToSend}
-                  replyingTo={
-                    replyingToMessage
-                      ? {
-                          id: replyingToMessage.id,
-                          username: replyingToMessage.user.username,
-                          content: replyingToMessage.content,
-                        }
-                      : null
-                  }
-                  onCancelReply={() => setReplyingToMessageId(null)}
+                  insertRequest={composerInsertRequest}
                   onSend={sendMessage}
                   onUploadAttachment={uploadAttachment}
                 />
@@ -2008,8 +2102,12 @@ export function ChatPage() {
             user={auth.user}
             wsConnected={ws.connected}
             preferences={preferences}
+            audioInputDevices={audioInputDevices}
+            microphonePermission={microphonePermission}
+            requestingMicrophonePermission={requestingMicrophonePermission}
             onUpdatePreferences={updatePreferences}
             onResetPreferences={resetPreferences}
+            onRequestMicrophonePermission={requestMicrophonePermission}
             onLogout={logout}
           />
         ) : null}
@@ -2039,7 +2137,13 @@ export function ChatPage() {
         ) : null}
       </section>
 
-      {activeView === 'chat' ? <UserSidebar users={onlineUsers} onUserClick={setSelectedUser} /> : null}
+      {activeView === 'chat' ? (
+        <UserSidebar
+          users={onlineUsers}
+          onUserClick={setSelectedUser}
+          onUserContextMenu={(user, position) => openUserAudioMenu(user, position)}
+        />
+      ) : null}
 
       <div className="voice-audio-sinks" aria-hidden="true">
         {activeRemoteAudioUsers.map((user) => (
@@ -2047,7 +2151,7 @@ export function ChatPage() {
             key={user.userId}
             autoPlay
             playsInline
-            muted={isSelfDeafened}
+            muted={isSelfDeafened || getUserAudioState(user.userId).muted}
             ref={(node) => {
               if (!node) {
                 return;
@@ -2055,77 +2159,56 @@ export function ChatPage() {
               if (node.srcObject !== user.stream) {
                 node.srcObject = user.stream;
               }
+              const localAudio = getUserAudioState(user.userId);
+              const effectiveVolume =
+                (preferences.voiceOutputVolume / 100) * (localAudio.volume / 100);
+              node.volume = Math.min(2, Math.max(0, effectiveVolume));
+              node.muted =
+                isSelfDeafened ||
+                localAudio.muted ||
+                preferences.voiceOutputVolume <= 0 ||
+                localAudio.volume <= 0;
             }}
           />
         ))}
       </div>
 
-      <nav className="mobile-bottom-nav" aria-label="Mobile navigation">
-        <button
-          className={mobileDrawer === 'channels' ? 'active' : ''}
-          onClick={() => setMobileDrawer((current) => (current === 'channels' ? null : 'channels'))}
+      {audioContextMenu ? (
+        <div
+          className="audio-context-menu"
+          style={{ left: `${audioContextMenu.x}px`, top: `${audioContextMenu.y}px` }}
+          onMouseDown={(event) => event.stopPropagation()}
         >
-          Channels
-        </button>
-        <button
-          className={activeView === 'chat' ? 'active' : ''}
-          onClick={() => {
-            setActiveView('chat');
-            setMobileDrawer(null);
-          }}
-        >
-          Chat
-        </button>
-        <button
-          className={activeView === 'friends' ? 'active' : ''}
-          onClick={() => {
-            setActiveView('friends');
-            setMobileDrawer(null);
-          }}
-        >
-          Friends
-        </button>
-        <button
-          className={activeView === 'settings' ? 'active' : ''}
-          onClick={() => {
-            setActiveView('settings');
-            setMobileDrawer(null);
-          }}
-        >
-          Settings
-        </button>
-        {activeView === 'chat' ? (
+          <header>
+            <strong>{audioContextMenu.username}</strong>
+            <small>Local audio controls</small>
+          </header>
+          <label className="audio-context-volume">
+            <span>Volume</span>
+            <input
+              type="range"
+              min={0}
+              max={200}
+              step={1}
+              value={getUserAudioState(audioContextMenu.userId).volume}
+              onChange={(event) => {
+                setUserVolume(audioContextMenu.userId, Number(event.target.value));
+              }}
+            />
+            <output>{getUserAudioState(audioContextMenu.userId).volume}%</output>
+          </label>
           <button
-            className={mobileDrawer === 'users' ? 'active' : ''}
-            onClick={() => setMobileDrawer((current) => (current === 'users' ? null : 'users'))}
-          >
-            People
-          </button>
-        ) : auth.user.isAdmin ? (
-          <button
-            className={activeView === 'admin' ? 'active' : ''}
+            className={getUserAudioState(audioContextMenu.userId).muted ? 'ghost-btn danger' : 'ghost-btn'}
             onClick={() => {
-              setActiveView('admin');
-              setMobileDrawer(null);
+              toggleUserMuted(audioContextMenu.userId);
             }}
           >
-            Admin
+            {getUserAudioState(audioContextMenu.userId).muted ? 'Unmute User' : 'Mute User'}
           </button>
-        ) : (
-          <button disabled>Profile</button>
-        )}
-      </nav>
+        </div>
+      ) : null}
 
-      <UserProfile
-        user={selectedUser}
-        onClose={() => setSelectedUser(null)}
-        currentUser={auth.user}
-        friendRequestState={selectedUserFriendRequestState}
-        sendingFriendRequest={sendingProfileFriendRequest}
-        onSendFriendRequest={(username) => {
-          void sendFriendRequestFromProfile(username);
-        }}
-      />
+      <UserProfile user={selectedUser} onClose={() => setSelectedUser(null)} currentUser={auth.user} />
     </main>
   );
 }

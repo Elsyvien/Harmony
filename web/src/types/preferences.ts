@@ -14,6 +14,7 @@ export interface UserPreferences {
   voiceOutputVolume: number;
   showVoiceActivity: boolean;
   autoMuteOnJoin: boolean;
+  voiceInputDeviceId: string | null;
 }
 
 export const DEFAULT_USER_PREFERENCES: UserPreferences = {
@@ -29,4 +30,5 @@ export const DEFAULT_USER_PREFERENCES: UserPreferences = {
   voiceOutputVolume: 100,
   showVoiceActivity: true,
   autoMuteOnJoin: false,
+  voiceInputDeviceId: null,
 };

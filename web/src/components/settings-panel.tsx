@@ -6,8 +6,17 @@ interface SettingsPanelProps {
   user: User;
   wsConnected: boolean;
   preferences: UserPreferences;
+  audioInputDevices: Array<{ deviceId: string; label: string }>;
+  microphonePermission:
+    | 'granted'
+    | 'denied'
+    | 'prompt'
+    | 'unsupported'
+    | 'unknown';
+  requestingMicrophonePermission: boolean;
   onUpdatePreferences: (patch: Partial<UserPreferences>) => void;
   onResetPreferences: () => void;
+  onRequestMicrophonePermission: () => Promise<void>;
   onLogout: () => Promise<void>;
 }
 
@@ -21,6 +30,7 @@ function currentNotificationPermission() {
 export function SettingsPanel(props: SettingsPanelProps) {
   const [notificationPermission, setNotificationPermission] = useState(currentNotificationPermission());
   const [requestingNotifications, setRequestingNotifications] = useState(false);
+  const [notificationHint, setNotificationHint] = useState<string | null>(null);
   const [loggingOut, setLoggingOut] = useState(false);
 
   const createdAt = useMemo(
@@ -33,6 +43,10 @@ export function SettingsPanel(props: SettingsPanelProps) {
   );
 
   const connectionLabel = props.wsConnected ? 'Connected (WebSocket)' : 'Polling fallback';
+  const canRequestNotifications =
+    notificationPermission !== 'unsupported' &&
+    notificationPermission !== 'granted' &&
+    !requestingNotifications;
 
   return (
     <section className="settings-panel discord-settings-panel">
@@ -331,6 +345,52 @@ export function SettingsPanel(props: SettingsPanelProps) {
                 }
               />
             </label>
+
+            <label className="settings-row">
+              <span className="settings-row-copy">
+                <strong>Input device</strong>
+                <small>Select which microphone is used for voice chat.</small>
+              </span>
+              <select
+                className="settings-select"
+                value={props.preferences.voiceInputDeviceId ?? ''}
+                onChange={(event) =>
+                  props.onUpdatePreferences({
+                    voiceInputDeviceId: event.target.value || null,
+                  })
+                }
+              >
+                <option value="">System default microphone</option>
+                {props.audioInputDevices.map((device) => (
+                  <option key={device.deviceId} value={device.deviceId}>
+                    {device.label}
+                  </option>
+                ))}
+              </select>
+            </label>
+
+            <div className="settings-row">
+              <span className="settings-row-copy">
+                <strong>Microphone permission</strong>
+                <small>
+                  {props.microphonePermission === 'unsupported'
+                    ? 'Microphone API is not supported in this browser.'
+                    : `Current permission: ${props.microphonePermission}`}
+                </small>
+              </span>
+              <button
+                className="ghost-btn"
+                disabled={
+                  props.microphonePermission === 'unsupported' ||
+                  props.requestingMicrophonePermission
+                }
+                onClick={() => {
+                  void props.onRequestMicrophonePermission();
+                }}
+              >
+                {props.requestingMicrophonePermission ? 'Requesting...' : 'Enable microphone'}
+              </button>
+            </div>
           </section>
 
           <section id="notifications" className="settings-section">
@@ -346,19 +406,37 @@ export function SettingsPanel(props: SettingsPanelProps) {
               </span>
               <button
                 className="ghost-btn"
-                disabled={
-                  notificationPermission === 'unsupported' ||
-                  notificationPermission === 'granted' ||
-                  requestingNotifications
-                }
+                disabled={!canRequestNotifications}
                 onClick={async () => {
                   if (typeof window === 'undefined' || !('Notification' in window)) {
+                    setNotificationHint('Notifications are not supported in this browser.');
+                    return;
+                  }
+                  if (!window.isSecureContext) {
+                    setNotificationHint(
+                      'Notification permission requires HTTPS (or localhost).',
+                    );
                     return;
                   }
                   setRequestingNotifications(true);
+                  setNotificationHint(null);
                   try {
                     const permission = await Notification.requestPermission();
                     setNotificationPermission(permission);
+                    if (permission === 'default') {
+                      setNotificationHint(
+                        'Permission prompt was dismissed. On mobile, open browser site settings to allow notifications.',
+                      );
+                    }
+                    if (permission === 'denied') {
+                      setNotificationHint(
+                        'Notifications are blocked. Enable them in your browser/site settings.',
+                      );
+                    }
+                  } catch {
+                    setNotificationHint(
+                      'Could not request notification permission in this browser context.',
+                    );
                   } finally {
                     setRequestingNotifications(false);
                   }
@@ -367,6 +445,7 @@ export function SettingsPanel(props: SettingsPanelProps) {
                 {requestingNotifications ? 'Requesting...' : 'Enable notifications'}
               </button>
             </div>
+            {notificationHint ? <p className="setting-hint">{notificationHint}</p> : null}
 
             <div className="settings-shortcuts">
               <p>Search channels in the left sidebar.</p>

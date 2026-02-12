@@ -1680,7 +1680,7 @@ body.theme-light .role-pill {
 .message-item {
   display: flex;
   padding: 6px 16px; /* Tight padding */
-  margin-top: 8px;
+  margin-top: 3px;
   animation: slideIn 0.15s ease-out;
 }
 
@@ -1992,6 +1992,98 @@ body.font-scale-lg {
   color: var(--text-muted);
   font-size: 11px;
   line-height: 1.3;
+}
+
+.message-context-menu {
+  position: fixed;
+  z-index: 52;
+  min-width: 210px;
+  border: 1px solid var(--panel-border);
+  border-radius: 10px;
+  background-color: #15171c;
+  box-shadow: 0 12px 30px rgba(0, 0, 0, 0.45);
+  padding: 6px;
+  display: grid;
+  gap: 4px;
+}
+
+.message-context-menu button {
+  width: 100%;
+  text-align: left;
+  border: 1px solid transparent;
+  border-radius: 7px;
+  padding: 8px 10px;
+  background: transparent;
+  color: var(--text-normal);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.message-context-menu button:hover:not(:disabled) {
+  border-color: var(--panel-border);
+  background-color: rgba(88, 101, 242, 0.14);
+  color: var(--text-header);
+}
+
+.message-context-menu button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.audio-context-menu {
+  position: fixed;
+  z-index: 56;
+  min-width: 260px;
+  border: 1px solid var(--panel-border);
+  border-radius: 10px;
+  background: #15171c;
+  box-shadow: 0 14px 34px rgba(0, 0, 0, 0.48);
+  padding: 10px;
+  display: grid;
+  gap: 10px;
+}
+
+.audio-context-menu header {
+  display: grid;
+  gap: 2px;
+}
+
+.audio-context-menu strong {
+  color: var(--text-header);
+  font-size: 13px;
+}
+
+.audio-context-menu small {
+  color: var(--text-muted);
+  font-size: 11px;
+}
+
+.audio-context-volume {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 8px;
+  align-items: center;
+}
+
+.audio-context-volume span {
+  grid-column: 1 / -1;
+  color: var(--text-muted);
+  font-size: 12px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.audio-context-volume input[type='range'] {
+  width: 100%;
+}
+
+.audio-context-volume output {
+  min-width: 44px;
+  text-align: right;
+  color: var(--text-header);
+  font-size: 12px;
+  font-weight: 700;
 }
 
 /* Composer */
