@@ -50,6 +50,7 @@ export function ChatView(props: ChatViewProps) {
   } | null>(null);
   const [reactionPickerMessageId, setReactionPickerMessageId] = useState<string | null>(null);
   const longPressTimeoutRef = useRef<number | null>(null);
+  const suppressNextClickRef = useRef(false);
   const messageReactionPanelEmojis = useMemo(
     () => Array.from(new Set([...recentEmojis, ...MESSAGE_REACTION_PANEL_EMOJIS])),
     [recentEmojis],
@@ -279,8 +280,17 @@ export function ChatView(props: ChatViewProps) {
                   }
                   clearLongPress();
                   longPressTimeoutRef.current = window.setTimeout(() => {
+                    suppressNextClickRef.current = true;
                     openMessageMenu(message, touch.clientX, touch.clientY);
                   }, 440);
+                }}
+                onClickCapture={(event) => {
+                  if (!suppressNextClickRef.current) {
+                    return;
+                  }
+                  suppressNextClickRef.current = false;
+                  event.preventDefault();
+                  event.stopPropagation();
                 }}
                 onTouchEnd={clearLongPress}
                 onTouchCancel={clearLongPress}

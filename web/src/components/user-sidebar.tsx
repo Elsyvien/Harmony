@@ -1,4 +1,4 @@
-import { useRef } from 'react';
+import { useCallback, useEffect, useRef } from 'react';
 import { resolveMediaUrl } from '../utils/media-url';
 
 interface UserSidebarProps {
@@ -21,14 +21,21 @@ function stringToColor(str: string) {
 
 export function UserSidebar({ users, onUserClick, onUserContextMenu }: UserSidebarProps) {
   const longPressTimeoutRef = useRef<number | null>(null);
+  const suppressClickRef = useRef(false);
 
-  const clearLongPress = () => {
+  const clearLongPress = useCallback(() => {
     if (!longPressTimeoutRef.current) {
       return;
     }
     window.clearTimeout(longPressTimeoutRef.current);
     longPressTimeoutRef.current = null;
-  };
+  }, []);
+
+  useEffect(() => {
+    return () => {
+      clearLongPress();
+    };
+  }, [clearLongPress]);
 
   return (
     <aside className="user-sidebar">
@@ -42,7 +49,13 @@ export function UserSidebar({ users, onUserClick, onUserContextMenu }: UserSideb
             <div
               key={user.id}
               className="user-item"
-              onClick={() => onUserClick?.(user)}
+              onClick={() => {
+                if (suppressClickRef.current) {
+                  suppressClickRef.current = false;
+                  return;
+                }
+                onUserClick?.(user);
+              }}
               onContextMenu={(event) => {
                 if (!onUserContextMenu) {
                   return;
@@ -60,6 +73,7 @@ export function UserSidebar({ users, onUserClick, onUserContextMenu }: UserSideb
                 }
                 clearLongPress();
                 longPressTimeoutRef.current = window.setTimeout(() => {
+                  suppressClickRef.current = true;
                   onUserContextMenu(user, { x: touch.clientX, y: touch.clientY });
                 }, 440);
               }}
