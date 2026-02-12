@@ -16,49 +16,34 @@
     <div class="layout">
       <aside class="sidebar">
         <h1 class="brand">Harmony Docs</h1>
-        <p class="tagline">Full application reference</p>
+        <p class="tagline">Canonical documentation hub</p>
         <input id="doc-search" class="search" placeholder="Search docs..." />
 
         <div class="nav-group">
-          <p class="nav-title">Foundation</p>
+          <p class="nav-title">Overview</p>
           <a class="nav-link" href="#overview">Overview</a>
-          <a class="nav-link" href="#architecture">Architecture</a>
-          <a class="nav-link" href="#data-model">Data Model</a>
-          <a class="nav-link" href="#env">Environment</a>
-        </div>
-
-        <div class="nav-group">
-          <p class="nav-title">Backend API</p>
-          <a class="nav-link" href="#http-auth">HTTP Auth</a>
-          <a class="nav-link" href="#http-channels">HTTP Channels & Messages</a>
-          <a class="nav-link" href="#http-friends">HTTP Friends</a>
-          <a class="nav-link" href="#http-admin">HTTP Admin</a>
-          <a class="nav-link" href="#http-errors">HTTP Errors</a>
-          <a class="nav-link" href="#ws">WebSocket Protocol</a>
-        </div>
-
-        <div class="nav-group">
-          <p class="nav-title">Function Reference</p>
-          <a class="nav-link" href="#backend-functions">Backend Modules</a>
-          <a class="nav-link" href="#frontend-functions">Frontend Modules</a>
-          <a class="nav-link" href="#ui-map">UI Map</a>
-          <a class="nav-link" href="#operations">Operations</a>
+          <a class="nav-link" href="#reading-order">Reading Order</a>
+          <a class="nav-link" href="#docs-map">Docs Map</a>
+          <a class="nav-link" href="#quickstart">Quick Start</a>
+          <a class="nav-link" href="#consistency">Consistency Notes</a>
         </div>
       </aside>
 
       <main class="main">
         <section class="hero">
-          <h1>Harmony Application Documentation</h1>
+          <h1>Harmony Documentation</h1>
           <p>
-            Harmony is a Discord-style chat platform built with Fastify + Prisma (backend) and
-            React + Vite (frontend). This page documents system design, REST and WebSocket
-            contracts, and function-level APIs from both backend and frontend modules.
+            This page is the entrypoint for the full documentation set in <code>docs/</code>.
+            The detailed references are maintained in markdown files and are intended for both
+            human contributors and AI agents.
           </p>
           <div class="quick-links">
-            <a class="chip" href="#http-auth">REST API</a>
-            <a class="chip" href="#ws">WebSocket Events</a>
-            <a class="chip" href="#backend-functions">Backend Functions</a>
-            <a class="chip" href="#frontend-functions">Frontend Functions</a>
+            <a class="chip" href="./README.md">Docs Hub</a>
+            <a class="chip" href="./AI_AGENT_GUIDE.md">AI Agent Guide</a>
+            <a class="chip" href="./BACKEND_REFERENCE.md">Backend Reference</a>
+            <a class="chip" href="./FRONTEND_REFERENCE.md">Frontend Reference</a>
+            <a class="chip" href="./DATA_MODEL.md">Data Model</a>
+            <a class="chip" href="./OPERATIONS.md">Operations</a>
           </div>
         </section>
 
@@ -66,504 +51,100 @@
           <h2>Overview</h2>
           <div class="grid cols-2">
             <article class="card">
-              <h3>Core Features</h3>
+              <h3>Application Scope</h3>
               <p>
-                JWT auth, channel messaging, uploads, friendships, direct messages, voice
-                signaling, admin controls, role-based permissions, and live events over WebSocket.
+                Harmony provides authenticated chat with public channels, friend-gated direct
+                channels, realtime events, voice signaling/transport, and admin runtime controls.
               </p>
             </article>
             <article class="card">
-              <h3>Tech Stack</h3>
+              <h3>Primary Entry Files</h3>
               <p>
-                Backend: Fastify, Prisma, Zod, JWT, multipart uploads.<br />
-                Frontend: React 19, React Router, TypeScript, Vite.<br />
-                Tests: Vitest backend service tests.
+                Backend: <code>backend/src/server.ts</code>, <code>backend/src/app.ts</code>.<br />
+                Frontend: <code>web/src/main.tsx</code>, <code>web/src/App.tsx</code>.
               </p>
             </article>
           </div>
-          <p class="muted">
-            Entry points: <code>backend/src/server.ts</code>, <code>backend/src/app.ts</code>,
-            <code>web/src/main.tsx</code>, <code>web/src/App.tsx</code>.
-          </p>
         </section>
 
-        <section id="architecture" class="section">
-          <h2>Architecture</h2>
+        <section id="reading-order" class="section">
+          <h2>Recommended Reading Order</h2>
           <table>
             <thead>
               <tr>
-                <th>Layer</th>
-                <th>Primary Modules</th>
-                <th>Responsibility</th>
+                <th>Order</th>
+                <th>Document</th>
+                <th>Why</th>
               </tr>
             </thead>
             <tbody>
               <tr>
-                <td class="mono">HTTP & WS Transport</td>
-                <td class="mono">backend/src/routes/*, backend/src/plugins/ws.plugin.ts</td>
-                <td>Validates input, authenticates, delegates to services, emits live events.</td>
+                <td>1</td>
+                <td><a href="./AI_AGENT_GUIDE.md"><code>docs/AI_AGENT_GUIDE.md</code></a></td>
+                <td>Invariants, high-risk files, and safe change workflows.</td>
               </tr>
               <tr>
-                <td class="mono">Domain Services</td>
-                <td class="mono">backend/src/services/*</td>
-                <td>Business rules for auth, messages, channels, friendships, and admin actions.</td>
+                <td>2</td>
+                <td><a href="./ARCHITECTURE.md"><code>docs/ARCHITECTURE.md</code></a></td>
+                <td>System topology and runtime lifecycle.</td>
               </tr>
               <tr>
-                <td class="mono">Data Access</td>
-                <td class="mono">backend/src/repositories/*</td>
-                <td>Typed persistence layer over Prisma models.</td>
+                <td>3</td>
+                <td><a href="./BACKEND_REFERENCE.md"><code>docs/BACKEND_REFERENCE.md</code></a></td>
+                <td>Exact backend contracts and behavior.</td>
               </tr>
               <tr>
-                <td class="mono">Frontend API + State</td>
-                <td class="mono">web/src/api/*, web/src/store/auth-store.tsx, web/src/hooks/*</td>
-                <td>Client requests, auth/session persistence, socket lifecycle, preferences.</td>
+                <td>4</td>
+                <td><a href="./FRONTEND_REFERENCE.md"><code>docs/FRONTEND_REFERENCE.md</code></a></td>
+                <td>State orchestration, UI modules, realtime fallback logic.</td>
+              </tr>
+              <tr>
+                <td>5</td>
+                <td><a href="./DATA_MODEL.md"><code>docs/DATA_MODEL.md</code></a></td>
+                <td>Schema constraints and domain invariants.</td>
+              </tr>
+              <tr>
+                <td>6</td>
+                <td><a href="./OPERATIONS.md"><code>docs/OPERATIONS.md</code></a></td>
+                <td>Runbooks, setup, troubleshooting, deploy checks.</td>
+              </tr>
+              <tr>
+                <td>7</td>
+                <td><a href="./FILE_MAP.md"><code>docs/FILE_MAP.md</code></a></td>
+                <td>File-by-file ownership and responsibilities.</td>
               </tr>
             </tbody>
           </table>
         </section>
 
-        <section id="data-model" class="section">
-          <h2>Data Model</h2>
-          <p>Defined in <code>backend/prisma/schema.prisma</code>.</p>
+        <section id="docs-map" class="section">
+          <h2>Documentation Map</h2>
           <table>
             <thead>
               <tr>
-                <th>Model</th>
-                <th>Key Fields</th>
-                <th>Notes</th>
-              </tr>
-            </thead>
-            <tbody>
-              <tr>
-                <td class="mono">User</td>
-                <td><code>username</code>, <code>email</code>, <code>role</code>, suspension fields</td>
-                <td>Roles: <code>OWNER|ADMIN|MODERATOR|MEMBER</code>.</td>
-              </tr>
-              <tr>
-                <td class="mono">Channel</td>
-                <td><code>name</code>, <code>type</code>, <code>dmKey</code>, <code>voiceBitrateKbps</code></td>
-                <td>Types: <code>PUBLIC|VOICE|DIRECT</code>.</td>
-              </tr>
-              <tr>
-                <td class="mono">Message</td>
-                <td><code>content</code>, attachment fields, FK to channel/user</td>
-                <td>Attachment metadata stored inline on message row.</td>
-              </tr>
-              <tr>
-                <td class="mono">Friendship</td>
-                <td><code>userAId</code>, <code>userBId</code>, <code>requestedById</code>, <code>status</code></td>
-                <td>Status: <code>PENDING|ACCEPTED</code>.</td>
-              </tr>
-              <tr>
-                <td class="mono">AppSettings</td>
-                <td><code>allowRegistrations</code>, <code>readOnlyMode</code>, <code>slowModeSeconds</code></td>
-                <td>Global runtime controls used by auth/message services.</td>
-              </tr>
-            </tbody>
-          </table>
-        </section>
-
-        <section id="env" class="section">
-          <h2>Environment</h2>
-          <table>
-            <thead>
-              <tr>
-                <th>Variable</th>
-                <th>Type</th>
-                <th>Default / Rule</th>
-              </tr>
-            </thead>
-            <tbody>
-              <tr><td><code>NODE_ENV</code></td><td>enum</td><td><code>development|test|production</code></td></tr>
-              <tr><td><code>PORT</code></td><td>number</td><td><code>4000</code></td></tr>
-              <tr><td><code>DATABASE_URL</code></td><td>string</td><td>Required</td></tr>
-              <tr><td><code>JWT_SECRET</code></td><td>string</td><td>Min length 32</td></tr>
-              <tr><td><code>JWT_EXPIRES_IN</code></td><td>string</td><td><code>15m</code></td></tr>
-              <tr><td><code>CLIENT_ORIGIN</code></td><td>string</td><td><code>http://localhost:5173</code>, comma-separated list allowed</td></tr>
-              <tr><td><code>BCRYPT_SALT_ROUNDS</code></td><td>number</td><td>8..15, default 12</td></tr>
-              <tr><td><code>MESSAGE_MAX_LENGTH</code></td><td>number</td><td>1..4000, default 2000</td></tr>
-              <tr><td><code>RATE_LIMIT_MAX</code></td><td>number</td><td>Min 10, default 120</td></tr>
-              <tr><td><code>RATE_LIMIT_WINDOW_MS</code></td><td>number</td><td>Min 1000, default 60000</td></tr>
-            </tbody>
-          </table>
-          <p class="muted">
-            Frontend env vars: <code>VITE_API_URL</code> and <code>VITE_WS_URL</code>.
-          </p>
-        </section>
-
-        <section id="http-auth" class="section">
-          <h2>HTTP API: Auth</h2>
-          <p>Base URL: <code>http://localhost:4000</code>. Auth header: <code>Authorization: Bearer &lt;jwt&gt;</code>.</p>
-          <table>
-            <thead>
-              <tr>
-                <th>Endpoint</th>
-                <th>Input</th>
-                <th>Response</th>
-              </tr>
-            </thead>
-            <tbody>
-              <tr>
-                <td><span class="badge post">POST</span> <code>/auth/register</code></td>
-                <td><code>{ username, email, password }</code> with zod validation</td>
-                <td><code>{ token, user }</code> <span class="muted">(201)</span></td>
-              </tr>
-              <tr>
-                <td><span class="badge post">POST</span> <code>/auth/login</code></td>
-                <td><code>{ email, password }</code></td>
-                <td><code>{ token, user }</code></td>
-              </tr>
-              <tr>
-                <td><span class="badge post">POST</span> <code>/auth/logout</code></td>
-                <td>Bearer token required</td>
-                <td>No content <span class="muted">(204)</span></td>
-              </tr>
-              <tr>
-                <td><span class="badge get">GET</span> <code>/me</code></td>
-                <td>Bearer token required</td>
-                <td><code>{ user }</code></td>
-              </tr>
-              <tr>
-                <td><span class="badge get">GET</span> <code>/health</code></td>
-                <td>none</td>
-                <td><code>{ ok: true }</code></td>
-              </tr>
-            </tbody>
-          </table>
-        </section>
-
-        <section id="http-channels" class="section">
-          <h2>HTTP API: Channels, Messages, Uploads</h2>
-          <table>
-            <thead>
-              <tr>
-                <th>Endpoint</th>
-                <th>Auth / Role</th>
+                <th>Document</th>
                 <th>Purpose</th>
               </tr>
             </thead>
             <tbody>
-              <tr>
-                <td><span class="badge get">GET</span> <code>/channels</code></td>
-                <td>User</td>
-                <td>List accessible public/voice/direct channels for current user.</td>
-              </tr>
-              <tr>
-                <td><span class="badge post">POST</span> <code>/channels</code></td>
-                <td>Admin</td>
-                <td>Create <code>TEXT</code> or <code>VOICE</code> channel.</td>
-              </tr>
-              <tr>
-                <td><span class="badge delete">DELETE</span> <code>/channels/:id</code></td>
-                <td>Admin</td>
-                <td>Delete non-direct channels. Cannot delete <code>global</code> or last public channel.</td>
-              </tr>
-              <tr>
-                <td><span class="badge patch">PATCH</span> <code>/channels/:id/voice-settings</code></td>
-                <td>Admin</td>
-                <td>Update <code>voiceBitrateKbps</code> (16..1536), broadcasts <code>channel:updated</code>.</td>
-              </tr>
-              <tr>
-                <td><span class="badge post">POST</span> <code>/channels/direct/:userId</code></td>
-                <td>User</td>
-                <td>Open/create DM channel (requires accepted friendship).</td>
-              </tr>
-              <tr>
-                <td><span class="badge get">GET</span> <code>/channels/:id/messages</code></td>
-                <td>User</td>
-                <td>List messages with optional <code>before</code> and <code>limit</code>.</td>
-              </tr>
-              <tr>
-                <td><span class="badge post">POST</span> <code>/channels/:id/messages</code></td>
-                <td>User</td>
-                <td>Create message with optional attachment metadata, then broadcast.</td>
-              </tr>
-              <tr>
-                <td><span class="badge post">POST</span> <code>/uploads</code></td>
-                <td>User</td>
-                <td>Upload a single file (max 8MB), returns attachment payload.</td>
-              </tr>
-            </tbody>
-          </table>
-          <div class="callout">
-            Message rules are enforced in <code>MessageService.createMessage</code>: read-only mode,
-            slow mode cooldown, max content length, and non-empty content/attachment requirement.
-          </div>
-        </section>
-
-        <section id="http-friends" class="section">
-          <h2>HTTP API: Friends</h2>
-          <table>
-            <thead>
-              <tr>
-                <th>Endpoint</th>
-                <th>Purpose</th>
-              </tr>
-            </thead>
-            <tbody>
-              <tr><td><span class="badge get">GET</span> <code>/friends</code></td><td>List accepted friendships.</td></tr>
-              <tr><td><span class="badge get">GET</span> <code>/friends/requests</code></td><td>List incoming/outgoing pending requests.</td></tr>
-              <tr><td><span class="badge post">POST</span> <code>/friends/requests</code></td><td>Send friend request by username.</td></tr>
-              <tr><td><span class="badge post">POST</span> <code>/friends/requests/:id/accept</code></td><td>Accept incoming request.</td></tr>
-              <tr><td><span class="badge post">POST</span> <code>/friends/requests/:id/decline</code></td><td>Decline incoming request.</td></tr>
-              <tr><td><span class="badge post">POST</span> <code>/friends/requests/:id/cancel</code></td><td>Cancel outgoing request.</td></tr>
-              <tr><td><span class="badge delete">DELETE</span> <code>/friends/:id</code></td><td>Remove accepted friend relationship.</td></tr>
+              <tr><td><a href="./README.md"><code>docs/README.md</code></a></td><td>Primary documentation hub and update policy.</td></tr>
+              <tr><td><a href="./AI_AGENT_GUIDE.md"><code>docs/AI_AGENT_GUIDE.md</code></a></td><td>AI-focused guide with invariants and playbooks.</td></tr>
+              <tr><td><a href="./ARCHITECTURE.md"><code>docs/ARCHITECTURE.md</code></a></td><td>System architecture and lifecycle behavior.</td></tr>
+              <tr><td><a href="./BACKEND_REFERENCE.md"><code>docs/BACKEND_REFERENCE.md</code></a></td><td>Backend routes, WS protocol, services, repositories, errors.</td></tr>
+              <tr><td><a href="./FRONTEND_REFERENCE.md"><code>docs/FRONTEND_REFERENCE.md</code></a></td><td>Frontend state, transport, and component contracts.</td></tr>
+              <tr><td><a href="./DATA_MODEL.md"><code>docs/DATA_MODEL.md</code></a></td><td>Prisma schema and data constraints.</td></tr>
+              <tr><td><a href="./OPERATIONS.md"><code>docs/OPERATIONS.md</code></a></td><td>Setup, commands, deploy checks, troubleshooting.</td></tr>
+              <tr><td><a href="./FILE_MAP.md"><code>docs/FILE_MAP.md</code></a></td><td>Tracked-file map with responsibilities.</td></tr>
+              <tr><td><a href="./API.md"><code>docs/API.md</code></a></td><td>Condensed API and event quick reference.</td></tr>
+              <tr><td><a href="./SETUP.md"><code>docs/SETUP.md</code></a></td><td>Condensed setup quick reference.</td></tr>
+              <tr><td><a href="./structure.md"><code>docs/structure.md</code></a></td><td>Concise structure overview.</td></tr>
+              <tr><td><a href="./ROADMAP.md"><code>docs/ROADMAP.md</code></a></td><td>Current product and engineering roadmap.</td></tr>
             </tbody>
           </table>
         </section>
 
-        <section id="http-admin" class="section">
-          <h2>HTTP API: Admin</h2>
-          <table>
-            <thead>
-              <tr>
-                <th>Endpoint</th>
-                <th>Role</th>
-                <th>Purpose</th>
-              </tr>
-            </thead>
-            <tbody>
-              <tr>
-                <td><span class="badge get">GET</span> <code>/admin/stats</code></td>
-                <td>Admin</td>
-                <td>Runtime metrics for node/system/database counts.</td>
-              </tr>
-              <tr>
-                <td><span class="badge get">GET</span> <code>/admin/settings</code></td>
-                <td>Admin</td>
-                <td>Read global app settings.</td>
-              </tr>
-              <tr>
-                <td><span class="badge put">PUT</span> <code>/admin/settings</code></td>
-                <td>Admin</td>
-                <td>Update registration flag, read-only mode, and slow-mode seconds.</td>
-              </tr>
-              <tr>
-                <td><span class="badge get">GET</span> <code>/admin/users</code></td>
-                <td>Owner/Admin</td>
-                <td>List users for moderation/role management.</td>
-              </tr>
-              <tr>
-                <td><span class="badge patch">PATCH</span> <code>/admin/users/:id</code></td>
-                <td>Owner/Admin</td>
-                <td>Update target role with hierarchy checks.</td>
-              </tr>
-              <tr>
-                <td><span class="badge delete">DELETE</span> <code>/admin/users/:id</code></td>
-                <td>Owner/Admin</td>
-                <td>Delete target account with hierarchy checks.</td>
-              </tr>
-            </tbody>
-          </table>
-        </section>
-
-        <section id="http-errors" class="section">
-          <h2>HTTP Errors</h2>
-          <p>Error shape: <code>{ code: string, message: string }</code>.</p>
-          <table>
-            <thead>
-              <tr>
-                <th>Code (Examples)</th>
-                <th>When Raised</th>
-              </tr>
-            </thead>
-            <tbody>
-              <tr><td><code>UNAUTHORIZED</code>, <code>INVALID_SESSION</code></td><td>Invalid/expired token or deleted user session.</td></tr>
-              <tr><td><code>VALIDATION_ERROR</code></td><td>Zod payload/param/query validation failure.</td></tr>
-              <tr><td><code>FORBIDDEN</code></td><td>Role or ownership restriction.</td></tr>
-              <tr><td><code>ACCOUNT_SUSPENDED</code></td><td>User is currently suspended.</td></tr>
-              <tr><td><code>READ_ONLY_MODE</code>, <code>SLOW_MODE_ACTIVE</code></td><td>Admin runtime chat restrictions for non-admin users.</td></tr>
-              <tr><td><code>CHANNEL_NOT_FOUND</code>, <code>USER_NOT_FOUND</code></td><td>Missing resources.</td></tr>
-              <tr><td><code>INTERNAL_ERROR</code></td><td>Unhandled server exception.</td></tr>
-            </tbody>
-          </table>
-        </section>
-
-        <section id="ws" class="section">
-          <h2>WebSocket Protocol</h2>
-          <p>Endpoint: <code>ws://localhost:4000/ws</code>. Envelope: <code>{ type, payload }</code>.</p>
-
-          <div class="grid cols-2">
-            <article class="card">
-              <h3>Client → Server Events</h3>
-              <p>
-                <code>auth</code>, <code>channel:join</code>, <code>channel:leave</code>,
-                <code>voice:join</code>, <code>voice:leave</code>, <code>voice:signal</code>,
-                <code>message:send</code>.
-              </p>
-            </article>
-            <article class="card">
-              <h3>Server → Client Events</h3>
-              <p>
-                <code>auth:ok</code>, <code>channel:joined</code>, <code>channel:left</code>,
-                <code>message:new</code>, <code>dm:new</code>, <code>channel:updated</code>,
-                <code>presence:update</code>, <code>voice:state</code>, <code>voice:signal</code>,
-                <code>friend:request:new</code>, <code>friend:request:updated</code>, <code>error</code>.
-              </p>
-            </article>
-          </div>
-
-          <table>
-            <thead>
-              <tr>
-                <th>Event</th>
-                <th>Payload</th>
-                <th>Notes</th>
-              </tr>
-            </thead>
-            <tbody>
-              <tr><td><code>auth</code></td><td><code>{ token }</code></td><td>Must be first event; server replies <code>auth:ok</code>.</td></tr>
-              <tr><td><code>channel:join</code></td><td><code>{ channelId }</code></td><td>Validates access, then subscribes socket.</td></tr>
-              <tr><td><code>voice:join</code></td><td><code>{ channelId }</code></td><td>Only allowed for voice channels visible to caller.</td></tr>
-              <tr><td><code>voice:signal</code></td><td><code>{ channelId, targetUserId, data }</code></td><td>Relays WebRTC signaling to specific participant.</td></tr>
-              <tr><td><code>message:send</code></td><td><code>{ channelId, content }</code></td><td>Creates and broadcasts message (same rules as REST).</td></tr>
-            </tbody>
-          </table>
-        </section>
-
-        <section id="backend-functions" class="section">
-          <h2>Backend Function & Class API</h2>
-          <p>
-            This section documents major exported APIs from backend modules and key internal helper
-            functions that affect behavior.
-          </p>
-
-          <table>
-            <thead>
-              <tr>
-                <th>Module</th>
-                <th>Public API</th>
-                <th>Behavior</th>
-              </tr>
-            </thead>
-            <tbody>
-              <tr>
-                <td class="mono">backend/src/app.ts</td>
-                <td><code>buildApp()</code></td>
-                <td>Composes plugins/routes/services, ensures default channel, sets error handler.</td>
-              </tr>
-              <tr>
-                <td class="mono">backend/src/config/env.ts</td>
-                <td><code>loadEnv()</code>, type <code>Env</code></td>
-                <td>Parses and validates environment variables with zod.</td>
-              </tr>
-              <tr>
-                <td class="mono">backend/src/services/auth.service.ts</td>
-                <td><code>AuthService.register/login/getById</code></td>
-                <td>Handles credential checks, password hashing, user bootstrap role logic.</td>
-              </tr>
-              <tr>
-                <td class="mono">backend/src/services/channel.service.ts</td>
-                <td><code>ensureDefaultChannel</code>, <code>listChannels</code>, <code>createChannel</code>, <code>deleteChannel</code>, <code>updateVoiceChannelBitrate</code>, <code>ensureChannelExists</code>, <code>ensureChannelAccess</code>, <code>getChannelSummaryForUser</code>, <code>openDirectChannel</code></td>
-                <td>Channel lifecycle and DM creation with friendship enforcement.</td>
-              </tr>
-              <tr>
-                <td class="mono">backend/src/services/message.service.ts</td>
-                <td><code>listMessages</code>, <code>createMessage</code></td>
-                <td>Enforces slow mode, read-only mode, length, and empty-message constraints.</td>
-              </tr>
-              <tr>
-                <td class="mono">backend/src/services/friend.service.ts</td>
-                <td><code>listFriends</code>, <code>listRequests</code>, <code>sendRequest</code>, <code>acceptRequest</code>, <code>declineRequest</code>, <code>cancelRequest</code>, <code>removeFriend</code></td>
-                <td>Friend request state machine and participant permission checks.</td>
-              </tr>
-              <tr>
-                <td class="mono">backend/src/services/admin.service.ts</td>
-                <td><code>getServerStats</code></td>
-                <td>Returns process/system/database stats for dashboard.</td>
-              </tr>
-              <tr>
-                <td class="mono">backend/src/services/admin-settings.service.ts</td>
-                <td><code>getSettings</code>, <code>updateSettings</code>, <code>getSlowModeRetrySeconds</code>, <code>markMessageSent</code></td>
-                <td>Persists runtime switches and in-memory slow-mode timestamps.</td>
-              </tr>
-              <tr>
-                <td class="mono">backend/src/services/admin-user.service.ts</td>
-                <td><code>listUsers</code>, <code>updateUser</code>, <code>deleteUser</code></td>
-                <td>Role hierarchy enforcement for user management.</td>
-              </tr>
-              <tr>
-                <td class="mono">backend/src/plugins/ws.plugin.ts</td>
-                <td><code>wsPlugin</code>, decorated gateway <code>broadcastMessage</code>, <code>notifyUsers</code>, <code>broadcastSystem</code></td>
-                <td>Socket auth, subscriptions, presence, DM notifications, voice state/signaling.</td>
-              </tr>
-              <tr>
-                <td class="mono">backend/src/repositories/*.ts</td>
-                <td><code>PrismaUserRepository</code>, <code>PrismaChannelRepository</code>, <code>PrismaFriendshipRepository</code>, <code>PrismaMessageRepository</code></td>
-                <td>Data access APIs consumed by services.</td>
-              </tr>
-              <tr>
-                <td class="mono">backend/src/utils/*.ts</td>
-                <td><code>AppError</code>, <code>isAdminRole</code>, <code>isPrivilegedRole</code>, <code>isSuspensionActive</code></td>
-                <td>Error transport and authorization/suspension helpers.</td>
-              </tr>
-            </tbody>
-          </table>
-        </section>
-
-        <section id="frontend-functions" class="section">
-          <h2>Frontend Function API</h2>
-          <table>
-            <thead>
-              <tr>
-                <th>Module</th>
-                <th>Function / API</th>
-                <th>Description</th>
-              </tr>
-            </thead>
-            <tbody>
-              <tr>
-                <td class="mono">web/src/api/client.ts</td>
-                <td><code>apiRequest&lt;T&gt;(path, options, token?)</code></td>
-                <td>HTTP wrapper with JSON/form-data support and 401 auto-logout behavior.</td>
-              </tr>
-              <tr>
-                <td class="mono">web/src/api/chat-api.ts</td>
-                <td><code>chatApi.*</code> (register, login, logout, me, channels, createChannel, deleteChannel, updateVoiceChannelSettings, createDirectChannel, uploadAttachment, adminStats, adminSettings, updateAdminSettings, adminUsers, updateAdminUser, deleteAdminUser, friends, friendRequests, sendFriendRequest, acceptFriendRequest, declineFriendRequest, cancelFriendRequest, removeFriend, messages, sendMessage)</td>
-                <td>Complete typed client for backend REST endpoints.</td>
-              </tr>
-              <tr>
-                <td class="mono">web/src/hooks/use-chat-socket.ts</td>
-                <td><code>useChatSocket(...)</code> returns <code>{ connected, sendMessage, joinVoice, leaveVoice, sendVoiceSignal }</code></td>
-                <td>Manages websocket lifecycle, reconnect, subscriptions, and incoming events.</td>
-              </tr>
-              <tr>
-                <td class="mono">web/src/hooks/use-user-preferences.ts</td>
-                <td><code>useUserPreferences()</code></td>
-                <td>Persists user preferences in localStorage and applies body classes.</td>
-              </tr>
-              <tr>
-                <td class="mono">web/src/store/auth-store.tsx</td>
-                <td><code>AuthProvider</code>, <code>useAuth()</code></td>
-                <td>Auth context with token/user persistence and profile hydration via <code>/me</code>.</td>
-              </tr>
-              <tr>
-                <td class="mono">web/src/utils/error-message.ts</td>
-                <td><code>getErrorMessage(err, fallback)</code></td>
-                <td>Extracts message text from unknown thrown values.</td>
-              </tr>
-              <tr>
-                <td class="mono">web/src/App.tsx</td>
-                <td><code>App()</code></td>
-                <td>HashRouter route map for <code>/login</code>, <code>/register</code>, <code>/chat</code>.</td>
-              </tr>
-            </tbody>
-          </table>
-        </section>
-
-        <section id="ui-map" class="section">
-          <h2>UI Map (Exported Components)</h2>
-          <p>
-            Pages: <code>LoginPage</code>, <code>RegisterPage</code>, <code>ChatPage</code>.<br />
-            Core components: <code>AuthForm</code>, <code>ChannelSidebar</code>, <code>ChatView</code>,
-            <code>MessageComposer</code>, <code>FriendsPanel</code>, <code>SettingsPanel</code>,
-            <code>AdminSettingsPanel</code>, <code>VoiceChannelPanel</code>, <code>UserSidebar</code>,
-            <code>UserProfile</code>.
-          </p>
-        </section>
-
-        <section id="operations" class="section">
-          <h2>Operations</h2>
+        <section id="quickstart" class="section">
+          <h2>Quick Start</h2>
           <table>
             <thead>
               <tr>
@@ -573,19 +154,29 @@
             </thead>
             <tbody>
               <tr><td>Install dependencies</td><td><code>npm install</code></td></tr>
-              <tr><td>Start all services</td><td><code>npm run dev</code></td></tr>
-              <tr><td>Build frontend + backend</td><td><code>npm run build</code></td></tr>
-              <tr><td>Run lint checks</td><td><code>npm run lint</code></td></tr>
-              <tr><td>Run backend tests</td><td><code>npm test</code></td></tr>
-              <tr><td>Apply Prisma schema</td><td><code>npm --workspace backend exec prisma db push</code></td></tr>
-              <tr><td>Seed database</td><td><code>npm --workspace backend run prisma:seed</code></td></tr>
+              <tr><td>Apply schema</td><td><code>npm --workspace backend exec prisma db push</code></td></tr>
+              <tr><td>Seed data</td><td><code>npm --workspace backend run prisma:seed</code></td></tr>
+              <tr><td>Start full stack</td><td><code>npm run dev</code></td></tr>
+              <tr><td>Run tests</td><td><code>npm test</code></td></tr>
+              <tr><td>Run lint</td><td><code>npm run lint</code></td></tr>
             </tbody>
           </table>
         </section>
 
+        <section id="consistency" class="section">
+          <h2>Consistency Notes</h2>
+          <div class="callout">
+            Current Prisma schema uses <code>provider = "postgresql"</code>, while
+            <code>backend/.env.example</code> still contains a SQLite-style URL. Align
+            <code>DATABASE_URL</code> with PostgreSQL for fresh local setup.
+          </div>
+          <p class="muted">
+            If any document conflicts with source code, update docs and treat code as authoritative.
+          </p>
+        </section>
+
         <p class="footer">
-          Generated from current source modules in <code>backend/src</code>, <code>backend/prisma</code>,
-          and <code>web/src</code>.
+          Documentation source: <code>docs/</code> in this repository.
         </p>
       </main>
     </div>
