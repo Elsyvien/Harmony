@@ -144,18 +144,8 @@ export function VoiceChannelPanel(props: VoiceChannelPanelProps) {
                 <video
                   autoPlay
                   playsInline
-                  // Remote screen shares usually have audio mixed in if system audio is shared,
-                  // but for now we rely on the separate audio track for voice.
-                  // If screen share has audio, we might want to unmute it, but let's keep it muted for now or handle it carefully.
-                  // Typically screen share 'video' tracks don't have audio, audio is separate.
-                  // If the stream has audio tracks, they will be played here if not muted.
-                  // Start muted to avoid echo/feedback if it interacts with main audio,
-                  // BUT usually we want to hear shared content.
-                  // For this implementation let's mute it to be safe and rely on the main voice connection.
-                  // If we want system audio, it would need to be mixed into the voice connection or handled separately.
-                  // Given the 'chat-page' handles audio elements separately, we should probably mute this video element
-                  // to avoid duplicate audio if the track is present in both places (unlikely for screen share vs mic).
-                  // However, 'remoteScreenShares' in chat-page comes from video tracks.
+                  // Muted to avoid echo/feedback, since audio is handled by the separate voice connection.
+                  // If screen-share audio is needed, it should be mixed or handled explicitly elsewhere.
                   muted
                   ref={(node) => {
                     if (node && node.srcObject !== stream) {
