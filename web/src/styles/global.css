@@ -99,6 +99,12 @@ a:hover {
   to { transform: rotateZ(180deg); }
 }
 
+@keyframes dropDown {
+  0% { transform: translateY(0) scale(1); }
+  50% { transform: translateY(3px) scale(1.02); }
+  100% { transform: translateY(0) scale(1); }
+}
+
 /* Scrollbar */
 ::-webkit-scrollbar {
   width: 8px;
@@ -1026,7 +1032,6 @@ button {
   outline: none;
   border-color: var(--accent);
   background-color: rgba(88, 101, 242, 0.12);
-  animation: arrowFlip 0.3s ease;
 }
 
 .settings-row-stacked {
@@ -2795,6 +2800,7 @@ body.font-scale-lg {
 .select-button.open {
   border-color: var(--accent);
   background-color: rgba(88, 101, 242, 0.12);
+  animation: dropDown 0.35s ease-out;
 }
 
 .select-button.selected {
@@ -2843,7 +2849,7 @@ body.font-scale-lg {
   box-shadow: 0 8px 20px rgba(0, 0, 0, 0.35);
   z-index: 50;
   overflow: hidden;
-  animation: slideIn 0.2s ease-out;
+  animation: slideIn 0.35s ease-out;
 }
 
 .select-option {
@@ -2869,12 +2875,12 @@ body.font-scale-lg {
 
 .select-option.selected {
   background-color: rgba(88, 101, 242, 0.25);
-  color: #ffffff;
+  color: #8fa0ff;
   font-weight: 600;
 }
 
 .select-option.selected::after {
   content: "✓";
-  color: #ffffff;
+  color: #8fa0ff;
   font-weight: 700;
 }
