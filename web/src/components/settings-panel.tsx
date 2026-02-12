@@ -631,7 +631,24 @@ export function SettingsPanel(props: SettingsPanelProps) {
                   }
                 }}
               />
+              />
             </label>
+
+            <label className="settings-row">
+              <span className="settings-row-copy">
+                <strong>AI Noise Suppression</strong>
+                <small>EXPERIMENTAL. Use a deep learning model to filter background noise.</small>
+              </span>
+              <input
+                className="settings-toggle"
+                type="checkbox"
+                checked={props.preferences.noiseSuppression}
+                onChange={(event) =>
+                  props.onUpdatePreferences({ noiseSuppression: event.target.checked })
+                }
+              />
+            </label>
+
 
             <div className="settings-row">
               <span className="settings-row-copy">
