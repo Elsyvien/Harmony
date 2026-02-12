@@ -81,7 +81,7 @@ export function SettingsPanel(props: SettingsPanelProps) {
     setLobsterVisible(true);
 
     if (lobsterAudioRef.current) {
-      lobsterAudioRef.current.volume = 0.3;
+      lobsterAudioRef.current.volume = 0.15;
       lobsterAudioRef.current.currentTime = 0;
       void lobsterAudioRef.current.play();
     }
