@@ -13,6 +13,17 @@ import { VoiceChannelPanel } from '../components/voice-channel-panel';
 import { useChatSocket } from '../hooks/use-chat-socket';
 import type { PresenceUser, VoiceParticipant, VoiceStatePayload } from '../hooks/use-chat-socket';
 import { useUserPreferences } from '../hooks/use-user-preferences';
+import {
+  mergeMessages,
+  mergeServerWithLocal,
+  messageSignature,
+  reconcileIncomingMessage,
+  useMessageLifecycleFeature,
+  type ReplyTarget,
+} from './chat/hooks/use-message-lifecycle-feature';
+import { upsertChannel, useProfileDmFeature } from './chat/hooks/use-profile-dm-feature';
+import { useReactionsFeature } from './chat/hooks/use-reactions-feature';
+import { useVoiceFeature } from './chat/hooks/use-voice-feature';
 import { useAuth } from '../store/auth-store';
 import type {
   AdminSettings,
@@ -22,144 +33,74 @@ import type {
   FriendRequestSummary,
   FriendSummary,
   Message,
-  MessageAttachment,
   UserRole,
 } from '../types/api';
 import { getErrorMessage } from '../utils/error-message';
+import { trackTelemetryError } from '../utils/telemetry';
 
 type MainView = 'chat' | 'friends' | 'settings' | 'admin';
-type UserAudioPreference = { volume: number; muted: boolean };
-type ReplyTarget = { id: string; userId: string; username: string; content: string };
 type MobilePane = 'none' | 'channels' | 'users';
 type MicrophonePermissionState = 'granted' | 'denied' | 'prompt' | 'unsupported' | 'unknown';
 type StreamSource = 'screen' | 'camera';
-const USER_AUDIO_PREFS_KEY = 'harmony_user_audio_prefs_v1';
 const DEFAULT_STREAM_QUALITY = '720p 30fps';
 
 const STREAM_QUALITY_CONSTRAINTS: Record<string, { width: number; height: number; frameRate: number }> = {
+  '360p 15fps': { width: 640, height: 360, frameRate: 15 },
+  '360p 30fps': { width: 640, height: 360, frameRate: 30 },
   '480p 15fps': { width: 854, height: 480, frameRate: 15 },
+  '480p 30fps': { width: 854, height: 480, frameRate: 30 },
+  '720p 15fps': { width: 1280, height: 720, frameRate: 15 },
   '720p 30fps': { width: 1280, height: 720, frameRate: 30 },
+  '720p 60fps': { width: 1280, height: 720, frameRate: 60 },
+  '900p 30fps': { width: 1600, height: 900, frameRate: 30 },
   '1080p 30fps': { width: 1920, height: 1080, frameRate: 30 },
   '1080p 60fps': { width: 1920, height: 1080, frameRate: 60 },
   '1440p 30fps': { width: 2560, height: 1440, frameRate: 30 },
+  '1440p 60fps': { width: 2560, height: 1440, frameRate: 60 },
+  '2160p 30fps': { width: 3840, height: 2160, frameRate: 30 },
 };
 
-function parseUserAudioPrefs(raw: string | null): Record<string, UserAudioPreference> {
-  if (!raw) {
-    return {};
-  }
-  try {
-    const parsed = JSON.parse(raw) as Record<string, Partial<UserAudioPreference>>;
-    const normalized: Record<string, UserAudioPreference> = {};
-    for (const [userId, pref] of Object.entries(parsed)) {
-      if (!pref) {
-        continue;
-      }
-      const volume =
-        typeof pref.volume === 'number' ? Math.min(200, Math.max(0, Math.round(pref.volume))) : 100;
-      const muted = Boolean(pref.muted);
-      normalized[userId] = { volume, muted };
-    }
-    return normalized;
-  } catch {
-    return {};
-  }
+const CAMERA_MAX_CAPTURE_CONSTRAINTS = {
+  width: 1920,
+  height: 1080,
+  frameRate: 30,
+} as const;
+
+const CAMERA_FALLBACK_QUALITY_LABELS = [
+  '1080p 30fps',
+  '720p 30fps',
+  '720p 15fps',
+  '480p 30fps',
+  '480p 15fps',
+  '360p 30fps',
+  '360p 15fps',
+] as const;
+
+type StreamQualityPreset = { width: number; height: number; frameRate: number };
+
+function getStreamQualityPreset(label: string): StreamQualityPreset {
+  return STREAM_QUALITY_CONSTRAINTS[label] ?? STREAM_QUALITY_CONSTRAINTS[DEFAULT_STREAM_QUALITY];
 }
 
-function mergeMessages(existing: Message[], incoming: Message[]) {
-  const map = new Map<string, Message>();
-  for (const message of [...existing, ...incoming]) {
-    map.set(message.id, message);
-  }
-  return [...map.values()].sort(
-    (a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime(),
-  );
+function toVideoTrackConstraints(preset: StreamQualityPreset): MediaTrackConstraints {
+  return {
+    width: { ideal: preset.width, max: preset.width },
+    height: { ideal: preset.height, max: preset.height },
+    frameRate: { ideal: preset.frameRate, max: preset.frameRate },
+  };
 }
 
-function messageSignature(
-  channelId: string,
-  userId: string,
-  content: string,
-  attachmentUrl?: string,
-) {
-  return `${channelId}:${userId}:${content.trim().toLowerCase()}:${attachmentUrl ?? ''}`;
+function clampCameraPreset(preset: StreamQualityPreset): StreamQualityPreset {
+  return {
+    width: Math.min(preset.width, CAMERA_MAX_CAPTURE_CONSTRAINTS.width),
+    height: Math.min(preset.height, CAMERA_MAX_CAPTURE_CONSTRAINTS.height),
+    frameRate: Math.min(preset.frameRate, CAMERA_MAX_CAPTURE_CONSTRAINTS.frameRate),
+  };
 }
 
-function isLogicalSameMessage(a: Message, b: Message) {
-  if (a.channelId !== b.channelId || a.userId !== b.userId) {
-    return false;
-  }
-  if (a.content.trim() !== b.content.trim()) {
-    return false;
-  }
-  const aAttachmentUrl = a.attachment?.url ?? null;
-  const bAttachmentUrl = b.attachment?.url ?? null;
-  if (aAttachmentUrl !== bAttachmentUrl) {
-    return false;
-  }
-  const aTime = new Date(a.createdAt).getTime();
-  const bTime = new Date(b.createdAt).getTime();
-  return Math.abs(aTime - bTime) <= 60_000;
-}
-
-function mergeServerWithLocal(serverMessages: Message[], localMessages: Message[]) {
-  const unresolvedLocal = localMessages.filter(
-    (local) => !serverMessages.some((server) => isLogicalSameMessage(local, server)),
-  );
-  return mergeMessages(serverMessages, unresolvedLocal);
-}
-
-function reconcileIncomingMessage(existing: Message[], incoming: Message) {
-  const optimisticIndex = existing.findIndex(
-    (item) =>
-      item.optimistic &&
-      !item.failed &&
-      item.channelId === incoming.channelId &&
-      item.userId === incoming.userId &&
-      item.content === incoming.content,
-  );
-
-  if (optimisticIndex >= 0) {
-    const next = [...existing];
-    next[optimisticIndex] = incoming;
-    return next.sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
-  }
-
-  const incomingTime = new Date(incoming.createdAt).getTime();
-  const failedIndex = existing.findIndex((item) => {
-    if (!item.failed) {
-      return false;
-    }
-    if (
-      item.channelId !== incoming.channelId ||
-      item.userId !== incoming.userId ||
-      item.content !== incoming.content
-    ) {
-      return false;
-    }
-    const failedTime = new Date(item.createdAt).getTime();
-    return Math.abs(incomingTime - failedTime) <= 30_000;
-  });
-
-  if (failedIndex >= 0) {
-    const next = [...existing];
-    next[failedIndex] = incoming;
-    return next.sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
-  }
-
-  return mergeMessages(existing, [incoming]);
-}
-
-function upsertChannel(existing: Channel[], incoming: Channel) {
-  const next = existing.some((channel) => channel.id === incoming.id)
-    ? existing.map((channel) => (channel.id === incoming.id ? incoming : channel))
-    : [...existing, incoming];
-
-  return next.sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
-}
-
-function canModerateVoiceSettings(role: UserRole | null | undefined) {
-  return role === 'OWNER' || role === 'ADMIN' || role === 'MODERATOR';
+function getCameraCapturePresetLabels(preferredLabel: string): string[] {
+  const labels = [preferredLabel, ...CAMERA_FALLBACK_QUALITY_LABELS, DEFAULT_STREAM_QUALITY];
+  return [...new Set(labels.filter((label) => Boolean(STREAM_QUALITY_CONSTRAINTS[label])))];
 }
 
 type VoiceSignalData =
@@ -280,7 +221,6 @@ export function ChatPage() {
   const [friendsError, setFriendsError] = useState<string | null>(null);
   const [friendActionBusyId, setFriendActionBusyId] = useState<string | null>(null);
   const [submittingFriendRequest, setSubmittingFriendRequest] = useState(false);
-  const [openingDmUserId, setOpeningDmUserId] = useState<string | null>(null);
   const [deletingChannelId, setDeletingChannelId] = useState<string | null>(null);
   const [unreadChannelCounts, setUnreadChannelCounts] = useState<Record<string, number>>({});
   const [onlineUsers, setOnlineUsers] = useState<PresenceUser[]>([]);
@@ -302,12 +242,11 @@ export function ChatPage() {
   const [voiceConnectionStats, setVoiceConnectionStats] = useState<VoiceDetailedConnectionStats[]>([]);
   const [voiceStatsUpdatedAt, setVoiceStatsUpdatedAt] = useState<number | null>(null);
   const [savingVoiceSettingsChannelId, setSavingVoiceSettingsChannelId] = useState<string | null>(null);
-
-  const [selectedUser, setSelectedUser] = useState<{
-    id: string;
-    username: string;
-    avatarUrl?: string;
+  const [streamStatusBanner, setStreamStatusBanner] = useState<{
+    type: 'error' | 'info';
+    message: string;
   } | null>(null);
+
   const [composerInsertRequest, setComposerInsertRequest] = useState<{
     key: number;
     text: string;
@@ -319,16 +258,8 @@ export function ChatPage() {
   const [microphonePermission, setMicrophonePermission] =
     useState<MicrophonePermissionState>('unknown');
   const [requestingMicrophonePermission, setRequestingMicrophonePermission] = useState(false);
-  const [userAudioPrefs, setUserAudioPrefs] = useState<Record<string, UserAudioPreference>>(() =>
-    parseUserAudioPrefs(localStorage.getItem(USER_AUDIO_PREFS_KEY)),
-  );
-  const [audioContextMenu, setAudioContextMenu] = useState<{
-    userId: string;
-    username: string;
-    x: number;
-    y: number;
-  } | null>(null);
   const [hiddenUnreadCount, setHiddenUnreadCount] = useState(0);
+  const streamStatusBannerTimeoutRef = useRef<number | null>(null);
   const pendingSignaturesRef = useRef(new Set<string>());
   const pendingTimeoutsRef = useRef(new Map<string, number>());
   const muteStateBeforeDeafenRef = useRef<boolean | null>(null);
@@ -339,60 +270,73 @@ export function ChatPage() {
   const localAnalyserSourceRef = useRef<MediaStreamAudioSourceNode | null>(null);
   const localVoiceInputDeviceIdRef = useRef<string | null>(null);
   const peerConnectionsRef = useRef<Map<string, RTCPeerConnection>>(new Map());
+  const videoSenderByPeerRef = useRef<Map<string, RTCRtpSender>>(new Map());
+  const pendingVideoRenegotiationByPeerRef = useRef<Set<string>>(new Set());
   const pendingIceRef = useRef<Map<string, RTCIceCandidateInit[]>>(new Map());
   const previousRtpSnapshotsRef = useRef<Map<string, { bytes: number; timestamp: number }>>(new Map());
   const voiceParticipantIdsByChannelRef = useRef<Map<string, Set<string>>>(new Map());
   const activeVoiceChannelIdRef = useRef<string | null>(null);
   const sendVoiceSignalRef = useRef((() => false) as (channelId: string, targetUserId: string, data: unknown) => boolean);
+  const createOfferForPeerRef = useRef((() => Promise.resolve()) as (peerUserId: string, channelId: string) => Promise<void>);
   const leaveVoiceRef = useRef((() => false) as (channelId?: string) => boolean);
 
   const activeChannel = useMemo(
     () => channels.find((channel) => channel.id === activeChannelId) ?? null,
     [channels, activeChannelId],
   );
-  const activeVoiceChannel = useMemo(
-    () => channels.find((channel) => channel.id === activeVoiceChannelId) ?? null,
-    [channels, activeVoiceChannelId],
-  );
-  const activeVoiceBitrateKbps = activeVoiceChannel?.voiceBitrateKbps ?? 64;
-  const activeStreamBitrateKbps = activeVoiceChannel?.streamBitrateKbps ?? 2500;
-  const canEditVoiceSettings = canModerateVoiceSettings(auth.user?.role);
+
+  const handleDirectChannelOpened = useCallback((channel: Channel) => {
+    setChannels((prev) => upsertChannel(prev, channel));
+    setActiveChannelId(channel.id);
+    setActiveView('chat');
+  }, []);
+
+  const {
+    selectedUser,
+    setSelectedUser,
+    selectedUserFriendRequestState,
+    selectedUserIncomingRequestId,
+    acceptingSelectedUserFriendRequest,
+    openingDmUserId,
+    openDirectMessage,
+  } = useProfileDmFeature({
+    authToken: auth.token,
+    currentUserId: auth.user?.id,
+    friends,
+    incomingRequests,
+    outgoingRequests,
+    friendActionBusyId,
+    setFriendsError,
+    onDirectChannelOpened: handleDirectChannelOpened,
+  });
+
+  const {
+    activeVoiceChannel,
+    activeVoiceBitrateKbps,
+    activeStreamBitrateKbps,
+    canEditVoiceSettings,
+    voiceParticipantCounts,
+    activeVoiceParticipants,
+    joinedVoiceParticipants,
+    voiceStreamingUserIdsByChannel,
+    audioContextMenu,
+    closeAudioContextMenu,
+    openUserAudioMenu,
+    getUserAudioState,
+    setUserVolume,
+    toggleUserMuted,
+  } = useVoiceFeature({
+    channels,
+    activeChannelId,
+    activeVoiceChannelId,
+    voiceParticipantsByChannel,
+    remoteScreenShares,
+    localScreenShareStream,
+    authUserId: auth.user?.id,
+    authUserRole: auth.user?.role,
+  });
+
   const subscribedChannelIds = useMemo(() => channels.map((channel) => channel.id), [channels]);
-
-  const voiceParticipantCounts = useMemo(() => {
-    const counts: Record<string, number> = {};
-    for (const [channelId, participants] of Object.entries(voiceParticipantsByChannel)) {
-      counts[channelId] = participants.length;
-    }
-    return counts;
-  }, [voiceParticipantsByChannel]);
-
-  const activeVoiceParticipants = useMemo(() => {
-    if (!activeChannelId) {
-      return [];
-    }
-    return voiceParticipantsByChannel[activeChannelId] ?? [];
-  }, [activeChannelId, voiceParticipantsByChannel]);
-
-  const joinedVoiceParticipants = useMemo(() => {
-    if (!activeVoiceChannelId) {
-      return [];
-    }
-    return voiceParticipantsByChannel[activeVoiceChannelId] ?? [];
-  }, [activeVoiceChannelId, voiceParticipantsByChannel]);
-
-  const voiceStreamingUserIdsByChannel = useMemo(() => {
-    const byChannel: Record<string, string[]> = {};
-    if (!activeVoiceChannelId) {
-      return byChannel;
-    }
-    const liveUserIds = new Set<string>(Object.keys(remoteScreenShares));
-    if (localScreenShareStream && auth.user?.id) {
-      liveUserIds.add(auth.user.id);
-    }
-    byChannel[activeVoiceChannelId] = [...liveUserIds];
-    return byChannel;
-  }, [activeVoiceChannelId, remoteScreenShares, localScreenShareStream, auth.user?.id]);
 
   const computeKbpsFromSnapshot = useCallback((snapshotKey: string, bytes: number, timestamp: number) => {
     const previous = previousRtpSnapshotsRef.current.get(snapshotKey);
@@ -406,6 +350,27 @@ export function ChatPage() {
       return null;
     }
     return (deltaBytes * 8) / deltaMs;
+  }, []);
+
+  const showStreamStatusBanner = useCallback((type: 'error' | 'info', message: string) => {
+    setStreamStatusBanner({ type, message });
+    if (streamStatusBannerTimeoutRef.current) {
+      window.clearTimeout(streamStatusBannerTimeoutRef.current);
+    }
+    streamStatusBannerTimeoutRef.current = window.setTimeout(() => {
+      setStreamStatusBanner(null);
+      streamStatusBannerTimeoutRef.current = null;
+    }, 6000);
+  }, []);
+
+  useEffect(() => {
+    return () => {
+      if (!streamStatusBannerTimeoutRef.current) {
+        return;
+      }
+      window.clearTimeout(streamStatusBannerTimeoutRef.current);
+      streamStatusBannerTimeoutRef.current = null;
+    };
   }, []);
 
   const collectVoiceConnectionStats = useCallback(async () => {
@@ -590,42 +555,6 @@ export function ChatPage() {
       );
   }, [activeVoiceParticipants, remoteAudioStreams, auth.user]);
 
-  const selectedUserFriendRequestState = useMemo<
-    'self' | 'none' | 'friends' | 'outgoing' | 'incoming'
-  >(() => {
-    if (!selectedUser || !auth.user) {
-      return 'none';
-    }
-
-    if (selectedUser.id === auth.user.id) {
-      return 'self';
-    }
-
-    if (friends.some((friend) => friend.user.id === selectedUser.id)) {
-      return 'friends';
-    }
-
-    if (outgoingRequests.some((request) => request.to.id === selectedUser.id)) {
-      return 'outgoing';
-    }
-
-    if (incomingRequests.some((request) => request.from.id === selectedUser.id)) {
-      return 'incoming';
-    }
-
-    return 'none';
-  }, [selectedUser, auth.user, friends, outgoingRequests, incomingRequests]);
-
-  const selectedUserIncomingRequestId = useMemo(() => {
-    if (!selectedUser) {
-      return null;
-    }
-    return incomingRequests.find((request) => request.from.id === selectedUser.id)?.id ?? null;
-  }, [selectedUser, incomingRequests]);
-
-  const acceptingSelectedUserFriendRequest =
-    selectedUserIncomingRequestId !== null && friendActionBusyId === selectedUserIncomingRequestId;
-
   const filteredMessages = useMemo(() => {
     const query = messageQuery.trim().toLowerCase();
     if (!query) {
@@ -637,11 +566,6 @@ export function ChatPage() {
         message.user.username.toLowerCase().includes(query),
     );
   }, [messages, messageQuery]);
-
-  const getUserAudioState = useCallback(
-    (userId: string): UserAudioPreference => userAudioPrefs[userId] ?? { volume: 100, muted: false },
-    [userAudioPrefs],
-  );
 
   const refreshMicrophonePermission = useCallback(async () => {
     if (!navigator.mediaDevices?.getUserMedia) {
@@ -792,6 +716,15 @@ export function ChatPage() {
     }
   }, []);
 
+  const hasPendingSignature = useCallback(
+    (signature: string) => pendingSignaturesRef.current.has(signature),
+    [],
+  );
+
+  const addPendingSignature = useCallback((signature: string) => {
+    pendingSignaturesRef.current.add(signature);
+  }, []);
+
   const schedulePendingTimeout = useCallback(
     (signature: string) => {
       const timeoutId = window.setTimeout(() => {
@@ -840,10 +773,13 @@ export function ChatPage() {
     if (connection) {
       connection.onicecandidate = null;
       connection.ontrack = null;
+      connection.onsignalingstatechange = null;
       connection.onconnectionstatechange = null;
       connection.close();
       peerConnectionsRef.current.delete(peerUserId);
     }
+    videoSenderByPeerRef.current.delete(peerUserId);
+    pendingVideoRenegotiationByPeerRef.current.delete(peerUserId);
     pendingIceRef.current.delete(peerUserId);
     setRemoteAudioStreams((prev) => {
       if (!prev[peerUserId]) {
@@ -868,6 +804,8 @@ export function ChatPage() {
       closePeerConnection(peerUserId);
     }
     peerConnectionsRef.current.clear();
+    videoSenderByPeerRef.current.clear();
+    pendingVideoRenegotiationByPeerRef.current.clear();
     pendingIceRef.current.clear();
     if (localVoiceStreamRef.current) {
       for (const track of localVoiceStreamRef.current.getTracks()) {
@@ -1100,7 +1038,10 @@ export function ChatPage() {
       }
       if (localScreenStreamRef.current) {
         for (const track of localScreenStreamRef.current.getTracks()) {
-          connection.addTrack(track, localScreenStreamRef.current);
+          const sender = connection.addTrack(track, localScreenStreamRef.current);
+          if (track.kind === 'video') {
+            videoSenderByPeerRef.current.set(peerUserId, sender);
+          }
         }
       }
       await applyAudioBitrateToConnection(connection, activeVoiceBitrateKbps);
@@ -1124,11 +1065,13 @@ export function ChatPage() {
             [peerUserId]: streamFromTrack,
           }));
         } else if (event.track.kind === 'video') {
-          setRemoteScreenShares((prev) => ({
-            ...prev,
-            [peerUserId]: streamFromTrack,
-          }));
-          event.track.onended = () => {
+          const setRemoteVideoVisible = () => {
+            setRemoteScreenShares((prev) => ({
+              ...prev,
+              [peerUserId]: streamFromTrack,
+            }));
+          };
+          const clearRemoteVideo = () => {
             setRemoteScreenShares((prev) => {
               if (!prev[peerUserId]) {
                 return prev;
@@ -1138,7 +1081,27 @@ export function ChatPage() {
               return next;
             });
           };
+          setRemoteVideoVisible();
+          event.track.onmute = clearRemoteVideo;
+          event.track.onunmute = setRemoteVideoVisible;
+          event.track.onended = clearRemoteVideo;
         }
+      };
+
+      connection.onsignalingstatechange = () => {
+        if (connection.signalingState !== 'stable') {
+          return;
+        }
+        if (!pendingVideoRenegotiationByPeerRef.current.has(peerUserId)) {
+          return;
+        }
+        const activeChannelId = activeVoiceChannelIdRef.current;
+        if (!activeChannelId) {
+          pendingVideoRenegotiationByPeerRef.current.delete(peerUserId);
+          return;
+        }
+        pendingVideoRenegotiationByPeerRef.current.delete(peerUserId);
+        void createOfferForPeerRef.current(peerUserId, activeChannelId);
       };
 
       connection.onconnectionstatechange = () => {
@@ -1170,17 +1133,23 @@ export function ChatPage() {
       }
       const connection = await ensurePeerConnection(peerUserId, channelId);
       if (connection.signalingState !== 'stable') {
+        pendingVideoRenegotiationByPeerRef.current.add(peerUserId);
         return;
       }
-      const offer = await connection.createOffer({
-        offerToReceiveAudio: true,
-        offerToReceiveVideo: true,
-      });
-      await connection.setLocalDescription(offer);
-      sendVoiceSignalRef.current(channelId, peerUserId, {
-        kind: 'offer',
-        sdp: offer,
-      } satisfies VoiceSignalData);
+      pendingVideoRenegotiationByPeerRef.current.delete(peerUserId);
+      try {
+        const offer = await connection.createOffer({
+          offerToReceiveAudio: true,
+          offerToReceiveVideo: true,
+        });
+        await connection.setLocalDescription(offer);
+        sendVoiceSignalRef.current(channelId, peerUserId, {
+          kind: 'offer',
+          sdp: offer,
+        } satisfies VoiceSignalData);
+      } catch {
+        pendingVideoRenegotiationByPeerRef.current.add(peerUserId);
+      }
     },
     [auth.user, ensurePeerConnection],
   );
@@ -1390,8 +1359,33 @@ export function ChatPage() {
   });
 
   useEffect(() => {
+    if (!ws.connected || !auth.user || !activeVoiceChannelId) {
+      return;
+    }
+    const selfUserId = auth.user.id;
+    const participants = voiceParticipantsByChannel[activeVoiceChannelId] ?? [];
+    const selfParticipant = participants.find((participant) => participant.userId === selfUserId);
+    if (!selfParticipant) {
+      return;
+    }
+    const desiredDeafened = isSelfDeafened;
+    const desiredMuted = isSelfMuted || desiredDeafened;
+    if (
+      Boolean(selfParticipant.deafened) === desiredDeafened &&
+      Boolean(selfParticipant.muted) === desiredMuted
+    ) {
+      return;
+    }
+    ws.sendVoiceSelfState(activeVoiceChannelId, desiredMuted, desiredDeafened);
+  }, [ws, auth.user, activeVoiceChannelId, voiceParticipantsByChannel, isSelfMuted, isSelfDeafened]);
+
+  useEffect(() => {
     sendVoiceSignalRef.current = ws.sendVoiceSignal;
   }, [ws.sendVoiceSignal]);
+
+  useEffect(() => {
+    createOfferForPeerRef.current = createOfferForPeer;
+  }, [createOfferForPeer]);
 
   useEffect(() => {
     leaveVoiceRef.current = ws.leaveVoice;
@@ -1495,30 +1489,6 @@ export function ChatPage() {
   }, [audioInputDevices, preferences.voiceInputDeviceId, updatePreferences]);
 
   useEffect(() => {
-    localStorage.setItem(USER_AUDIO_PREFS_KEY, JSON.stringify(userAudioPrefs));
-  }, [userAudioPrefs]);
-
-  useEffect(() => {
-    if (!audioContextMenu) {
-      return;
-    }
-    const close = () => setAudioContextMenu(null);
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') {
-        close();
-      }
-    };
-    window.addEventListener('mousedown', close);
-    window.addEventListener('scroll', close, true);
-    window.addEventListener('keydown', onKeyDown);
-    return () => {
-      window.removeEventListener('mousedown', close);
-      window.removeEventListener('scroll', close, true);
-      window.removeEventListener('keydown', onKeyDown);
-    };
-  }, [audioContextMenu]);
-
-  useEffect(() => {
     if (!notice) {
       return;
     }
@@ -1585,10 +1555,10 @@ export function ChatPage() {
   }, [activeView, activeChannelId]);
 
   useEffect(() => {
-    setAudioContextMenu(null);
+    closeAudioContextMenu();
     setReplyTarget(null);
     setMobilePane('none');
-  }, [activeView, activeChannelId]);
+  }, [activeView, activeChannelId, closeAudioContextMenu]);
 
   useEffect(() => {
     if (!activeChannelId) {
@@ -1770,22 +1740,36 @@ export function ChatPage() {
     });
   }, [preferences.showVoiceActivity, viewedRemoteAudioUsers, auth.user?.id]);
 
-  const applyStreamQualityToStream = useCallback((stream: MediaStream, presetLabel: string) => {
-    const preset = STREAM_QUALITY_CONSTRAINTS[presetLabel] ?? STREAM_QUALITY_CONSTRAINTS[DEFAULT_STREAM_QUALITY];
+  const applyStreamQualityToStream = useCallback((
+    stream: MediaStream,
+    presetLabel: string,
+    source: StreamSource | null,
+  ) => {
+    const requestedPreset = getStreamQualityPreset(presetLabel);
+    const preset = source === 'camera' ? clampCameraPreset(requestedPreset) : requestedPreset;
     const [track] = stream.getVideoTracks();
     if (!track) {
       return;
     }
     void track
-      .applyConstraints({
-        width: { ideal: preset.width },
-        height: { ideal: preset.height },
-        frameRate: { ideal: preset.frameRate, max: preset.frameRate },
-      })
+      .applyConstraints(toVideoTrackConstraints(preset))
       .catch((err) => {
-        console.error('Failed to apply stream constraints', err);
+        trackTelemetryError('stream_constraints_apply_failed', err, {
+          presetLabel,
+          source: source ?? 'unknown',
+          requestedWidth: requestedPreset.width,
+          requestedHeight: requestedPreset.height,
+          requestedFrameRate: requestedPreset.frameRate,
+          appliedWidth: preset.width,
+          appliedHeight: preset.height,
+          appliedFrameRate: preset.frameRate,
+        });
+        showStreamStatusBanner(
+          'info',
+          'The selected stream quality could not be fully applied by this browser.',
+        );
       });
-  }, []);
+  }, [showStreamStatusBanner]);
 
   const stopLocalVideoShare = useCallback(
     (renegotiatePeers = true) => {
@@ -1794,6 +1778,27 @@ export function ChatPage() {
         setLocalScreenShareStream(null);
         setLocalStreamSource(null);
         return;
+      }
+
+      const currentVoiceChannelId = activeVoiceChannelIdRef.current;
+      for (const [peerUserId, connection] of peerConnectionsRef.current) {
+        const sender = videoSenderByPeerRef.current.get(peerUserId);
+        if (!sender) {
+          continue;
+        }
+        void sender.replaceTrack(null).catch(() => {
+          // Fallback for browsers that fail replaceTrack(null) on live senders.
+          try {
+            connection.removeTrack(sender);
+            videoSenderByPeerRef.current.delete(peerUserId);
+            pendingVideoRenegotiationByPeerRef.current.add(peerUserId);
+            if (renegotiatePeers && currentVoiceChannelId) {
+              void createOfferForPeer(peerUserId, currentVoiceChannelId);
+            }
+          } catch {
+            // Best effort. Connection resync can recover on next state change.
+          }
+        });
       }
 
       for (const track of stream.getTracks()) {
@@ -1807,12 +1812,9 @@ export function ChatPage() {
       if (!renegotiatePeers || !activeVoiceChannelIdRef.current) {
         return;
       }
-      for (const [peerUserId, connection] of peerConnectionsRef.current) {
-        const senders = connection.getSenders();
-        for (const sender of senders) {
-          if (sender.track?.kind === 'video') {
-            connection.removeTrack(sender);
-          }
+      for (const peerUserId of pendingVideoRenegotiationByPeerRef.current) {
+        if (!peerConnectionsRef.current.has(peerUserId)) {
+          continue;
         }
         void createOfferForPeer(peerUserId, activeVoiceChannelIdRef.current);
       }
@@ -1831,25 +1833,55 @@ export function ChatPage() {
       }
 
       try {
-        const stream =
-          source === 'screen'
-            ? await navigator.mediaDevices.getDisplayMedia({
-                video: true,
-                audio: false,
-              })
-            : await navigator.mediaDevices.getUserMedia({
-                video: {
-                  width: { ideal: 1280 },
-                  height: { ideal: 720 },
-                  frameRate: { ideal: 30, max: 60 },
-                },
+        let stream: MediaStream;
+        if (source === 'screen') {
+          stream = await navigator.mediaDevices.getDisplayMedia({
+            video: true,
+            audio: false,
+          });
+        } else {
+          const requestedPreset = getStreamQualityPreset(streamQualityLabel);
+          const cappedRequestedPreset = clampCameraPreset(requestedPreset);
+          const cappedForStability =
+            requestedPreset.width !== cappedRequestedPreset.width ||
+            requestedPreset.height !== cappedRequestedPreset.height ||
+            requestedPreset.frameRate !== cappedRequestedPreset.frameRate;
+
+          let startError: unknown = null;
+          let resolvedStream: MediaStream | null = null;
+          for (const presetLabel of getCameraCapturePresetLabels(streamQualityLabel)) {
+            const candidatePreset = clampCameraPreset(getStreamQualityPreset(presetLabel));
+            try {
+              resolvedStream = await navigator.mediaDevices.getUserMedia({
+                video: toVideoTrackConstraints(candidatePreset),
                 audio: false,
               });
+              if (presetLabel !== streamQualityLabel || cappedForStability) {
+                showStreamStatusBanner(
+                  'info',
+                  'Camera quality was reduced for stability on this device.',
+                );
+              }
+              break;
+            } catch (err) {
+              startError = err;
+            }
+          }
+
+          if (!resolvedStream) {
+            throw startError ?? new Error('Could not access camera stream');
+          }
+          stream = resolvedStream;
+        }
 
         localScreenStreamRef.current = stream;
         setLocalScreenShareStream(stream);
         setLocalStreamSource(source);
-        applyStreamQualityToStream(stream, streamQualityLabel);
+        applyStreamQualityToStream(stream, streamQualityLabel, source);
+        showStreamStatusBanner(
+          'info',
+          source === 'screen' ? 'Screen sharing is now live.' : 'Camera sharing is now live.',
+        );
 
         const videoTrack = stream.getVideoTracks()[0];
         if (videoTrack) {
@@ -1866,26 +1898,57 @@ export function ChatPage() {
         }
 
         for (const [peerUserId, connection] of peerConnectionsRef.current) {
-          const senders = connection.getSenders();
-          let replacedExistingVideo = false;
+          let shouldRenegotiate = false;
+          let sender = videoSenderByPeerRef.current.get(peerUserId) ?? null;
 
-          for (const sender of senders) {
-            if (sender.track?.kind === 'video') {
-              // eslint-disable-next-line @typescript-eslint/no-floating-promises
-              sender.replaceTrack(videoTrack);
-              replacedExistingVideo = true;
+          if (sender && !connection.getSenders().some((candidate) => candidate === sender)) {
+            sender = null;
+            videoSenderByPeerRef.current.delete(peerUserId);
+          }
+
+          if (!sender) {
+            sender =
+              connection.getSenders().find((candidate) => candidate.track?.kind === 'video') ?? null;
+            if (sender) {
+              videoSenderByPeerRef.current.set(peerUserId, sender);
             }
           }
 
-          if (!replacedExistingVideo) {
-            connection.addTrack(videoTrack, stream);
+          if (sender) {
+            try {
+              await sender.replaceTrack(videoTrack);
+            } catch {
+              try {
+                connection.removeTrack(sender);
+              } catch {
+                // Ignore; addTrack below will recover if sender is already detached.
+              }
+              videoSenderByPeerRef.current.delete(peerUserId);
+              pendingVideoRenegotiationByPeerRef.current.add(peerUserId);
+              sender = connection.addTrack(videoTrack, stream);
+              videoSenderByPeerRef.current.set(peerUserId, sender);
+              shouldRenegotiate = true;
+            }
+          } else {
+            sender = connection.addTrack(videoTrack, stream);
+            videoSenderByPeerRef.current.set(peerUserId, sender);
+            shouldRenegotiate = true;
           }
 
           void applyVideoBitrateToConnection(connection, activeStreamBitrateKbps);
-          void createOfferForPeer(peerUserId, currentVoiceChannelId);
+          if (shouldRenegotiate) {
+            void createOfferForPeer(peerUserId, currentVoiceChannelId);
+          }
         }
       } catch (err) {
-        console.error('Failed to start video share', err);
+        trackTelemetryError('video_share_start_failed', err, {
+          source,
+          qualityPreset: streamQualityLabel,
+        });
+        showStreamStatusBanner(
+          'error',
+          getErrorMessage(err, 'Could not start sharing. Check browser permissions and try again.'),
+        );
       }
     },
     [
@@ -1893,6 +1956,7 @@ export function ChatPage() {
       stopLocalVideoShare,
       applyStreamQualityToStream,
       streamQualityLabel,
+      showStreamStatusBanner,
       applyVideoBitrateToConnection,
       activeStreamBitrateKbps,
       createOfferForPeer,
@@ -1909,9 +1973,9 @@ export function ChatPage() {
       if (!stream) {
         return;
       }
-      applyStreamQualityToStream(stream, value);
+      applyStreamQualityToStream(stream, value, localStreamSource);
     },
-    [applyStreamQualityToStream],
+    [applyStreamQualityToStream, localStreamSource],
   );
 
   const loadAdminStats = useCallback(async () => {
@@ -1982,7 +2046,15 @@ export function ChatPage() {
   }, [auth.token, auth.user?.isAdmin]);
 
   const updateAdminUser = useCallback(
-    async (userId: string, input: Partial<{ role: UserRole }>) => {
+    async (
+      userId: string,
+      input: Partial<{
+        role: UserRole;
+        avatarUrl: string | null;
+        isSuspended: boolean;
+        suspensionHours: number;
+      }>,
+    ) => {
       if (!auth.token || !auth.user?.isAdmin) {
         return;
       }
@@ -2116,27 +2188,6 @@ export function ChatPage() {
     [auth.token, loadFriendData],
   );
 
-  const openDirectMessage = useCallback(
-    async (targetUserId: string) => {
-      if (!auth.token) {
-        return;
-      }
-      setOpeningDmUserId(targetUserId);
-      try {
-        const response = await chatApi.createDirectChannel(auth.token, targetUserId);
-        setChannels((prev) => upsertChannel(prev, response.channel));
-        setActiveChannelId(response.channel.id);
-        setActiveView('chat');
-        setFriendsError(null);
-      } catch (err) {
-        setFriendsError(getErrorMessage(err, 'Could not open DM'));
-      } finally {
-        setOpeningDmUserId(null);
-      }
-    },
-    [auth.token],
-  );
-
   const joinVoiceChannel = useCallback(
     async (channelId: string) => {
       if (!auth.token) {
@@ -2151,7 +2202,10 @@ export function ChatPage() {
         if (activeVoiceChannelId && activeVoiceChannelId !== channelId) {
           ws.leaveVoice(activeVoiceChannelId);
         }
-        const sent = ws.joinVoice(channelId);
+        const sent = ws.joinVoice(channelId, {
+          muted: isSelfMuted || isSelfDeafened,
+          deafened: isSelfDeafened,
+        });
         if (!sent) {
           throw new Error('VOICE_JOIN_FAILED');
         }
@@ -2164,7 +2218,7 @@ export function ChatPage() {
         setVoiceBusyChannelId(null);
       }
     },
-    [auth.token, ws, activeVoiceChannelId, playVoiceStateSound],
+    [auth.token, ws, activeVoiceChannelId, playVoiceStateSound, isSelfMuted, isSelfDeafened],
   );
 
   const leaveVoiceChannel = useCallback(
@@ -2184,48 +2238,6 @@ export function ChatPage() {
     },
     [ws, activeVoiceChannelId, playVoiceStateSound],
   );
-
-  const openUserAudioMenu = useCallback(
-    (user: { id: string; username: string }, position: { x: number; y: number }) => {
-      if (!auth.user || user.id === auth.user.id) {
-        return;
-      }
-      const menuWidth = 280;
-      const menuHeight = 190;
-      const x = Math.max(8, Math.min(position.x, window.innerWidth - menuWidth - 8));
-      const y = Math.max(8, Math.min(position.y, window.innerHeight - menuHeight - 8));
-      setAudioContextMenu({
-        userId: user.id,
-        username: user.username,
-        x,
-        y,
-      });
-    },
-    [auth.user],
-  );
-
-  const setUserVolume = useCallback((userId: string, volume: number) => {
-    setUserAudioPrefs((prev) => ({
-      ...prev,
-      [userId]: {
-        volume: Math.min(200, Math.max(0, Math.round(volume))),
-        muted: prev[userId]?.muted ?? false,
-      },
-    }));
-  }, []);
-
-  const toggleUserMuted = useCallback((userId: string) => {
-    setUserAudioPrefs((prev) => {
-      const current = prev[userId] ?? { volume: 100, muted: false };
-      return {
-        ...prev,
-        [userId]: {
-          ...current,
-          muted: !current.muted,
-        },
-      };
-    });
-  }, []);
 
   const requestMicrophonePermission = useCallback(async () => {
     if (!navigator.mediaDevices?.getUserMedia) {
@@ -2303,6 +2315,29 @@ export function ChatPage() {
     teardownVoiceTransport();
   }, [ws.connected, teardownVoiceTransport]);
 
+  const { toggleMessageReaction } = useReactionsFeature({
+    authToken: auth.token,
+    activeChannelId,
+    setMessages,
+    setError,
+  });
+
+  const { editMessage, deleteMessage, sendMessage } = useMessageLifecycleFeature({
+    authToken: auth.token,
+    authUser: auth.user ? { id: auth.user.id, username: auth.user.username } : null,
+    activeChannelId,
+    replyTarget,
+    setMessages,
+    setReplyTarget,
+    setError,
+    wsConnected: ws.connected,
+    sendRealtimeMessage: ws.sendMessage,
+    hasPendingSignature,
+    addPendingSignature,
+    schedulePendingTimeout,
+    clearPendingSignature,
+  });
+
   if (!auth.token || !auth.user) {
     if (auth.token && auth.hydrating) {
       return (
@@ -2320,153 +2355,6 @@ export function ChatPage() {
     }
     return <Navigate to="/login" replace />;
   }
-
-  const toggleMessageReaction = async (messageId: string, emoji: string) => {
-    if (!auth.token || !activeChannelId) {
-      return;
-    }
-    try {
-      const response = await chatApi.toggleMessageReaction(auth.token, activeChannelId, messageId, emoji);
-      setMessages((prev) => prev.map((item) => (item.id === messageId ? response.message : item)));
-    } catch (err) {
-      setError(getErrorMessage(err, 'Could not update reaction'));
-    }
-  };
-
-  const editMessage = async (messageId: string, content: string) => {
-    if (!auth.token || !activeChannelId) {
-      return;
-    }
-    try {
-      const response = await chatApi.updateMessage(auth.token, activeChannelId, messageId, content);
-      setMessages((prev) => prev.map((item) => (item.id === messageId ? response.message : item)));
-      setReplyTarget((current) =>
-        current && current.id === messageId ? { ...current, content: response.message.content } : current,
-      );
-      setError(null);
-    } catch (err) {
-      setError(getErrorMessage(err, 'Could not edit message'));
-    }
-  };
-
-  const deleteMessage = async (messageId: string) => {
-    if (!auth.token || !activeChannelId) {
-      return;
-    }
-    try {
-      const response = await chatApi.deleteMessage(auth.token, activeChannelId, messageId);
-      setMessages((prev) => prev.map((item) => (item.id === messageId ? response.message : item)));
-      setReplyTarget((current) => (current && current.id === messageId ? null : current));
-      setError(null);
-    } catch (err) {
-      setError(getErrorMessage(err, 'Could not delete message'));
-    }
-  };
-
-  const sendMessage = async (payload: {
-    content: string;
-    attachment?: MessageAttachment;
-    replyToMessageId?: string | null;
-  }) => {
-    if (!auth.token || !activeChannelId || !auth.user) {
-      return;
-    }
-    const trimmedContent = payload.content.trim();
-    const attachment = payload.attachment;
-    const replyToMessageId = payload.replyToMessageId ?? null;
-    const outgoingReplyTarget =
-      replyToMessageId && replyTarget && replyTarget.id === replyToMessageId ? replyTarget : null;
-    if (!trimmedContent && !attachment) {
-      return;
-    }
-
-    const signature = messageSignature(
-      activeChannelId,
-      auth.user.id,
-      trimmedContent,
-      attachment?.url,
-    );
-    if (pendingSignaturesRef.current.has(signature)) {
-      return;
-    }
-    pendingSignaturesRef.current.add(signature);
-    schedulePendingTimeout(signature);
-
-    const optimisticMessage: Message = {
-      id: `tmp-${crypto.randomUUID()}`,
-      channelId: activeChannelId,
-      userId: auth.user.id,
-      content: trimmedContent,
-      attachment: attachment ?? null,
-      editedAt: null,
-      deletedAt: null,
-      replyToMessageId,
-      replyTo: outgoingReplyTarget
-        ? {
-          id: outgoingReplyTarget.id,
-          userId: outgoingReplyTarget.userId,
-          content: outgoingReplyTarget.content,
-          createdAt: new Date().toISOString(),
-          deletedAt: null,
-          user: {
-            id: outgoingReplyTarget.userId,
-            username: outgoingReplyTarget.username,
-          },
-        }
-        : null,
-      reactions: [],
-      createdAt: new Date().toISOString(),
-      optimistic: true,
-      user: { id: auth.user.id, username: auth.user.username },
-    };
-    setMessages((prev) => mergeMessages(prev, [optimisticMessage]));
-    setReplyTarget((current) => (current?.id === replyToMessageId ? null : current));
-
-    const wsSent =
-      !attachment && trimmedContent && ws.connected && !replyToMessageId
-        ? ws.sendMessage(activeChannelId, trimmedContent)
-        : false;
-    if (wsSent) {
-      return;
-    }
-
-    try {
-      const response = await chatApi.sendMessage(
-        auth.token,
-        activeChannelId,
-        trimmedContent,
-        attachment,
-        replyToMessageId ?? undefined,
-      );
-      clearPendingSignature(signature);
-      setMessages((prev) => {
-        const replaced = prev.map((item) => (item.id === optimisticMessage.id ? response.message : item));
-        return mergeMessages(replaced, []);
-      });
-    } catch (err) {
-      try {
-        const verification = await chatApi.messages(auth.token, activeChannelId, { limit: 100 });
-        const confirmed = verification.messages.find((message) =>
-          isLogicalSameMessage(message, optimisticMessage),
-        );
-        if (confirmed) {
-          clearPendingSignature(signature);
-          setMessages((prev) => prev.map((item) => (item.id === optimisticMessage.id ? confirmed : item)));
-          return;
-        }
-      } catch {
-        // Ignore verification errors and continue with failed-state UI.
-      }
-
-      clearPendingSignature(signature);
-      setMessages((prev) =>
-        prev.map((item) =>
-          item.id === optimisticMessage.id ? { ...item, failed: true, optimistic: false } : item,
-        ),
-      );
-      throw err;
-    }
-  };
 
   const loadOlder = async () => {
     if (!activeChannelId || messages.length === 0) {
@@ -2680,6 +2568,11 @@ export function ChatPage() {
             ) : null}
             {error ? <p className="error-banner">{error}</p> : null}
             {!error && notice ? <p className="info-banner">{notice}</p> : null}
+            {streamStatusBanner ? (
+              <p className={streamStatusBanner.type === 'error' ? 'error-banner' : 'info-banner'}>
+                {streamStatusBanner.message}
+              </p>
+            ) : null}
           </div>
           {activeView === 'chat' && !activeChannel?.isVoice ? (
             <div className="panel-tools">
