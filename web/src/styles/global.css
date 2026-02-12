@@ -1001,12 +1001,16 @@ button {
 }
 
 .settings-danger-zone strong {
+  display: block;
   color: #ffb8bb;
 }
 
 .settings-danger-zone small {
+  display: block;
+  margin-top: 4px;
   color: #f0a3a6;
   font-size: 12px;
+  line-height: 1.35;
 }
 
 .settings-shortcuts {
