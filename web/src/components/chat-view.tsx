@@ -4,6 +4,8 @@ import { MarkdownMessage } from './markdown-message';
 import { cancelSmoothScroll, smoothScrollTo } from '../utils/smooth-scroll';
 import { useRecentEmojis } from '../hooks/use-recent-emojis';
 
+const MESSAGE_REACTION_PANEL_EMOJIS = ['👍', '❤️', '😂', '🎉', '🔥', '😮', '👏', '😢'];
+
 interface ChatViewProps {
   activeChannelId: string | null;
   messages: Message[];
@@ -39,13 +41,19 @@ export function ChatView(props: ChatViewProps) {
   const previousLastMessageIdRef = useRef<string | null>(null);
   const previousMessageCountRef = useRef(0);
   const stickToBottomRef = useRef(true);
+  const reactionPickerRef = useRef<HTMLDivElement | null>(null);
   const [showJumpToLatest, setShowJumpToLatest] = useState(false);
   const [messageMenu, setMessageMenu] = useState<{
     message: Message;
     x: number;
     y: number;
   } | null>(null);
+  const [reactionPickerMessageId, setReactionPickerMessageId] = useState<string | null>(null);
   const longPressTimeoutRef = useRef<number | null>(null);
+  const messageReactionPanelEmojis = useMemo(
+    () => Array.from(new Set([...recentEmojis, ...MESSAGE_REACTION_PANEL_EMOJIS])),
+    [recentEmojis],
+  );
   const lastMessageId = useMemo(
     () => (props.messages.length > 0 ? props.messages[props.messages.length - 1]?.id ?? null : null),
     [props.messages],
@@ -79,6 +87,7 @@ export function ChatView(props: ChatViewProps) {
     previousMessageCountRef.current = 0;
     setShowJumpToLatest(false);
     setMessageMenu(null);
+    setReactionPickerMessageId(null);
     cancelSmoothScroll(messageListRef.current);
   }, [props.activeChannelId]);
 
@@ -108,6 +117,32 @@ export function ChatView(props: ChatViewProps) {
     };
   }, [messageMenu]);
 
+  useEffect(() => {
+    if (!reactionPickerMessageId) {
+      return;
+    }
+    const close = () => setReactionPickerMessageId(null);
+    const onMouseDown = (event: MouseEvent) => {
+      if (reactionPickerRef.current?.contains(event.target as Node)) {
+        return;
+      }
+      close();
+    };
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        close();
+      }
+    };
+    window.addEventListener('mousedown', onMouseDown);
+    window.addEventListener('scroll', close, true);
+    window.addEventListener('keydown', onKeyDown);
+    return () => {
+      window.removeEventListener('mousedown', onMouseDown);
+      window.removeEventListener('scroll', close, true);
+      window.removeEventListener('keydown', onKeyDown);
+    };
+  }, [reactionPickerMessageId]);
+
   const clearLongPress = () => {
     if (!longPressTimeoutRef.current) {
       return;
@@ -121,6 +156,7 @@ export function ChatView(props: ChatViewProps) {
     const menuHeight = 280;
     const nextX = Math.min(x, window.innerWidth - menuWidth - 8);
     const nextY = Math.min(y, window.innerHeight - menuHeight - 8);
+    setReactionPickerMessageId(null);
     setMessageMenu({
       message,
       x: Math.max(8, nextX),
@@ -343,17 +379,44 @@ export function ChatView(props: ChatViewProps) {
                     </div>
                     <div className="toolbar-divider" />
                     <div className="toolbar-actions">
-                      <button
-                        className="toolbar-btn"
-                        onClick={(e) => {
-                          // For now, open the context menu or just trigger a generic action
-                          // Ideally this would open an emoji picker
-                          openMessageMenu(message, e.clientX, e.clientY);
-                        }}
-                        title="Add Reaction"
+                      <div
+                        className="message-reaction-picker"
+                        ref={message.id === reactionPickerMessageId ? reactionPickerRef : undefined}
                       >
-                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"></circle><path d="M8 14s1.5 2 4 2 4-2 4-2"></path><line x1="9" y1="9" x2="9.01" y2="9"></line><line x1="15" y1="9" x2="15.01" y2="9"></line></svg>
-                      </button>
+                        <button
+                          className="toolbar-btn"
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            setReactionPickerMessageId((current) => (current === message.id ? null : message.id));
+                          }}
+                          title="Add Reaction"
+                        >
+                          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"></circle><path d="M8 14s1.5 2 4 2 4-2 4-2"></path><line x1="9" y1="9" x2="9.01" y2="9"></line><line x1="15" y1="9" x2="15.01" y2="9"></line></svg>
+                        </button>
+                        {reactionPickerMessageId === message.id ? (
+                          <div className="message-reaction-popover">
+                            {messageReactionPanelEmojis.map((emoji) => (
+                              <button
+                                key={`message-reaction:${message.id}:${emoji}`}
+                                type="button"
+                                className="emoji-choice"
+                                disabled={!props.onToggleReaction}
+                                onClick={() => {
+                                  if (!props.onToggleReaction) {
+                                    return;
+                                  }
+                                  void props.onToggleReaction(message.id, emoji);
+                                  addRecentEmoji(emoji);
+                                  setReactionPickerMessageId(null);
+                                }}
+                                title={`React with ${emoji}`}
+                              >
+                                {emoji}
+                              </button>
+                            ))}
+                          </div>
+                        ) : null}
+                      </div>
                       <button
                         className="toolbar-btn"
                         onClick={() => props.onReplyToMessage?.(message)}
@@ -403,26 +466,6 @@ export function ChatView(props: ChatViewProps) {
               style={{ left: `${messageMenu.x}px`, top: `${messageMenu.y}px` }}
               onMouseDown={(event) => event.stopPropagation()}
             >
-              <div className="message-context-reactions">
-                {recentEmojis.map((emoji) => (
-                  <button
-                    key={`menu-reaction:${emoji}`}
-                    type="button"
-                    className="reaction-menu-btn"
-                    disabled={!props.onToggleReaction}
-                    onClick={() => {
-                      if (!props.onToggleReaction) {
-                        return;
-                      }
-                      void props.onToggleReaction(messageMenu.message.id, emoji);
-                      addRecentEmoji(emoji);
-                      setMessageMenu(null);
-                    }}
-                  >
-                    {emoji}
-                  </button>
-                ))}
-              </div>
               <button
                 onClick={() => {
                   props.onUserClick?.(messageMenu.message.user);

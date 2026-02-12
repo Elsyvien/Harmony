@@ -2979,6 +2979,10 @@ body.font-scale-lg {
     right: -46px;
   }
 
+  .message-reaction-popover {
+    right: -46px;
+  }
+
   .settings-toolbar {
     flex-direction: column;
     align-items: flex-start;
@@ -3208,6 +3212,26 @@ body.font-scale-lg {
 .toolbar-actions {
   display: flex;
   gap: 2px;
+}
+
+.message-reaction-picker {
+  position: relative;
+}
+
+.message-reaction-popover {
+  position: absolute;
+  right: 0;
+  bottom: calc(100% + 6px);
+  width: 214px;
+  border: 1px solid var(--panel-border);
+  border-radius: 8px;
+  background-color: #1b1d22;
+  padding: 8px;
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 6px;
+  box-shadow: 0 10px 26px rgba(0, 0, 0, 0.45);
+  z-index: 16;
 }
 
 .toolbar-btn {
