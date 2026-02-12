@@ -144,13 +144,19 @@ export function ChatView(props: ChatViewProps) {
     };
   }, [reactionPickerMessageId]);
 
-  const clearLongPress = () => {
+  const clearLongPress = useCallback(() => {
     if (!longPressTimeoutRef.current) {
       return;
     }
     window.clearTimeout(longPressTimeoutRef.current);
     longPressTimeoutRef.current = null;
-  };
+  }, []);
+
+  useEffect(() => {
+    return () => {
+      clearLongPress();
+    };
+  }, [clearLongPress]);
 
   const openMessageMenu = (message: Message, x: number, y: number) => {
     const menuWidth = 260;
@@ -441,7 +447,18 @@ export function ChatView(props: ChatViewProps) {
                       </button>
                       <button
                         className="toolbar-btn"
-                        onClick={(e) => openMessageMenu(message, e.clientX, e.clientY)}
+                        onClick={(event) => {
+                          const triggerRect = event.currentTarget.getBoundingClientRect();
+                          const x =
+                            event.clientX > 0
+                              ? event.clientX
+                              : Math.round(triggerRect.left + triggerRect.width / 2);
+                          const y =
+                            event.clientY > 0
+                              ? event.clientY
+                              : Math.round(triggerRect.bottom);
+                          openMessageMenu(message, x, y);
+                        }}
                         title="More"
                       >
                         <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="1"></circle><circle cx="19" cy="12" r="1"></circle><circle cx="5" cy="12" r="1"></circle></svg>
@@ -566,7 +583,7 @@ export function ChatView(props: ChatViewProps) {
             setShowJumpToLatest(false);
           }}
         >
-          Zur neuesten Nachricht
+          Jump to latest message
         </button>
       ) : null}
     </section>
