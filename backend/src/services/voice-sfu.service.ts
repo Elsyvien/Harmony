@@ -276,15 +276,30 @@ export class VoiceSfuService {
     return true;
   }
 
-  removePeer(channelId: string, userId: string) {
+  getPeerProducerInfos(channelId: string, userId: string): VoiceSfuProducerInfo[] {
+    const room = this.rooms.get(channelId);
+    const peer = room?.peers.get(userId);
+    if (!peer) {
+      return [];
+    }
+    return Array.from(peer.producers.values()).map((producer) => ({
+      producerId: producer.id,
+      userId,
+      kind: producer.kind,
+      appData: producer.appData,
+    }));
+  }
+
+  removePeer(channelId: string, userId: string): VoiceSfuProducerInfo[] {
     const room = this.rooms.get(channelId);
     if (!room) {
-      return;
+      return [];
     }
     const peer = room.peers.get(userId);
     if (!peer) {
-      return;
+      return [];
     }
+    const removedProducers = this.getPeerProducerInfos(channelId, userId);
     for (const transport of peer.transports.values()) {
       transport.close();
     }
@@ -295,6 +310,7 @@ export class VoiceSfuService {
     if (room.peers.size === 0) {
       this.closeRoom(channelId);
     }
+    return removedProducers;
   }
 
   private getSupportedCodecs(): RouterRtpCodecCapability[] {
