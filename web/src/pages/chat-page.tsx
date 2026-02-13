@@ -131,7 +131,11 @@ type VoiceSignalData =
   | { kind: 'answer'; sdp: RTCSessionDescriptionInit }
   | { kind: 'ice'; candidate: RTCIceCandidateInit }
   | { kind: 'renegotiate' }
-  | { kind: 'video-source'; source: StreamSource | null };
+  | { kind: 'video-source'; source: StreamSource | null }
+  | { kind: 'stream-snapshot-request'; reason?: 'join-sync' | 'retry' | 'post-reset' | 'manual' }
+  | { kind: 'stream-snapshot'; source: StreamSource | null; hasLiveVideoTrack: boolean }
+  | { kind: 'stream-snapshot-ack'; source: StreamSource | null; hasLiveVideoTrack: boolean }
+  | { kind: 'video-recovery-request'; reason: 'stall-detected' | 'snapshot-mismatch'; stagnantSamples?: number };
 
 type VoiceDetailedMediaStats = {
   bitrateKbps: number | null;
@@ -297,6 +301,32 @@ function isVoiceSignalData(value: unknown): value is VoiceSignalData {
   if (kind === 'video-source') {
     const source = (value as { source?: unknown }).source;
     return source === 'screen' || source === 'camera' || source === null;
+  }
+  if (kind === 'stream-snapshot-request') {
+    const reason = (value as { reason?: unknown }).reason;
+    return (
+      reason === undefined ||
+      reason === 'join-sync' ||
+      reason === 'retry' ||
+      reason === 'post-reset' ||
+      reason === 'manual'
+    );
+  }
+  if (kind === 'stream-snapshot' || kind === 'stream-snapshot-ack') {
+    const source = (value as { source?: unknown }).source;
+    const hasLiveVideoTrack = (value as { hasLiveVideoTrack?: unknown }).hasLiveVideoTrack;
+    return (
+      (source === 'screen' || source === 'camera' || source === null) &&
+      typeof hasLiveVideoTrack === 'boolean'
+    );
+  }
+  if (kind === 'video-recovery-request') {
+    const reason = (value as { reason?: unknown }).reason;
+    const stagnantSamples = (value as { stagnantSamples?: unknown }).stagnantSamples;
+    return (
+      (reason === 'stall-detected' || reason === 'snapshot-mismatch') &&
+      (stagnantSamples === undefined || typeof stagnantSamples === 'number')
+    );
   }
   return false;
 }
@@ -487,6 +517,7 @@ export function ChatPage() {
   const ignoreOfferByPeerRef = useRef<Map<string, boolean>>(new Map());
   const remoteVideoSourceByPeerRef = useRef<Map<string, StreamSource | null>>(new Map());
   const remoteVideoStreamByPeerRef = useRef<Map<string, MediaStream>>(new Map());
+  const pendingStreamSnapshotRetryTimeoutByPeerRef = useRef<Map<string, number>>(new Map());
   const pendingIceRef = useRef<Map<string, RTCIceCandidateInit[]>>(new Map());
   const disconnectTimeoutByPeerRef = useRef<Map<string, number>>(new Map());
   const previousRtpSnapshotsRef = useRef<Map<string, { bytes: number; timestamp: number }>>(new Map());
@@ -1117,6 +1148,11 @@ export function ChatPage() {
     ignoreOfferByPeerRef.current.delete(peerUserId);
     remoteVideoSourceByPeerRef.current.delete(peerUserId);
     remoteVideoStreamByPeerRef.current.delete(peerUserId);
+    const pendingSnapshotTimeout = pendingStreamSnapshotRetryTimeoutByPeerRef.current.get(peerUserId);
+    if (pendingSnapshotTimeout) {
+      window.clearTimeout(pendingSnapshotTimeout);
+      pendingStreamSnapshotRetryTimeoutByPeerRef.current.delete(peerUserId);
+    }
     pendingIceRef.current.delete(peerUserId);
     remoteVideoTrafficByPeerRef.current.delete(peerUserId);
     remoteVideoRecoveryAttemptByPeerRef.current.delete(peerUserId);
@@ -1170,6 +1206,10 @@ export function ChatPage() {
     ignoreOfferByPeerRef.current.clear();
     remoteVideoSourceByPeerRef.current.clear();
     remoteVideoStreamByPeerRef.current.clear();
+    for (const timeoutId of pendingStreamSnapshotRetryTimeoutByPeerRef.current.values()) {
+      window.clearTimeout(timeoutId);
+    }
+    pendingStreamSnapshotRetryTimeoutByPeerRef.current.clear();
     pendingIceRef.current.clear();
     remoteVideoTrafficByPeerRef.current.clear();
     remoteVideoRecoveryAttemptByPeerRef.current.clear();
@@ -2069,6 +2109,64 @@ export function ChatPage() {
     [auth.user, createOfferForPeer],
   );
 
+  const getLocalVideoSourceSnapshot = useCallback(() => {
+    const localVideoTrack = localScreenStreamRef.current
+      ?.getVideoTracks()
+      .find((track) => track.readyState === 'live') ?? null;
+    if (!localVideoTrack || !localStreamSource) {
+      return {
+        source: null as StreamSource | null,
+        hasLiveVideoTrack: false,
+      };
+    }
+    return {
+      source: localStreamSource,
+      hasLiveVideoTrack: true,
+    };
+  }, [localStreamSource]);
+
+  const sendStreamSnapshotToPeer = useCallback(
+    (channelId: string, peerUserId: string) => {
+      const snapshot = getLocalVideoSourceSnapshot();
+      sendVoiceSignalRef.current(channelId, peerUserId, {
+        kind: 'stream-snapshot',
+        source: snapshot.source,
+        hasLiveVideoTrack: snapshot.hasLiveVideoTrack,
+      } satisfies VoiceSignalData);
+    },
+    [getLocalVideoSourceSnapshot],
+  );
+
+  const requestStreamSnapshotFromPeer = useCallback(
+    (
+      channelId: string,
+      peerUserId: string,
+      reason: 'join-sync' | 'retry' | 'post-reset' | 'manual' = 'join-sync',
+    ) => {
+      sendVoiceSignalRef.current(channelId, peerUserId, {
+        kind: 'stream-snapshot-request',
+        reason,
+      } satisfies VoiceSignalData);
+
+      const existingTimeout = pendingStreamSnapshotRetryTimeoutByPeerRef.current.get(peerUserId);
+      if (existingTimeout) {
+        window.clearTimeout(existingTimeout);
+      }
+      const timeoutId = window.setTimeout(() => {
+        pendingStreamSnapshotRetryTimeoutByPeerRef.current.delete(peerUserId);
+        if (activeVoiceChannelIdRef.current !== channelId) {
+          return;
+        }
+        sendVoiceSignalRef.current(channelId, peerUserId, {
+          kind: 'stream-snapshot-request',
+          reason: 'retry',
+        } satisfies VoiceSignalData);
+      }, 1400);
+      pendingStreamSnapshotRetryTimeoutByPeerRef.current.set(peerUserId, timeoutId);
+    },
+    [],
+  );
+
   const syncLocalVideoSourceToPeers = useCallback(
     (channelId: string, targetPeerUserIds: string[]) => {
       if (targetPeerUserIds.length === 0) {
@@ -2097,6 +2195,72 @@ export function ChatPage() {
       }
 
       const signal = payload.data;
+      if (signal.kind === 'stream-snapshot-request') {
+        sendStreamSnapshotToPeer(payload.channelId, payload.fromUserId);
+        return;
+      }
+
+      if (signal.kind === 'stream-snapshot') {
+        const pendingTimeout = pendingStreamSnapshotRetryTimeoutByPeerRef.current.get(payload.fromUserId);
+        if (pendingTimeout) {
+          window.clearTimeout(pendingTimeout);
+          pendingStreamSnapshotRetryTimeoutByPeerRef.current.delete(payload.fromUserId);
+        }
+
+        remoteVideoSourceByPeerRef.current.set(payload.fromUserId, signal.source);
+        const stream = remoteVideoStreamByPeerRef.current.get(payload.fromUserId);
+        const hasLiveVideoTrack = Boolean(
+          stream?.getVideoTracks().some((track) => track.readyState === 'live'),
+        );
+
+        if (signal.source === 'screen' || signal.source === 'camera') {
+          if (stream && hasLiveVideoTrack) {
+            setRemoteScreenShares((prev) => ({
+              ...prev,
+              [payload.fromUserId]: stream,
+            }));
+          } else {
+            setRemoteScreenShares((prev) => {
+              if (!prev[payload.fromUserId]) {
+                return prev;
+              }
+              const next = { ...prev };
+              delete next[payload.fromUserId];
+              return next;
+            });
+            requestVideoRenegotiationForPeer(payload.fromUserId, payload.channelId);
+          }
+        } else {
+          setRemoteScreenShares((prev) => {
+            if (!prev[payload.fromUserId]) {
+              return prev;
+            }
+            const next = { ...prev };
+            delete next[payload.fromUserId];
+            return next;
+          });
+        }
+
+        sendVoiceSignalRef.current(payload.channelId, payload.fromUserId, {
+          kind: 'stream-snapshot-ack',
+          source: signal.source,
+          hasLiveVideoTrack,
+        } satisfies VoiceSignalData);
+        return;
+      }
+
+      if (signal.kind === 'stream-snapshot-ack') {
+        const localSnapshot = getLocalVideoSourceSnapshot();
+        const peerMissingExpectedVideo =
+          localSnapshot.source !== null &&
+          signal.source === localSnapshot.source &&
+          !signal.hasLiveVideoTrack;
+        if (peerMissingExpectedVideo) {
+          requestVideoRenegotiationForPeer(payload.fromUserId, payload.channelId);
+        }
+        return;
+      }
+
       if (signal.kind === 'video-source') {
         remoteVideoSourceByPeerRef.current.set(payload.fromUserId, signal.source);
         if (signal.source === 'screen' || signal.source === 'camera') {
@@ -2219,6 +2383,10 @@ export function ChatPage() {
         return;
       }
 
+      if (signal.kind !== 'answer') {
+        return;
+      }
+
       if (connection.signalingState !== 'have-local-offer') {
         return;
       }
@@ -2249,6 +2417,9 @@ export function ChatPage() {
       closePeerConnection,
       ensurePeerConnection,
       flushPendingIceCandidates,
+      getLocalVideoSourceSnapshot,
+      requestVideoRenegotiationForPeer,
+      sendStreamSnapshotToPeer,
     ],
   );
 
@@ -2991,6 +3162,7 @@ export function ChatPage() {
               return;
             }
             await createOfferForPeer(peerUserId, activeVoiceChannelId);
+            requestStreamSnapshotFromPeer(activeVoiceChannelId, peerUserId, 'join-sync');
           } catch {
             // Best effort: peer transport can recover on next state update.
           }
@@ -3012,6 +3184,7 @@ export function ChatPage() {
     closePeerConnection,
     ensurePeerConnection,
     createOfferForPeer,
+    requestStreamSnapshotFromPeer,
   ]);
 
   useEffect(() => {
