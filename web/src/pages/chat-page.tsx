@@ -162,6 +162,7 @@ type VoiceDetailedConnectionStats = {
 type VoiceProtectionLevel = 'stable' | 'mild' | 'severe';
 type AdminVoiceTestId =
   | 'ws-link'
+  | 'audio-context-state'
   | 'rtc-config'
   | 'microphone'
   | 'audio-sender-profile'
@@ -185,6 +186,11 @@ const ADMIN_VOICE_TEST_DEFINITIONS: Array<{
     id: 'ws-link',
     label: 'Realtime Link',
     description: 'Checks if the websocket realtime connection is active.',
+  },
+  {
+    id: 'audio-context-state',
+    label: 'AudioContext State',
+    description: 'Checks unlock state and current WebAudio context states.',
   },
   {
     id: 'rtc-config',
@@ -3838,6 +3844,24 @@ export function ChatPage() {
         updateTestState(
           ws.connected ? 'pass' : 'fail',
           ws.connected ? 'Realtime websocket is connected.' : 'Realtime websocket is disconnected.',
+        );
+        return;
+      }
+
+      if (testId === 'audio-context-state') {
+        const formatState = (label: string, context: AudioContext | null) =>
+          `${label}:${context?.state ?? 'none'}`;
+        const stateSummary = [
+          formatState('remoteAudio', remoteAudioContextRef.current),
+          formatState('remoteSpeaking', remoteSpeakingContextRef.current),
+          formatState('localGain', localVoiceGainContextRef.current),
+          formatState('localAnalyser', localAnalyserContextRef.current),
+        ].join(' | ');
+        updateTestState(
+          audioContextsUnlockedRef.current ? 'pass' : 'fail',
+          audioContextsUnlockedRef.current
+            ? `Audio unlocked. ${stateSummary}`
+            : `Audio not unlocked by gesture yet. ${stateSummary}`,
         );
         return;
       }
