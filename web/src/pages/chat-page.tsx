@@ -1475,10 +1475,20 @@ export function ChatPage() {
             parameters.encodings && parameters.encodings.length > 0
               ? parameters.encodings
               : [{}];
-          parameters.encodings = existingEncodings.map((encoding) => ({
-            ...encoding,
-            maxBitrate: bitrateBps,
-          }));
+          parameters.encodings = existingEncodings.map((encoding) => {
+            const tuned = {
+              ...encoding,
+              maxBitrate: bitrateBps,
+            } as RTCRtpEncodingParameters & {
+              dtx?: 'enabled' | 'disabled';
+              priority?: RTCPriorityType;
+              networkPriority?: RTCPriorityType;
+            };
+            tuned.dtx = 'disabled';
+            tuned.priority = 'high';
+            tuned.networkPriority = 'high';
+            return tuned;
+          });
           await sender.setParameters(parameters);
         } catch {
           // Browser may not allow dynamic sender parameter updates.
@@ -1487,6 +1497,36 @@ export function ChatPage() {
     },
     [],
   );
+
+  const applyAudioCodecPreferences = useCallback((connection: RTCPeerConnection) => {
+    const senderCapabilities = RTCRtpSender.getCapabilities?.('audio');
+    if (!senderCapabilities?.codecs?.length) {
+      return;
+    }
+    const opusCodecs = senderCapabilities.codecs.filter((codec) =>
+      codec.mimeType.toLowerCase() === 'audio/opus');
+    if (opusCodecs.length === 0) {
+      return;
+    }
+    const nonOpusCodecs = senderCapabilities.codecs.filter((codec) =>
+      codec.mimeType.toLowerCase() !== 'audio/opus');
+    const prioritizedCodecs = [...opusCodecs, ...nonOpusCodecs];
+    for (const transceiver of connection.getTransceivers()) {
+      const senderKind = transceiver.sender.track?.kind;
+      const receiverKind = transceiver.receiver.track?.kind;
+      if (senderKind !== 'audio' && receiverKind !== 'audio') {
+        continue;
+      }
+      if (!transceiver.setCodecPreferences) {
+        continue;
+      }
+      try {
+        transceiver.setCodecPreferences(prioritizedCodecs);
+      } catch {
+        // Codec preferences are optional and browser-dependent.
+      }
+    }
+  }, []);
 
   const applyVideoBitrateToConnection = useCallback(
     async (connection: RTCPeerConnection, bitrateKbps: number) => {
@@ -1613,6 +1653,7 @@ export function ChatPage() {
         ...voiceIceConfig,
       });
       peerConnectionsRef.current.set(peerUserId, connection);
+      applyAudioCodecPreferences(connection);
       applyConnectionReceiverBuffering(connection);
       logVoiceDebug('peer_connection_create', {
         peerUserId,
@@ -1812,6 +1853,7 @@ export function ChatPage() {
       activeVoiceBitrateKbps,
       effectiveStreamBitrateKbps,
       applyConnectionReceiverBuffering,
+      applyAudioCodecPreferences,
       applyReceiverBuffering,
       getOrCreateVideoSender,
       localStreamSource,
