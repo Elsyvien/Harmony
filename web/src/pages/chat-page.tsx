@@ -114,6 +114,7 @@ type VoiceSignalData =
   | { kind: 'offer'; sdp: RTCSessionDescriptionInit }
   | { kind: 'answer'; sdp: RTCSessionDescriptionInit }
   | { kind: 'ice'; candidate: RTCIceCandidateInit }
+  | { kind: 'renegotiate' }
   | { kind: 'video-source'; source: StreamSource | null };
 
 type VoiceDetailedMediaStats = {
@@ -191,6 +192,9 @@ function isVoiceSignalData(value: unknown): value is VoiceSignalData {
   }
   if (kind === 'ice') {
     return Boolean((value as { candidate?: unknown }).candidate);
+  }
+  if (kind === 'renegotiate') {
+    return true;
   }
   if (kind === 'video-source') {
     const source = (value as { source?: unknown }).source;
@@ -366,6 +370,7 @@ export function ChatPage() {
   const remoteVideoSourceByPeerRef = useRef<Map<string, StreamSource | null>>(new Map());
   const remoteVideoStreamByPeerRef = useRef<Map<string, MediaStream>>(new Map());
   const pendingIceRef = useRef<Map<string, RTCIceCandidateInit[]>>(new Map());
+  const disconnectTimeoutByPeerRef = useRef<Map<string, number>>(new Map());
   const previousRtpSnapshotsRef = useRef<Map<string, { bytes: number; timestamp: number }>>(new Map());
   const voiceParticipantIdsByChannelRef = useRef<Map<string, Set<string>>>(new Map());
   const activeVoiceChannelIdRef = useRef<string | null>(null);
@@ -891,6 +896,11 @@ export function ChatPage() {
   }, [isSelfDeafened, isSelfMuted]);
 
   const closePeerConnection = useCallback((peerUserId: string) => {
+    const disconnectTimeout = disconnectTimeoutByPeerRef.current.get(peerUserId);
+    if (disconnectTimeout) {
+      window.clearTimeout(disconnectTimeout);
+      disconnectTimeoutByPeerRef.current.delete(peerUserId);
+    }
     const connection = peerConnectionsRef.current.get(peerUserId);
     if (connection) {
       connection.onicecandidate = null;
@@ -950,6 +960,10 @@ export function ChatPage() {
     remoteVideoSourceByPeerRef.current.clear();
     remoteVideoStreamByPeerRef.current.clear();
     pendingIceRef.current.clear();
+    for (const timeoutId of disconnectTimeoutByPeerRef.current.values()) {
+      window.clearTimeout(timeoutId);
+    }
+    disconnectTimeoutByPeerRef.current.clear();
     if (localVoiceStreamRef.current) {
       for (const track of localVoiceStreamRef.current.getTracks()) {
         track.stop();
@@ -1399,7 +1413,7 @@ export function ChatPage() {
         } else if (event.track.kind === 'video') {
           remoteVideoStreamByPeerRef.current.set(peerUserId, streamFromTrack);
           const setRemoteVideoVisible = () => {
-            const currentSource = remoteVideoSourceByPeerRef.current.get(peerUserId) ?? 'screen';
+            const currentSource = remoteVideoSourceByPeerRef.current.get(peerUserId) ?? null;
             if (currentSource === null) {
               return;
             }
@@ -1445,6 +1459,11 @@ export function ChatPage() {
       };
 
       connection.onconnectionstatechange = () => {
+        const existingDisconnectTimeout = disconnectTimeoutByPeerRef.current.get(peerUserId);
+        if (existingDisconnectTimeout && connection.connectionState !== 'disconnected') {
+          window.clearTimeout(existingDisconnectTimeout);
+          disconnectTimeoutByPeerRef.current.delete(peerUserId);
+        }
         logVoiceDebug('peer_connection_state', {
           peerUserId,
           channelId,
@@ -1462,39 +1481,33 @@ export function ChatPage() {
               'Voice P2P connection failed (no TURN configured). This usually happens on strict/mobile/company NAT networks.',
             );
           }
-          const localUserId = auth.user?.id;
-          if (!localUserId) {
-            closePeerConnection(peerUserId);
-            return;
-          }
-          if (!shouldInitiateOffer(localUserId, peerUserId)) {
-            return;
-          }
-
-          // Deterministic side performs ICE restart
           const activeChannelId = activeVoiceChannelIdRef.current;
           if (activeChannelId) {
-            connection.restartIce();
-            (async () => {
-              try {
-                const offer = await connection.createOffer({ iceRestart: true });
-                await connection.setLocalDescription(offer);
-                const ld = connection.localDescription;
-                if (ld && ld.type === 'offer') {
-                  sendVoiceSignalRef.current(activeChannelId, peerUserId, {
-                    kind: 'offer',
-                    sdp: ld,
-                  } satisfies VoiceSignalData);
-                  logVoiceDebug('ice_restart_offer_sent', { peerUserId, channelId: activeChannelId });
-                }
-              } catch {
-                logVoiceDebug('ice_restart_offer_failed', { peerUserId, channelId: activeChannelId });
-                closePeerConnection(peerUserId);
-              }
-            })();
-          } else {
-            closePeerConnection(peerUserId);
+            sendVoiceSignalRef.current(activeChannelId, peerUserId, { kind: 'renegotiate' } satisfies VoiceSignalData);
           }
+          closePeerConnection(peerUserId);
+          if (activeChannelId) {
+            void createOfferForPeerRef.current(peerUserId, activeChannelId);
+          }
+          return;
+        }
+
+        if (connection.connectionState === 'disconnected') {
+          if (disconnectTimeoutByPeerRef.current.has(peerUserId)) {
+            return;
+          }
+          const timeoutId = window.setTimeout(() => {
+            disconnectTimeoutByPeerRef.current.delete(peerUserId);
+            const activeChannelId = activeVoiceChannelIdRef.current;
+            if (!activeChannelId) {
+              closePeerConnection(peerUserId);
+              return;
+            }
+            sendVoiceSignalRef.current(activeChannelId, peerUserId, { kind: 'renegotiate' } satisfies VoiceSignalData);
+            closePeerConnection(peerUserId);
+            void createOfferForPeerRef.current(peerUserId, activeChannelId);
+          }, 3500);
+          disconnectTimeoutByPeerRef.current.set(peerUserId, timeoutId);
         }
       };
 
@@ -1593,6 +1606,21 @@ export function ChatPage() {
             delete next[payload.fromUserId];
             return next;
           });
+        }
+        return;
+      }
+
+      if (signal.kind === 'renegotiate') {
+        const localUserId = auth.user.id;
+        if (!shouldInitiateOffer(localUserId, payload.fromUserId)) {
+          return;
+        }
+        closePeerConnection(payload.fromUserId);
+        try {
+          await ensurePeerConnection(payload.fromUserId, payload.channelId);
+          await createOfferForPeerRef.current(payload.fromUserId, payload.channelId);
+        } catch {
+          // Best effort. Next sync cycle can recover.
         }
         return;
       }
