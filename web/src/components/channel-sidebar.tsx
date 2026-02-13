@@ -118,6 +118,8 @@ export function ChannelSidebar(props: ChannelSidebarProps) {
   const isChatView = props.activeView === 'chat';
   const avatarUrl = resolveMediaUrl(props.avatarUrl);
   const speakingSet = new Set(props.speakingUserIds);
+  const hasLiveVideoTrack = (stream: MediaStream | null | undefined) =>
+    Boolean(stream?.getVideoTracks().some((track) => track.readyState === 'live'));
 
   return (
     <aside className="channel-sidebar">
@@ -280,6 +282,7 @@ export function ChannelSidebar(props: ChannelSidebarProps) {
             isJoined &&
             props.localScreenShareStream &&
             props.localStreamSource !== null &&
+            hasLiveVideoTrack(props.localScreenShareStream) &&
             props.userId
           ) {
             streamPreviewItems.push({
@@ -291,7 +294,7 @@ export function ChannelSidebar(props: ChannelSidebarProps) {
           if (isJoined) {
             for (const participant of channelParticipants) {
               const stream = props.remoteScreenShares[participant.userId];
-              if (!stream) {
+              if (!hasLiveVideoTrack(stream)) {
                 continue;
               }
               streamPreviewItems.push({

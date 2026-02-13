@@ -322,6 +322,8 @@ export function VoiceChannelPanel(props: VoiceChannelPanelProps) {
   const speakingSet = new Set(props.speakingUserIds);
   const longPressTimeoutRef = useRef<number | null>(null);
   const [maximizedStreamId, setMaximizedStreamId] = useState<string | null>(null);
+  const hasLiveVideoTrack = (stream: MediaStream | null | undefined) =>
+    Boolean(stream?.getVideoTracks().some((track) => track.readyState === 'live'));
 
   const clearLongPress = () => {
     if (!longPressTimeoutRef.current) {
@@ -331,11 +333,16 @@ export function VoiceChannelPanel(props: VoiceChannelPanelProps) {
     longPressTimeoutRef.current = null;
   };
 
-  const hasScreenShares =
-    (props.localStreamSource !== null && props.localScreenShareStream !== null) ||
-    Object.keys(props.remoteScreenShares).length > 0;
-  const remoteStreamCount = Object.keys(props.remoteScreenShares).length;
-  const totalStreamCount = remoteStreamCount + (props.localScreenShareStream ? 1 : 0);
+  const hasLocalShare =
+    props.localStreamSource !== null &&
+    props.localScreenShareStream !== null &&
+    hasLiveVideoTrack(props.localScreenShareStream);
+  const visibleRemoteScreenShares = Object.entries(props.remoteScreenShares).filter(([, stream]) =>
+    hasLiveVideoTrack(stream),
+  );
+  const hasScreenShares = hasLocalShare || visibleRemoteScreenShares.length > 0;
+  const remoteStreamCount = visibleRemoteScreenShares.length;
+  const totalStreamCount = remoteStreamCount + (hasLocalShare ? 1 : 0);
   const connectedParticipantCount = props.participants.length;
   const canEditBitrates = props.canEditChannelBitrate && !props.qualityBusy;
   const localShareTitle =
@@ -499,7 +506,7 @@ export function VoiceChannelPanel(props: VoiceChannelPanelProps) {
       {/* Screen & Camera Share Layout */}
       {hasScreenShares && (
         <div className={`voice-screen-shares ${maximizedStreamId ? 'has-maximized' : 'grid-layout'}`}>
-          {props.localStreamSource !== null && props.localScreenShareStream ? (
+          {hasLocalShare && props.localScreenShareStream ? (
             <ScreenShareItem
               stream={props.localScreenShareStream}
               label={localShareTitle}
@@ -507,7 +514,7 @@ export function VoiceChannelPanel(props: VoiceChannelPanelProps) {
               onMaximize={() => setMaximizedStreamId(maximizedStreamId === 'local' ? null : 'local')}
             />
           ) : null}
-          {Object.entries(props.remoteScreenShares).map(([userId, stream]) => {
+          {visibleRemoteScreenShares.map(([userId, stream]) => {
             const participant = props.participants.find((p) => p.userId === userId);
             const name = participant?.username ?? 'Unknown';
             return (

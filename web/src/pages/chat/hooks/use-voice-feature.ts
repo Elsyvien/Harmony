@@ -106,8 +106,22 @@ export function useVoiceFeature({
     if (!activeVoiceChannelId) {
       return byChannel;
     }
-    const liveUserIds = new Set<string>(Object.keys(remoteScreenShares));
-    if (localStreamSource !== null && localScreenShareStream && authUserId) {
+    const hasLiveVideoTrack = (stream: MediaStream | null | undefined) =>
+      Boolean(stream?.getVideoTracks().some((track) => track.readyState === 'live'));
+
+    const liveUserIds = new Set<string>();
+    for (const [userId, stream] of Object.entries(remoteScreenShares)) {
+      if (!hasLiveVideoTrack(stream)) {
+        continue;
+      }
+      liveUserIds.add(userId);
+    }
+    if (
+      localStreamSource !== null &&
+      localScreenShareStream &&
+      hasLiveVideoTrack(localScreenShareStream) &&
+      authUserId
+    ) {
       liveUserIds.add(authUserId);
     }
     byChannel[activeVoiceChannelId] = [...liveUserIds];

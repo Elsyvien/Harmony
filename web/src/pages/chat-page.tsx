@@ -1307,10 +1307,12 @@ export function ChatPage() {
     const staleUserIds: string[] = [];
     for (const [userId, stream] of Object.entries(remoteScreenShares)) {
       const peerConnection = peerConnectionsRef.current.get(userId);
+      const advertisedSource = remoteVideoSourceByPeerRef.current.get(userId);
       const videoTracks = stream.getVideoTracks();
       const hasLiveVideoTrack = videoTracks.some((track) => track.readyState === 'live');
       const isPeerClosed = peerConnection?.connectionState === 'closed';
-      if (!hasLiveVideoTrack || isPeerClosed) {
+      const senderExplicitlyStopped = advertisedSource === null;
+      if (!hasLiveVideoTrack || isPeerClosed || senderExplicitlyStopped) {
         staleUserIds.push(userId);
       }
     }
@@ -1790,6 +1792,16 @@ export function ChatPage() {
         } else if (event.track.kind === 'video') {
           remoteVideoStreamByPeerRef.current.set(peerUserId, streamFromTrack);
           const setRemoteVideoVisible = () => {
+            const advertisedSource = remoteVideoSourceByPeerRef.current.get(peerUserId);
+            if (advertisedSource === null) {
+              return;
+            }
+            const hasLiveVideoTrack = streamFromTrack
+              .getVideoTracks()
+              .some((track) => track.readyState === 'live');
+            if (!hasLiveVideoTrack) {
+              return;
+            }
             setRemoteScreenShares((prev) => ({
               ...prev,
               [peerUserId]: streamFromTrack,
@@ -2041,7 +2053,10 @@ export function ChatPage() {
         remoteVideoSourceByPeerRef.current.set(payload.fromUserId, signal.source);
         if (signal.source === 'screen' || signal.source === 'camera') {
           const stream = remoteVideoStreamByPeerRef.current.get(payload.fromUserId);
-          if (stream) {
+          const hasLiveVideoTrack = Boolean(
+            stream?.getVideoTracks().some((track) => track.readyState === 'live'),
+          );
+          if (stream && hasLiveVideoTrack) {
             setRemoteScreenShares((prev) => ({
               ...prev,
               [payload.fromUserId]: stream,
@@ -2049,11 +2064,7 @@ export function ChatPage() {
           }
         } else {
           setRemoteScreenShares((prev) => {
-            const currentStream = remoteVideoStreamByPeerRef.current.get(payload.fromUserId);
-            const hasLiveVideoTrack = Boolean(
-              currentStream?.getVideoTracks().some((track) => track.readyState === 'live'),
-            );
-            if (!prev[payload.fromUserId] || hasLiveVideoTrack) {
+            if (!prev[payload.fromUserId]) {
               return prev;
             }
             const next = { ...prev };
@@ -2543,7 +2554,7 @@ export function ChatPage() {
   }, [ws, auth.user, activeVoiceChannelId, voiceParticipantsByChannel, isSelfMuted, isSelfDeafened]);
 
   useEffect(() => {
-    if (!ws.connected || !auth.user || !activeVoiceChannelId || !localStreamSource) {
+    if (!ws.connected || !auth.user || !activeVoiceChannelId) {
       return;
     }
     const participants = voiceParticipantsByChannel[activeVoiceChannelId] ?? [];
@@ -2565,7 +2576,6 @@ export function ChatPage() {
     auth.user,
     activeVoiceChannelId,
     voiceParticipantsByChannel,
-    localStreamSource,
     syncLocalVideoSourceToPeers,
   ]);
 
