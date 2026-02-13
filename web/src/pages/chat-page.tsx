@@ -1101,6 +1101,35 @@ export function ChatPage() {
     }
   }, [activeRemoteAudioUsers, disconnectRemoteAudioForUser]);
 
+  const pruneStaleRemoteScreenShares = useCallback(() => {
+    const staleUserIds: string[] = [];
+    for (const [userId, stream] of Object.entries(remoteScreenShares)) {
+      const source = remoteVideoSourceByPeerRef.current.get(userId) ?? null;
+      const peerConnection = peerConnectionsRef.current.get(userId);
+      const videoTracks = stream.getVideoTracks();
+      const hasLiveVideoTrack = videoTracks.some((track) => track.readyState === 'live');
+      const isPeerClosed = !peerConnection || peerConnection.connectionState === 'closed';
+      if (source === null || !hasLiveVideoTrack || isPeerClosed) {
+        staleUserIds.push(userId);
+      }
+    }
+    if (staleUserIds.length === 0) {
+      return;
+    }
+    setRemoteScreenShares((prev) => {
+      let changed = false;
+      const next = { ...prev };
+      for (const userId of staleUserIds) {
+        if (!next[userId]) {
+          continue;
+        }
+        delete next[userId];
+        changed = true;
+      }
+      return changed ? next : prev;
+    });
+  }, [remoteScreenShares]);
+
   const initLocalAnalyser = useCallback((stream: MediaStream) => {
     const AudioContextClass =
       window.AudioContext ||
@@ -2331,6 +2360,22 @@ export function ChatPage() {
   useEffect(() => {
     applyLocalVoiceTrackState(localVoiceStreamRef.current);
   }, [applyLocalVoiceTrackState]);
+
+  useEffect(() => {
+    pruneStaleRemoteScreenShares();
+  }, [pruneStaleRemoteScreenShares, voiceParticipantsByChannel, activeVoiceChannelId]);
+
+  useEffect(() => {
+    if (!activeVoiceChannelId || !ws.connected) {
+      return;
+    }
+    const intervalId = window.setInterval(() => {
+      pruneStaleRemoteScreenShares();
+    }, 1500);
+    return () => {
+      window.clearInterval(intervalId);
+    };
+  }, [activeVoiceChannelId, ws.connected, pruneStaleRemoteScreenShares]);
 
   // Speaking detection – local mic
   useEffect(() => {
