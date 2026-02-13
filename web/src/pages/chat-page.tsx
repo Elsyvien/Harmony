@@ -1,7 +1,7 @@
 import { Navigate } from 'react-router-dom';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { chatApi } from '../api/chat-api';
-import { AdminSettingsPanel } from '../components/admin-settings-panel';
+import { AdminSettingsPanel, type AdminVoiceTestEntry } from '../components/admin-settings-panel';
 import { ChannelSidebar } from '../components/channel-sidebar';
 import { ChatView } from '../components/chat-view';
 import { FriendsPanel } from '../components/friends-panel';
@@ -160,6 +160,80 @@ type VoiceDetailedConnectionStats = {
 };
 
 type VoiceProtectionLevel = 'stable' | 'mild' | 'severe';
+type AdminVoiceTestId =
+  | 'ws-link'
+  | 'rtc-config'
+  | 'microphone'
+  | 'audio-sender-profile'
+  | 'ice-restart'
+  | 'stream-sync'
+  | 'video-recovery'
+  | 'stats-snapshot';
+
+type AdminVoiceTestState = {
+  status: AdminVoiceTestEntry['status'];
+  message: string;
+  ranAt: number | null;
+};
+
+const ADMIN_VOICE_TEST_DEFINITIONS: Array<{
+  id: AdminVoiceTestId;
+  label: string;
+  description: string;
+}> = [
+  {
+    id: 'ws-link',
+    label: 'Realtime Link',
+    description: 'Checks if the websocket realtime connection is active.',
+  },
+  {
+    id: 'rtc-config',
+    label: 'ICE Config',
+    description: 'Validates loaded STUN/TURN runtime config.',
+  },
+  {
+    id: 'microphone',
+    label: 'Microphone Pipeline',
+    description: 'Requests local mic stream and verifies a live audio track.',
+  },
+  {
+    id: 'audio-sender-profile',
+    label: 'Audio Sender Profile',
+    description: 'Checks audio sender bitrate/priority profile on active peers.',
+  },
+  {
+    id: 'ice-restart',
+    label: 'ICE Restart Support',
+    description: 'Confirms connected peers expose ICE restart recovery.',
+  },
+  {
+    id: 'stream-sync',
+    label: 'Stream Source Sync',
+    description: 'Pushes current stream source state to all voice peers.',
+  },
+  {
+    id: 'video-recovery',
+    label: 'Video Recovery Watchdog',
+    description: 'Reports current stalled-video watchdog state for peers.',
+  },
+  {
+    id: 'stats-snapshot',
+    label: 'Connection Stats Snapshot',
+    description: 'Runs a fresh detailed connection stats sample.',
+  },
+];
+
+function createInitialAdminVoiceTestState(): Record<AdminVoiceTestId, AdminVoiceTestState> {
+  const next = {} as Record<AdminVoiceTestId, AdminVoiceTestState>;
+  for (const test of ADMIN_VOICE_TEST_DEFINITIONS) {
+    next[test.id] = {
+      status: 'idle',
+      message: 'Not run yet.',
+      ranAt: null,
+    };
+  }
+  return next;
+}
 
 function createEmptyMediaStats(): VoiceDetailedMediaStats {
   return {
@@ -313,6 +387,10 @@ export function ChatPage() {
   const [updatingAdminUserId, setUpdatingAdminUserId] = useState<string | null>(null);
   const [deletingAdminUserId, setDeletingAdminUserId] = useState<string | null>(null);
   const [clearingAdminUsers, setClearingAdminUsers] = useState(false);
+  const [runningAdminVoiceTests, setRunningAdminVoiceTests] = useState(false);
+  const [adminVoiceTestStateById, setAdminVoiceTestStateById] = useState<
+    Record<AdminVoiceTestId, AdminVoiceTestState>
+  >(() => createInitialAdminVoiceTestState());
 
   const [friends, setFriends] = useState<FriendSummary[]>([]);
   const [incomingRequests, setIncomingRequests] = useState<FriendRequestSummary[]>([]);
@@ -3680,6 +3758,192 @@ export function ChatPage() {
     }
   }, [enumerateAudioInputDevices, refreshMicrophonePermission]);
 
+  const runAdminVoiceTest = useCallback(async (rawTestId: string) => {
+    const testId = rawTestId as AdminVoiceTestId;
+    if (!ADMIN_VOICE_TEST_DEFINITIONS.some((test) => test.id === testId)) {
+      return;
+    }
+
+    const updateTestState = (status: AdminVoiceTestState['status'], message: string) => {
+      setAdminVoiceTestStateById((prev) => ({
+        ...prev,
+        [testId]: {
+          status,
+          message,
+          ranAt: Date.now(),
+        },
+      }));
+    };
+
+    updateTestState('running', 'Running test...');
+    try {
+      if (testId === 'ws-link') {
+        updateTestState(
+          ws.connected ? 'pass' : 'fail',
+          ws.connected ? 'Realtime websocket is connected.' : 'Realtime websocket is disconnected.',
+        );
+        return;
+      }
+
+      if (testId === 'rtc-config') {
+        const serverCount = voiceIceConfig.iceServers?.length ?? 0;
+        updateTestState(
+          serverCount > 0 ? 'pass' : 'fail',
+          serverCount > 0 ? `Loaded ${serverCount} ICE server(s).` : 'No ICE servers are configured.',
+        );
+        return;
+      }
+
+      if (testId === 'microphone') {
+        const stream = await getLocalVoiceStream();
+        const hasLiveTrack = stream.getAudioTracks().some((track) => track.readyState === 'live');
+        updateTestState(
+          hasLiveTrack ? 'pass' : 'fail',
+          hasLiveTrack
+            ? 'Microphone stream is live.'
+            : 'Microphone stream was created but no live audio track was found.',
+        );
+        return;
+      }
+
+      if (testId === 'audio-sender-profile') {
+        const peerConnections = Array.from(peerConnectionsRef.current.entries());
+        if (peerConnections.length === 0) {
+          updateTestState('pass', 'No active peers. Connect another user to validate sender profile.');
+          return;
+        }
+
+        const issues: string[] = [];
+        const requiredBitrateBps = Math.max(8, activeVoiceBitrateKbps) * 1000;
+        for (const [peerUserId, connection] of peerConnections) {
+          const audioSenders = connection
+            .getSenders()
+            .filter((sender) => sender.track?.kind === 'audio');
+          if (audioSenders.length === 0) {
+            issues.push(`${peerUserId}: no audio sender`);
+            continue;
+          }
+          for (const sender of audioSenders) {
+            const params = sender.getParameters();
+            const encodings = params.encodings ?? [];
+            for (const encoding of encodings) {
+              if (typeof encoding.maxBitrate === 'number' && encoding.maxBitrate < requiredBitrateBps * 0.8) {
+                issues.push(`${peerUserId}: maxBitrate below channel target`);
+              }
+              const dtxValue = (encoding as { dtx?: string }).dtx;
+              if (dtxValue && dtxValue !== 'disabled') {
+                issues.push(`${peerUserId}: dtx is not disabled`);
+              }
+              const priorityValue = (encoding as { priority?: string }).priority;
+              if (priorityValue && priorityValue !== 'high') {
+                issues.push(`${peerUserId}: priority is not high`);
+              }
+            }
+          }
+        }
+
+        updateTestState(
+          issues.length === 0 ? 'pass' : 'fail',
+          issues.length === 0
+            ? `Audio sender profile validated on ${peerConnections.length} peer(s).`
+            : `Profile issues: ${issues.slice(0, 3).join(' | ')}`,
+        );
+        return;
+      }
+
+      if (testId === 'ice-restart') {
+        const peerConnections = Array.from(peerConnectionsRef.current.entries());
+        if (peerConnections.length === 0) {
+          updateTestState('pass', 'No active peers. Connect another user to validate ICE restart support.');
+          return;
+        }
+        const unsupportedPeers = peerConnections
+          .filter(([, connection]) => typeof connection.restartIce !== 'function')
+          .map(([peerUserId]) => peerUserId);
+        updateTestState(
+          unsupportedPeers.length === 0 ? 'pass' : 'fail',
+          unsupportedPeers.length === 0
+            ? `ICE restart is available on ${peerConnections.length} peer connection(s).`
+            : `ICE restart missing on: ${unsupportedPeers.join(', ')}`,
+        );
+        return;
+      }
+
+      if (testId === 'stream-sync') {
+        if (!activeVoiceChannelId || !auth.user) {
+          updateTestState('fail', 'Join a voice channel first to validate stream sync.');
+          return;
+        }
+        const peers = (voiceParticipantsByChannel[activeVoiceChannelId] ?? [])
+          .map((participant) => participant.userId)
+          .filter((userId) => userId !== auth.user?.id);
+        if (peers.length === 0) {
+          updateTestState('pass', 'No peers in voice channel. Stream sync will run once peers join.');
+          return;
+        }
+        syncLocalVideoSourceToPeers(activeVoiceChannelId, peers);
+        updateTestState('pass', `Pushed stream source snapshot to ${peers.length} peer(s).`);
+        return;
+      }
+
+      if (testId === 'video-recovery') {
+        const stalledPeers = Array.from(remoteVideoTrafficByPeerRef.current.entries())
+          .filter(([, sample]) => sample.stagnantSamples >= 3)
+          .map(([peerUserId]) => peerUserId);
+        updateTestState(
+          stalledPeers.length === 0 ? 'pass' : 'fail',
+          stalledPeers.length === 0
+            ? `Watchdog healthy (${remoteVideoTrafficByPeerRef.current.size} monitored peer(s)).`
+            : `Stalled peers detected: ${stalledPeers.join(', ')}`,
+        );
+        return;
+      }
+
+      await collectVoiceConnectionStats();
+      updateTestState('pass', `Detailed stats snapshot collected (${peerConnectionsRef.current.size} peer(s)).`);
+    } catch (err) {
+      updateTestState('fail', getErrorMessage(err, 'Test failed unexpectedly.'));
+    }
+  }, [
+    ws,
+    voiceIceConfig.iceServers,
+    getLocalVoiceStream,
+    activeVoiceBitrateKbps,
+    activeVoiceChannelId,
+    auth.user,
+    voiceParticipantsByChannel,
+    syncLocalVideoSourceToPeers,
+    collectVoiceConnectionStats,
+  ]);
+
+  const runAllAdminVoiceTests = useCallback(async () => {
+    if (runningAdminVoiceTests) {
+      return;
+    }
+    setRunningAdminVoiceTests(true);
+    try {
+      for (const test of ADMIN_VOICE_TEST_DEFINITIONS) {
+        // Keep test execution deterministic and make feedback easy to trace.
+        await runAdminVoiceTest(test.id);
+      }
+    } finally {
+      setRunningAdminVoiceTests(false);
+    }
+  }, [runningAdminVoiceTests, runAdminVoiceTest]);
+
+  const adminVoiceTests = useMemo<AdminVoiceTestEntry[]>(
+    () =>
+      ADMIN_VOICE_TEST_DEFINITIONS.map((test) => ({
+        id: test.id,
+        label: test.label,
+        description: test.description,
+        status: adminVoiceTestStateById[test.id].status,
+        message: adminVoiceTestStateById[test.id].message,
+        ranAt: adminVoiceTestStateById[test.id].ranAt,
+      })),
+    [adminVoiceTestStateById],
+  );
+
   useEffect(() => {
     if (activeView !== 'admin' || !auth.user?.isAdmin) {
       return;
@@ -4257,6 +4521,10 @@ export function ChatPage() {
             onClearUsersExceptCurrent={clearAdminUsersExceptCurrent}
             clearingUsersExceptCurrent={clearingAdminUsers}
             currentUserId={auth.user.id}
+            voiceTests={adminVoiceTests}
+            runningVoiceTests={runningAdminVoiceTests}
+            onRunVoiceTest={runAdminVoiceTest}
+            onRunAllVoiceTests={runAllAdminVoiceTests}
           />
         ) : null}
       </section>

@@ -902,6 +902,61 @@ body.theme-light .role-pill {
   margin-bottom: 10px;
 }
 
+.muted-inline {
+  margin: 0 0 10px;
+  color: var(--text-muted);
+  font-size: 12px;
+  text-align: left;
+}
+
+.admin-test-menu {
+  display: grid;
+  gap: 10px;
+}
+
+.admin-test-list {
+  display: grid;
+  gap: 8px;
+}
+
+.admin-test-row {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 12px;
+  align-items: center;
+  padding: 10px;
+  border: 1px solid var(--panel-border);
+  border-radius: var(--radius-sharp);
+  background-color: rgba(255, 255, 255, 0.02);
+}
+
+.admin-test-main {
+  display: grid;
+  gap: 2px;
+}
+
+.admin-test-main strong {
+  color: var(--text-header);
+}
+
+.admin-test-main small {
+  color: var(--text-muted);
+}
+
+.admin-test-message {
+  color: #d9dbe2;
+}
+
+.admin-test-time {
+  font-size: 11px;
+}
+
+.admin-test-actions {
+  display: grid;
+  gap: 8px;
+  justify-items: end;
+}
+
 .status-chip {
   display: inline-flex;
   align-items: center;
