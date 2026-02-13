@@ -1991,8 +1991,9 @@ export function ChatPage() {
             if (!fallbackChannelId) {
               return;
             }
+            // Hard reset connection if still failed after 10 seconds
             void createOfferForPeerRef.current(peerUserId, fallbackChannelId);
-          }, 2200);
+          }, 10000);
           disconnectTimeoutByPeerRef.current.set(peerUserId, timeoutId);
           return;
         }
@@ -2026,8 +2027,9 @@ export function ChatPage() {
             if (!fallbackChannelId) {
               return;
             }
+            // Hard reset connection if still disconnected after 12 seconds
             void createOfferForPeerRef.current(peerUserId, fallbackChannelId);
-          }, 4500);
+          }, 12000);
           disconnectTimeoutByPeerRef.current.set(peerUserId, timeoutId);
         }
       };
@@ -2833,7 +2835,7 @@ export function ChatPage() {
     syncLocalVideoSourceToPeers(activeVoiceChannelId, targetPeerUserIds);
     const intervalId = window.setInterval(() => {
       syncLocalVideoSourceToPeers(activeVoiceChannelId, targetPeerUserIds);
-    }, 2500);
+    }, 4500);
     return () => {
       window.clearInterval(intervalId);
     };
@@ -3151,81 +3153,91 @@ export function ChatPage() {
     void loadMessages(activeChannelId);
   }, [activeChannelId, activeChannel?.isVoice, loadMessages]);
 
+  const activeVoiceParticipantIds = useMemo(() => {
+    if (!activeVoiceChannelId) return "";
+    const p = voiceParticipantsByChannel[activeVoiceChannelId] ?? [];
+    return p.map(u => u.userId).sort().join(',');
+  }, [voiceParticipantsByChannel, activeVoiceChannelId]);
+
   useEffect(() => {
     if (!ws.connected || !activeVoiceChannelId || !auth.user) {
       teardownVoiceTransport();
       return;
     }
 
-    const participants = voiceParticipantsByChannel[activeVoiceChannelId] ?? [];
-    const selfInChannel = participants.some((participant) => participant.userId === auth.user?.id);
-    if (!selfInChannel) {
-      teardownVoiceTransport();
-      return;
-    }
-
     const transportEpoch = ++voiceTransportEpochRef.current;
     let cancelled = false;
-    const syncVoiceTransport = async () => {
-      const currentRawTrack = localVoiceStreamRef.current?.getAudioTracks()[0] ?? null;
-      const needsFreshStream = !currentRawTrack || currentRawTrack.readyState !== 'live';
-      try {
-        await getLocalVoiceStream(needsFreshStream);
-      } catch (err) {
-        if (!cancelled && voiceTransportEpochRef.current === transportEpoch) {
-          leaveVoiceRef.current(activeVoiceChannelId);
-          setError(getErrorMessage(err, 'Could not access microphone for voice channel'));
-          activeVoiceChannelIdRef.current = null;
-          setActiveVoiceChannelId(null);
+
+    // Debounce the sync to handle rapid participant changes
+    const timer = window.setTimeout(() => {
+      const syncVoiceTransport = async () => {
+        const participants = voiceParticipantsByChannel[activeVoiceChannelId] ?? [];
+        const selfInChannel = participants.some((p) => p.userId === auth.user?.id);
+        if (!selfInChannel) {
+          teardownVoiceTransport();
+          return;
         }
-        return;
-      }
 
-      if (cancelled || voiceTransportEpochRef.current !== transportEpoch) {
-        return;
-      }
-
-      const desiredPeerUserIds = new Set(
-        participants
-          .map((participant) => participant.userId)
-          .filter((userId) => userId !== auth.user?.id),
-      );
-
-      for (const existingPeerUserId of Array.from(peerConnectionsRef.current.keys())) {
-        if (!desiredPeerUserIds.has(existingPeerUserId)) {
-          closePeerConnection(existingPeerUserId);
+        const currentRawTrack = localVoiceStreamRef.current?.getAudioTracks()[0] ?? null;
+        const needsFreshStream = !currentRawTrack || currentRawTrack.readyState !== 'live';
+        try {
+          await getLocalVoiceStream(needsFreshStream);
+        } catch (err) {
+          if (!cancelled && voiceTransportEpochRef.current === transportEpoch) {
+            leaveVoiceRef.current(activeVoiceChannelId);
+            setError(getErrorMessage(err, 'Could not access microphone for voice channel'));
+            activeVoiceChannelIdRef.current = null;
+            setActiveVoiceChannelId(null);
+          }
+          return;
         }
-      }
 
-      const sortedPeerUserIds = Array.from(desiredPeerUserIds).sort();
-      await Promise.allSettled(
-        sortedPeerUserIds.map(async (peerUserId) => {
-          if (cancelled || voiceTransportEpochRef.current !== transportEpoch) {
-            return;
-          }
-          try {
-            await ensurePeerConnection(peerUserId, activeVoiceChannelId);
-            if (cancelled || voiceTransportEpochRef.current !== transportEpoch) {
-              return;
-            }
-            await createOfferForPeer(peerUserId, activeVoiceChannelId);
-            requestStreamSnapshotFromPeer(activeVoiceChannelId, peerUserId, 'join-sync');
-          } catch {
-            // Best effort: peer transport can recover on next state update.
-          }
-        }),
-      );
-    };
+        if (cancelled || voiceTransportEpochRef.current !== transportEpoch) return;
 
-    void syncVoiceTransport();
+        const desiredPeerUserIds = new Set(
+          participants
+            .map((p) => p.userId)
+            .filter((uid) => uid !== auth.user?.id)
+        );
+
+        for (const existingPeerUserId of Array.from(peerConnectionsRef.current.keys())) {
+          if (!desiredPeerUserIds.has(existingPeerUserId)) {
+            closePeerConnection(existingPeerUserId);
+          }
+        }
+
+        const sortedPeerUserIds = Array.from(desiredPeerUserIds).sort();
+        await Promise.allSettled(
+          sortedPeerUserIds.map(async (peerUserId) => {
+            if (cancelled || voiceTransportEpochRef.current !== transportEpoch) return;
+            try {
+              const pc = await ensurePeerConnection(peerUserId, activeVoiceChannelId);
+              if (pc.signalingState === 'stable' && !peerConnectionsRef.current.get(peerUserId)) {
+                 // Connection was just created or reset
+                 await createOfferForPeer(peerUserId, activeVoiceChannelId);
+                 requestStreamSnapshotFromPeer(activeVoiceChannelId, peerUserId, 'join-sync');
+              } else if (pc.signalingState === 'stable') {
+                 // Already exists, maybe just ensure it's healthy
+                 if (pc.connectionState === 'failed' || pc.connectionState === 'disconnected') {
+                    pc.restartIce?.();
+                 }
+              }
+            } catch {}
+          })
+        );
+      };
+      void syncVoiceTransport();
+    }, 400);
+
     return () => {
       cancelled = true;
+      window.clearTimeout(timer);
     };
   }, [
     ws.connected,
     activeVoiceChannelId,
+    activeVoiceParticipantIds, // Only re-run when actual participant IDs change
     auth.user,
-    voiceParticipantsByChannel,
     teardownVoiceTransport,
     getLocalVoiceStream,
     closePeerConnection,
@@ -3348,11 +3360,11 @@ export function ChatPage() {
             remoteVideoRecoveryStreakByPeerRef.current.set(peerUserId, 0);
           }
 
-          if (stagnantSamples < 3) {
+          if (stagnantSamples < 4) {
             return;
           }
           const lastAttemptAt = remoteVideoRecoveryAttemptByPeerRef.current.get(peerUserId) ?? 0;
-          if (now - lastAttemptAt < 7000) {
+          if (now - lastAttemptAt < 10000) {
             return;
           }
 
@@ -3378,7 +3390,7 @@ export function ChatPage() {
           } satisfies VoiceSignalData);
           requestVideoRenegotiationForPeer(peerUserId, activeVoiceChannelId);
 
-          if (nextRecoveryStreak < 2) {
+          if (nextRecoveryStreak < 3) {
             return;
           }
 
@@ -3406,7 +3418,7 @@ export function ChatPage() {
     void monitorRemoteVideoFlow();
     const intervalId = window.setInterval(() => {
       void monitorRemoteVideoFlow();
-    }, 2200);
+    }, 4500);
     return () => {
       cancelled = true;
       window.clearInterval(intervalId);

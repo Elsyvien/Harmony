@@ -484,6 +484,7 @@ export function VoiceChannelPanel(props: VoiceChannelPanelProps) {
           const audioState = !isSelf ? props.getParticipantAudioState?.(participant.userId) : null;
           const stats = props.connectionStats.find(s => s.userId === participant.userId);
           const rtt = stats?.currentRttMs;
+          const connState = stats?.connectionState || 'new';
           
           let signalIcon = '📶';
           let signalClass = 'good';
@@ -492,10 +493,17 @@ export function VoiceChannelPanel(props: VoiceChannelPanelProps) {
             else if (rtt > 150) { signalIcon = '📶'; signalClass = 'fair'; }
           }
 
+          let displayStatus = participant.deafened ? 'Deafened' : participant.muted ? 'Muted' : isSpeaking ? 'Speaking' : 'Connected';
+          if (props.joined && !isSelf) {
+            if (connState === 'connecting' || connState === 'checking') displayStatus = 'Connecting...';
+            else if (connState === 'reconnecting' || connState === 'disconnected') displayStatus = 'Reconnecting...';
+            else if (connState === 'failed') displayStatus = 'Connection Failed';
+          }
+
           return (
             <div
               key={participant.userId}
-              className={`voice-participant-item ${isSpeaking ? 'speaking' : ''}`}
+              className={`voice-participant-item ${isSpeaking ? 'speaking' : ''} ${connState !== 'connected' && connState !== 'new' && props.joined && !isSelf ? 'reconnecting' : ''}`}
               onContextMenu={(e) => {
                 e.preventDefault();
                 props.onParticipantContextMenu?.(participant, { x: e.clientX, y: e.clientY });
@@ -518,7 +526,7 @@ export function VoiceChannelPanel(props: VoiceChannelPanelProps) {
                     {participant.username} {isSelf && '(You)'}
                   </div>
                   <div className="voice-participant-status">
-                    {participant.deafened ? 'Deafened' : participant.muted ? 'Muted' : isSpeaking ? 'Speaking' : 'Connected'}
+                    {displayStatus}
                     {audioState && ` • ${audioState.volume}%`}
                   </div>
                 </div>
