@@ -70,6 +70,9 @@ interface VoiceChannelPanelProps {
   onToggleDetailedStats: () => void;
   connectionStats: VoiceDetailedConnectionStats[];
   statsUpdatedAt: number | null;
+  protectVoiceEnabled: boolean;
+  protectVoiceStatus: 'stable' | 'mild' | 'severe';
+  onToggleProtectVoice: () => void;
 }
 
 function stringToColor(str: string) {
@@ -391,6 +394,14 @@ export function VoiceChannelPanel(props: VoiceChannelPanelProps) {
           >
             Detailed Statistics
           </button>
+          <button
+            className={props.protectVoiceEnabled ? 'ghost-btn small active' : 'ghost-btn small'}
+            disabled={!props.joined}
+            onClick={props.onToggleProtectVoice}
+            title="Temporarily reduce video bitrate when network is stressed to protect voice clarity"
+          >
+            Protect Voice
+          </button>
         </div>
       </header>
 
@@ -416,6 +427,17 @@ export function VoiceChannelPanel(props: VoiceChannelPanelProps) {
         </span>
         <span className="voice-overview-chip">Participants: {connectedParticipantCount}</span>
         <span className="voice-overview-chip">Live streams: {totalStreamCount}</span>
+        <span
+          className={`voice-overview-chip ${props.protectVoiceEnabled ? (props.protectVoiceStatus === 'severe' ? 'warn' : 'ok') : ''}`}
+        >
+          {props.protectVoiceEnabled
+            ? props.protectVoiceStatus === 'stable'
+              ? 'Protect Voice: On'
+              : props.protectVoiceStatus === 'mild'
+                ? 'Protect Voice: Mild'
+                : 'Protect Voice: Severe'
+            : 'Protect Voice: Off'}
+        </span>
       </div>
 
       {/* Quality Controls Section */}

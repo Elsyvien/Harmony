@@ -159,6 +159,8 @@ type VoiceDetailedConnectionStats = {
   inboundVideo: VoiceDetailedMediaStats;
 };
 
+type VoiceProtectionLevel = 'stable' | 'mild' | 'severe';
+
 function createEmptyMediaStats(): VoiceDetailedMediaStats {
   return {
     bitrateKbps: null,
@@ -336,6 +338,8 @@ export function ChatPage() {
   const [localScreenShareStream, setLocalScreenShareStream] = useState<MediaStream | null>(null);
   const [localStreamSource, setLocalStreamSource] = useState<StreamSource | null>(null);
   const [streamQualityLabel, setStreamQualityLabel] = useState(DEFAULT_STREAM_QUALITY);
+  const [protectVoiceEnabled, setProtectVoiceEnabled] = useState(true);
+  const [voiceProtectionLevel, setVoiceProtectionLevel] = useState<VoiceProtectionLevel>('stable');
   const [showDetailedVoiceStats, setShowDetailedVoiceStats] = useState(false);
   const [voiceConnectionStats, setVoiceConnectionStats] = useState<VoiceDetailedConnectionStats[]>([]);
   const [voiceStatsUpdatedAt, setVoiceStatsUpdatedAt] = useState<number | null>(null);
@@ -362,6 +366,7 @@ export function ChatPage() {
   const [hiddenUnreadCount, setHiddenUnreadCount] = useState(0);
   const previousIncomingRequestCountRef = useRef<number | null>(null);
   const streamStatusBannerTimeoutRef = useRef<number | null>(null);
+  const previousVoiceProtectionLevelRef = useRef<VoiceProtectionLevel>('stable');
   const pendingSignaturesRef = useRef(new Set<string>());
   const pendingTimeoutsRef = useRef(new Map<string, number>());
   const muteStateBeforeDeafenRef = useRef<boolean | null>(null);
@@ -486,6 +491,18 @@ export function ChatPage() {
   });
 
   const subscribedChannelIds = useMemo(() => channels.map((channel) => channel.id), [channels]);
+  const effectiveStreamBitrateKbps = useMemo(() => {
+    if (!protectVoiceEnabled) {
+      return activeStreamBitrateKbps;
+    }
+    if (voiceProtectionLevel === 'severe') {
+      return Math.min(activeStreamBitrateKbps, 900);
+    }
+    if (voiceProtectionLevel === 'mild') {
+      return Math.min(activeStreamBitrateKbps, 1600);
+    }
+    return activeStreamBitrateKbps;
+  }, [activeStreamBitrateKbps, protectVoiceEnabled, voiceProtectionLevel]);
 
   const computeKbpsFromSnapshot = useCallback((snapshotKey: string, bytes: number, timestamp: number) => {
     const previous = previousRtpSnapshotsRef.current.get(snapshotKey);
@@ -669,6 +686,32 @@ export function ChatPage() {
     setVoiceConnectionStats(nextStats);
     setVoiceStatsUpdatedAt(Date.now());
   }, [computeKbpsFromSnapshot, joinedVoiceParticipants]);
+
+  useEffect(() => {
+    if (!protectVoiceEnabled) {
+      previousVoiceProtectionLevelRef.current = 'stable';
+      return;
+    }
+    if (voiceProtectionLevel === previousVoiceProtectionLevelRef.current) {
+      return;
+    }
+    previousVoiceProtectionLevelRef.current = voiceProtectionLevel;
+    if (voiceProtectionLevel === 'stable') {
+      showStreamStatusBanner('info', 'Protect Voice: network recovered, stream bitrate restored.');
+      return;
+    }
+    if (voiceProtectionLevel === 'mild') {
+      showStreamStatusBanner(
+        'info',
+        'Protect Voice: mild network stress detected, stream bitrate temporarily reduced.',
+      );
+      return;
+    }
+    showStreamStatusBanner(
+      'info',
+      'Protect Voice: severe network stress detected, stream bitrate strongly reduced.',
+    );
+  }, [protectVoiceEnabled, voiceProtectionLevel, showStreamStatusBanner]);
 
   const activeRemoteAudioUsers = useMemo(() => {
     if (!auth.user) {
@@ -1553,7 +1596,7 @@ export function ChatPage() {
         }
       }
       await applyAudioBitrateToConnection(connection, activeVoiceBitrateKbps);
-      await applyVideoBitrateToConnection(connection, activeStreamBitrateKbps);
+      await applyVideoBitrateToConnection(connection, effectiveStreamBitrateKbps);
 
       connection.onicecandidate = (event) => {
         if (!event.candidate) {
@@ -1689,7 +1732,7 @@ export function ChatPage() {
       closePeerConnection,
       getLocalVoiceStream,
       activeVoiceBitrateKbps,
-      activeStreamBitrateKbps,
+      effectiveStreamBitrateKbps,
       applyConnectionReceiverBuffering,
       applyReceiverBuffering,
       getOrCreateVideoSender,
@@ -2163,6 +2206,101 @@ export function ChatPage() {
   });
 
   useEffect(() => {
+    if (!protectVoiceEnabled || !activeVoiceChannelId || !ws.connected) {
+      setVoiceProtectionLevel('stable');
+      return;
+    }
+
+    let cancelled = false;
+    const sampleVoiceNetworkStress = async () => {
+      const connections = Array.from(peerConnectionsRef.current.values()).filter(
+        (connection) => connection.connectionState !== 'closed',
+      );
+      if (connections.length === 0) {
+        if (!cancelled) {
+          setVoiceProtectionLevel('stable');
+        }
+        return;
+      }
+
+      const rttMsValues: number[] = [];
+      const jitterMsValues: number[] = [];
+      const audioLossRatios: number[] = [];
+
+      await Promise.allSettled(
+        connections.map(async (connection) => {
+          const report = await connection.getStats();
+          let selectedPairRttMs: number | null = null;
+          for (const stat of report.values()) {
+            if (stat.type === 'candidate-pair') {
+              const pair = stat as RTCIceCandidatePairStats & { selected?: boolean };
+              if ((pair.selected || pair.nominated) && typeof pair.currentRoundTripTime === 'number') {
+                selectedPairRttMs = pair.currentRoundTripTime * 1000;
+              }
+              continue;
+            }
+            if (stat.type !== 'inbound-rtp') {
+              continue;
+            }
+            const inbound = stat as RTCInboundRtpStreamStats & {
+              kind?: string;
+              mediaType?: string;
+            };
+            const mediaKind = inbound.kind ?? inbound.mediaType ?? 'audio';
+            if (mediaKind !== 'audio') {
+              continue;
+            }
+            if (typeof inbound.jitter === 'number') {
+              jitterMsValues.push(inbound.jitter * 1000);
+            }
+            if (
+              typeof inbound.packetsLost === 'number' &&
+              typeof inbound.packetsReceived === 'number' &&
+              inbound.packetsLost >= 0 &&
+              inbound.packetsReceived >= 0
+            ) {
+              const totalPackets = inbound.packetsLost + inbound.packetsReceived;
+              if (totalPackets > 0) {
+                audioLossRatios.push(inbound.packetsLost / totalPackets);
+              }
+            }
+          }
+          if (selectedPairRttMs !== null) {
+            rttMsValues.push(selectedPairRttMs);
+          }
+        }),
+      );
+
+      const avgRttMs =
+        rttMsValues.length > 0 ? rttMsValues.reduce((sum, value) => sum + value, 0) / rttMsValues.length : 0;
+      const avgLossRatio =
+        audioLossRatios.length > 0
+          ? audioLossRatios.reduce((sum, value) => sum + value, 0) / audioLossRatios.length
+          : 0;
+      const maxJitterMs = jitterMsValues.length > 0 ? Math.max(...jitterMsValues) : 0;
+
+      const nextLevel: VoiceProtectionLevel =
+        avgLossRatio > 0.08 || avgRttMs > 320 || maxJitterMs > 90
+          ? 'severe'
+          : avgLossRatio > 0.03 || avgRttMs > 180 || maxJitterMs > 45
+            ? 'mild'
+            : 'stable';
+      if (!cancelled) {
+        setVoiceProtectionLevel((current) => (current === nextLevel ? current : nextLevel));
+      }
+    };
+
+    void sampleVoiceNetworkStress();
+    const intervalId = window.setInterval(() => {
+      void sampleVoiceNetworkStress();
+    }, 2500);
+    return () => {
+      cancelled = true;
+      window.clearInterval(intervalId);
+    };
+  }, [protectVoiceEnabled, activeVoiceChannelId, ws.connected]);
+
+  useEffect(() => {
     if (!ws.connected || !auth.user || !activeVoiceChannelId) {
       return;
     }
@@ -2551,9 +2689,9 @@ export function ChatPage() {
       return;
     }
     for (const connection of connections) {
-      void applyVideoBitrateToConnection(connection, activeStreamBitrateKbps);
+      void applyVideoBitrateToConnection(connection, effectiveStreamBitrateKbps);
     }
-  }, [applyVideoBitrateToConnection, activeStreamBitrateKbps]);
+  }, [applyVideoBitrateToConnection, effectiveStreamBitrateKbps]);
 
   useEffect(() => {
     applyLocalVoiceTrackState(localVoiceStreamRef.current);
@@ -2891,7 +3029,7 @@ export function ChatPage() {
             // Keep sender/transceiver stable. Offer loop can recover transport later.
           }
 
-          void applyVideoBitrateToConnection(connection, activeStreamBitrateKbps);
+          void applyVideoBitrateToConnection(connection, effectiveStreamBitrateKbps);
           sendVoiceSignalRef.current(currentVoiceChannelId, peerUserId, {
             kind: 'video-source',
             source,
@@ -2916,7 +3054,7 @@ export function ChatPage() {
       streamQualityLabel,
       showStreamStatusBanner,
       applyVideoBitrateToConnection,
-      activeStreamBitrateKbps,
+      effectiveStreamBitrateKbps,
       requestVideoRenegotiationForPeer,
       getOrCreateVideoSender,
     ],
@@ -3656,7 +3794,12 @@ export function ChatPage() {
                 {voiceSessionStatus}
               </span>
               <small>
-                Voice {activeVoiceBitrateKbps} kbps • Stream {activeStreamBitrateKbps} kbps • {activeRemoteAudioUsers.length} remote stream(s)
+                Voice {activeVoiceBitrateKbps} kbps • Stream {activeStreamBitrateKbps} kbps
+                {protectVoiceEnabled && effectiveStreamBitrateKbps < activeStreamBitrateKbps
+                  ? ` (effective ${effectiveStreamBitrateKbps})`
+                  : ''}
+                {' • '}
+                {activeRemoteAudioUsers.length} remote stream(s)
               </small>
             </div>
             <button
@@ -3718,6 +3861,9 @@ export function ChatPage() {
                 }
                 connectionStats={voiceConnectionStats}
                 statsUpdatedAt={voiceStatsUpdatedAt}
+                protectVoiceEnabled={protectVoiceEnabled}
+                protectVoiceStatus={voiceProtectionLevel}
+                onToggleProtectVoice={() => setProtectVoiceEnabled((current) => !current)}
               />
             ) : (
               <>
