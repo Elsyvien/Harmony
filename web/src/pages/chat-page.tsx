@@ -174,6 +174,7 @@ type VoiceDetailedConnectionStats = {
 type VoiceProtectionLevel = 'stable' | 'mild' | 'severe';
 type AdminVoiceTestId =
   | 'ws-link'
+  | 'sfu-handshake'
   | 'audio-context-state'
   | 'rtc-config'
   | 'microphone'
@@ -198,6 +199,11 @@ const ADMIN_VOICE_TEST_DEFINITIONS: Array<{
     id: 'ws-link',
     label: 'Realtime Link',
     description: 'Checks if the websocket realtime connection is active.',
+  },
+  {
+    id: 'sfu-handshake',
+    label: 'SFU Handshake',
+    description: 'Checks server-audio SFU handshake and channel-scoped capabilities.',
   },
   {
     id: 'audio-context-state',
@@ -4338,6 +4344,30 @@ export function ChatPage() {
         return;
       }
 
+      if (testId === 'sfu-handshake') {
+        if (!voiceSfuEnabled) {
+          updateTestState('fail', 'SFU is disabled in server RTC config.');
+          return;
+        }
+        if (!activeVoiceChannelId || !auth.user) {
+          updateTestState('fail', 'Join a voice channel first to validate SFU handshake.');
+          return;
+        }
+        const response = await ws.requestVoiceSfu<{
+          rtpCapabilities?: { codecs?: unknown[] };
+          audioOnly?: boolean;
+        }>(activeVoiceChannelId, 'get-rtp-capabilities');
+        const codecCount = response?.rtpCapabilities?.codecs?.length ?? 0;
+        const transportModeLabel = voiceAudioTransportMode === 'sfu' ? 'server-sfu' : 'p2p-fallback';
+        updateTestState(
+          codecCount > 0 ? 'pass' : 'fail',
+          codecCount > 0
+            ? `SFU handshake ok (${codecCount} codec(s), audioOnly=${response?.audioOnly !== false}, mode=${transportModeLabel}).`
+            : 'SFU handshake returned no RTP codecs.',
+        );
+        return;
+      }
+
       if (testId === 'audio-context-state') {
         const formatState = (label: string, context: AudioContext | null) =>
           `${label}:${context?.state ?? 'none'}`;
@@ -4478,6 +4508,8 @@ export function ChatPage() {
   }, [
     ws,
     voiceIceConfig.iceServers,
+    voiceSfuEnabled,
+    voiceAudioTransportMode,
     getLocalVoiceStream,
     activeVoiceBitrateKbps,
     activeVoiceChannelId,
