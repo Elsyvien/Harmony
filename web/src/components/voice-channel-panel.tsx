@@ -485,6 +485,7 @@ export function VoiceChannelPanel(props: VoiceChannelPanelProps) {
           const stats = props.connectionStats.find(s => s.userId === participant.userId);
           const rtt = stats?.currentRttMs;
           const connState = stats?.connectionState || 'new';
+          const iceState = stats?.iceConnectionState;
           
           let signalIcon = '📶';
           let signalClass = 'good';
@@ -495,8 +496,8 @@ export function VoiceChannelPanel(props: VoiceChannelPanelProps) {
 
           let displayStatus = participant.deafened ? 'Deafened' : participant.muted ? 'Muted' : isSpeaking ? 'Speaking' : 'Connected';
           if (props.joined && !isSelf) {
-            if (connState === 'connecting' || connState === 'checking') displayStatus = 'Connecting...';
-            else if (connState === 'reconnecting' || connState === 'disconnected') displayStatus = 'Reconnecting...';
+            if (connState === 'new' || connState === 'connecting' || iceState === 'checking') displayStatus = 'Connecting...';
+            else if (connState === 'disconnected') displayStatus = 'Reconnecting...';
             else if (connState === 'failed') displayStatus = 'Connection Failed';
           }
 

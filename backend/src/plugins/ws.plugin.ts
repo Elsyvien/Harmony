@@ -3,6 +3,7 @@ import fp from 'fastify-plugin';
 import type { FastifyPluginAsync } from 'fastify';
 import type { ChannelService } from '../services/channel.service.js';
 import type { MessageService } from '../services/message.service.js';
+import type { VoiceSfuService } from '../services/voice-sfu.service.js';
 import { prisma } from '../repositories/prisma.js';
 import { AppError } from '../utils/app-error.js';
 import { isAdminRole } from '../utils/roles.js';
@@ -11,6 +12,7 @@ import { isSuspensionActive } from '../utils/suspension.js';
 interface WsPluginOptions {
   channelService: ChannelService;
   messageService: MessageService;
+  voiceSfuService: VoiceSfuService;
 }
 
 interface VoiceParticipantState {
@@ -45,6 +47,23 @@ interface ClientContext {
     readyState: number;
   };
 }
+
+type VoiceSfuRequestAction =
+  | 'get-rtp-capabilities'
+  | 'create-transport'
+  | 'connect-transport'
+  | 'produce'
+  | 'close-producer'
+  | 'list-producers'
+  | 'consume'
+  | 'resume-consumer';
+
+type VoiceSfuRequestPayload = {
+  requestId?: string;
+  channelId?: string;
+  action?: VoiceSfuRequestAction;
+  data?: unknown;
+};
 
 const WS_OPEN_STATE = 1;
 
@@ -84,6 +103,35 @@ const wsPluginImpl: FastifyPluginAsync<WsPluginOptions> = async (fastify, option
     details: Record<string, unknown>,
   ) => {
     fastify.log[level]({ event, ...details }, 'voice-event');
+  };
+
+  const getVoiceParticipantUserIds = (channelId: string) =>
+    Array.from(voiceParticipants.get(channelId)?.keys() ?? []);
+
+  const notifyVoiceChannelUsers = (
+    channelId: string,
+    type: string,
+    payload: unknown,
+    options?: { excludeUserId?: string },
+  ) => {
+    const userIds = getVoiceParticipantUserIds(channelId).filter(
+      (userId) => userId !== options?.excludeUserId,
+    );
+    if (userIds.length === 0) {
+      return;
+    }
+    fastify.wsGateway.notifyUsers(userIds, type, payload);
+  };
+
+  const sendSfuResponse = (
+    ctx: ClientContext,
+    requestId: string,
+    response: { ok: boolean; data?: unknown; code?: string; message?: string },
+  ) => {
+    send(ctx, 'voice:sfu:response', {
+      requestId,
+      ...response,
+    });
   };
 
   const leaveChannel = (ctx: ClientContext, channelId: string) => {
@@ -216,7 +264,7 @@ const wsPluginImpl: FastifyPluginAsync<WsPluginOptions> = async (fastify, option
   const leaveVoiceChannel = (
     userId: string,
     explicitChannelId?: string,
-    options?: { force?: boolean },
+    leaveOptions?: { force?: boolean },
   ) => {
     const currentChannelId = explicitChannelId ?? activeVoiceChannelByUser.get(userId);
     if (!currentChannelId) {
@@ -227,10 +275,21 @@ const wsPluginImpl: FastifyPluginAsync<WsPluginOptions> = async (fastify, option
     if (!participants) {
       activeVoiceChannelByUser.delete(userId);
       voiceSessionCountByUser.delete(userId);
+      if (options.voiceSfuService.enabled) {
+        const removedProducers = options.voiceSfuService.removePeer(currentChannelId, userId);
+        for (const producer of removedProducers) {
+          notifyVoiceChannelUsers(currentChannelId, 'voice:sfu:event', {
+            channelId: currentChannelId,
+            event: 'producer-removed',
+            producerId: producer.producerId,
+            userId: producer.userId,
+          });
+        }
+      }
       return;
     }
 
-    if (options?.force) {
+    if (leaveOptions?.force) {
       voiceSessionCountByUser.delete(userId);
     } else {
       const nextSessionCount = Math.max(0, (voiceSessionCountByUser.get(userId) ?? 0) - 1);
@@ -243,9 +302,21 @@ const wsPluginImpl: FastifyPluginAsync<WsPluginOptions> = async (fastify, option
 
     participants.delete(userId);
     activeVoiceChannelByUser.delete(userId);
+    let removedSfuProducers: ReturnType<VoiceSfuService['removePeer']> = [];
+    if (options.voiceSfuService.enabled) {
+      removedSfuProducers = options.voiceSfuService.removePeer(currentChannelId, userId);
+    }
 
     if (participants.size === 0) {
       voiceParticipants.delete(currentChannelId);
+    }
+    for (const producer of removedSfuProducers) {
+      notifyVoiceChannelUsers(currentChannelId, 'voice:sfu:event', {
+        channelId: currentChannelId,
+        event: 'producer-removed',
+        producerId: producer.producerId,
+        userId: producer.userId,
+      });
     }
     broadcastVoiceState(currentChannelId);
   };
@@ -618,6 +689,221 @@ const wsPluginImpl: FastifyPluginAsync<WsPluginOptions> = async (fastify, option
           });
           broadcastVoiceState(activeChannelId);
           return;
+        }
+
+        if (parsed.type === 'voice:sfu:request') {
+          const payload = parsed.payload as VoiceSfuRequestPayload;
+          if (!payload?.requestId || typeof payload.requestId !== 'string') {
+            throw new AppError('INVALID_SFU_REQUEST', 400, 'Missing requestId');
+          }
+          if (!payload.channelId || !payload.action) {
+            sendSfuResponse(ctx, payload.requestId, {
+              ok: false,
+              code: 'INVALID_SFU_REQUEST',
+              message: 'Missing channelId or action',
+            });
+            return;
+          }
+          if (!options.voiceSfuService.enabled) {
+            sendSfuResponse(ctx, payload.requestId, {
+              ok: false,
+              code: 'SFU_DISABLED',
+              message: 'Server-side voice transport is disabled',
+            });
+            return;
+          }
+
+          const activeChannelId = ctx.activeVoiceChannelId ?? activeVoiceChannelByUser.get(ctx.userId);
+          if (activeChannelId !== payload.channelId) {
+            sendSfuResponse(ctx, payload.requestId, {
+              ok: false,
+              code: 'VOICE_NOT_JOINED',
+              message: 'Join the voice channel first',
+            });
+            return;
+          }
+
+          try {
+            if (payload.action === 'get-rtp-capabilities') {
+              const rtpCapabilities = await options.voiceSfuService.getRouterRtpCapabilities(payload.channelId);
+              sendSfuResponse(ctx, payload.requestId, {
+                ok: true,
+                data: {
+                  rtpCapabilities,
+                  audioOnly: options.voiceSfuService.audioOnly,
+                },
+              });
+              return;
+            }
+
+            if (payload.action === 'create-transport') {
+              const requestData = payload.data as { direction?: 'send' | 'recv' } | undefined;
+              if (requestData?.direction !== 'send' && requestData?.direction !== 'recv') {
+                throw new AppError('INVALID_SFU_REQUEST', 400, 'Missing transport direction');
+              }
+              const transport = await options.voiceSfuService.createTransport(
+                payload.channelId,
+                ctx.userId,
+                requestData.direction,
+              );
+              sendSfuResponse(ctx, payload.requestId, {
+                ok: true,
+                data: {
+                  transport,
+                },
+              });
+              return;
+            }
+
+            if (payload.action === 'connect-transport') {
+              const requestData = payload.data as {
+                transportId?: string;
+                dtlsParameters?: unknown;
+              } | undefined;
+              if (!requestData?.transportId || !requestData.dtlsParameters) {
+                throw new AppError('INVALID_SFU_REQUEST', 400, 'Missing transportId or dtlsParameters');
+              }
+              await options.voiceSfuService.connectTransport(
+                payload.channelId,
+                ctx.userId,
+                requestData.transportId,
+                requestData.dtlsParameters as Parameters<VoiceSfuService['connectTransport']>[3],
+              );
+              sendSfuResponse(ctx, payload.requestId, {
+                ok: true,
+                data: { connected: true },
+              });
+              return;
+            }
+
+            if (payload.action === 'produce') {
+              const requestData = payload.data as {
+                transportId?: string;
+                kind?: 'audio' | 'video';
+                rtpParameters?: unknown;
+                appData?: Record<string, unknown>;
+              } | undefined;
+              if (!requestData?.transportId || !requestData.kind || !requestData.rtpParameters) {
+                throw new AppError('INVALID_SFU_REQUEST', 400, 'Missing produce payload fields');
+              }
+              const producer = await options.voiceSfuService.produce(
+                payload.channelId,
+                ctx.userId,
+                requestData.transportId,
+                requestData.kind,
+                requestData.rtpParameters as Parameters<VoiceSfuService['produce']>[4],
+                requestData.appData,
+              );
+              notifyVoiceChannelUsers(
+                payload.channelId,
+                'voice:sfu:event',
+                {
+                  channelId: payload.channelId,
+                  event: 'producer-added',
+                  producer,
+                },
+                { excludeUserId: ctx.userId },
+              );
+              sendSfuResponse(ctx, payload.requestId, {
+                ok: true,
+                data: { producer },
+              });
+              return;
+            }
+
+            if (payload.action === 'close-producer') {
+              const requestData = payload.data as { producerId?: string } | undefined;
+              if (!requestData?.producerId) {
+                throw new AppError('INVALID_SFU_REQUEST', 400, 'Missing producerId');
+              }
+              const closed = await options.voiceSfuService.closeProducer(
+                payload.channelId,
+                ctx.userId,
+                requestData.producerId,
+              );
+              if (closed) {
+                notifyVoiceChannelUsers(payload.channelId, 'voice:sfu:event', {
+                  channelId: payload.channelId,
+                  event: 'producer-removed',
+                  producerId: requestData.producerId,
+                  userId: ctx.userId,
+                });
+              }
+              sendSfuResponse(ctx, payload.requestId, {
+                ok: true,
+                data: { closed },
+              });
+              return;
+            }
+
+            if (payload.action === 'list-producers') {
+              const producers = options.voiceSfuService.getProducerInfos(payload.channelId, {
+                excludeUserId: ctx.userId,
+              });
+              sendSfuResponse(ctx, payload.requestId, {
+                ok: true,
+                data: { producers },
+              });
+              return;
+            }
+
+            if (payload.action === 'consume') {
+              const requestData = payload.data as {
+                transportId?: string;
+                producerId?: string;
+                rtpCapabilities?: unknown;
+              } | undefined;
+              if (!requestData?.transportId || !requestData.producerId || !requestData.rtpCapabilities) {
+                throw new AppError('INVALID_SFU_REQUEST', 400, 'Missing consume payload fields');
+              }
+              const consumer = await options.voiceSfuService.consume(
+                payload.channelId,
+                ctx.userId,
+                requestData.transportId,
+                requestData.producerId,
+                requestData.rtpCapabilities as Parameters<VoiceSfuService['consume']>[4],
+              );
+              sendSfuResponse(ctx, payload.requestId, {
+                ok: true,
+                data: { consumer },
+              });
+              return;
+            }
+
+            if (payload.action === 'resume-consumer') {
+              const requestData = payload.data as { consumerId?: string } | undefined;
+              if (!requestData?.consumerId) {
+                throw new AppError('INVALID_SFU_REQUEST', 400, 'Missing consumerId');
+              }
+              const resumed = await options.voiceSfuService.resumeConsumer(
+                payload.channelId,
+                ctx.userId,
+                requestData.consumerId,
+              );
+              sendSfuResponse(ctx, payload.requestId, {
+                ok: true,
+                data: { resumed },
+              });
+              return;
+            }
+
+            throw new AppError('INVALID_SFU_REQUEST', 400, `Unknown SFU action: ${payload.action}`);
+          } catch (error) {
+            if (error instanceof AppError) {
+              sendSfuResponse(ctx, payload.requestId, {
+                ok: false,
+                code: error.code,
+                message: error.message,
+              });
+              return;
+            }
+            sendSfuResponse(ctx, payload.requestId, {
+              ok: false,
+              code: 'SFU_REQUEST_FAILED',
+              message: 'Could not process SFU request',
+            });
+            return;
+          }
         }
 
         if (parsed.type === 'voice:signal') {

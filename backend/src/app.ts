@@ -28,6 +28,7 @@ import { userRoutes } from './routes/user.routes.js';
 import { ChannelService } from './services/channel.service.js';
 import { MessageService } from './services/message.service.js';
 import { FriendService } from './services/friend.service.js';
+import { VoiceSfuService } from './services/voice-sfu.service.js';
 import { AppError } from './utils/app-error.js';
 
 export async function buildApp() {
@@ -102,10 +103,22 @@ export async function buildApp() {
   const userService = new UserService();
   const adminService = new AdminService();
   const adminUserService = new AdminUserService();
+  const voiceSfuService = new VoiceSfuService({
+    enabled: env.SFU_ENABLED,
+    audioOnly: env.SFU_AUDIO_ONLY,
+    listenIp: env.SFU_LISTEN_IP,
+    announcedIp: env.SFU_ANNOUNCED_IP.trim() ? env.SFU_ANNOUNCED_IP.trim() : null,
+    minPort: env.SFU_MIN_PORT,
+    maxPort: env.SFU_MAX_PORT,
+    enableUdp: env.SFU_WEBRTC_UDP,
+    enableTcp: env.SFU_WEBRTC_TCP,
+    preferTcp: env.SFU_PREFER_TCP,
+  });
+  await voiceSfuService.init();
 
   await channelService.ensureDefaultChannel();
 
-  await app.register(wsPlugin, { channelService, messageService });
+  await app.register(wsPlugin, { channelService, messageService, voiceSfuService });
   await app.register(authRoutes, { authService, env });
   await app.register(channelRoutes, { channelService, messageService });
   await app.register(friendRoutes, { friendService });
@@ -173,10 +186,19 @@ export async function buildApp() {
         iceTransportPolicy: env.RTC_FORCE_RELAY ? 'relay' : 'all',
         iceCandidatePoolSize: 2,
       },
+      sfu: {
+        enabled: env.SFU_ENABLED,
+        audioOnly: env.SFU_AUDIO_ONLY,
+        preferTcp: env.SFU_PREFER_TCP,
+      },
     };
   });
 
   app.get('/health', async () => ({ ok: true }));
+
+  app.addHook('onClose', async () => {
+    await voiceSfuService.close();
+  });
 
   app.setErrorHandler((error, _, reply) => {
     if (error instanceof AppError) {

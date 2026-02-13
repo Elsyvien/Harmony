@@ -11,7 +11,14 @@ import { UserProfile } from '../components/user-profile';
 import { UserSidebar } from '../components/user-sidebar';
 import { VoiceChannelPanel } from '../components/voice-channel-panel';
 import { useChatSocket } from '../hooks/use-chat-socket';
-import type { PresenceState, PresenceUser, VoiceParticipant, VoiceStatePayload } from '../hooks/use-chat-socket';
+import type {
+  PresenceState,
+  PresenceUser,
+  VoiceParticipant,
+  VoiceSfuEventPayload,
+  VoiceSfuRequestAction,
+  VoiceStatePayload,
+} from '../hooks/use-chat-socket';
 import { useUserPreferences } from '../hooks/use-user-preferences';
 import {
   mergeMessages,
@@ -23,6 +30,7 @@ import {
 } from './chat/hooks/use-message-lifecycle-feature';
 import { upsertChannel, useProfileDmFeature } from './chat/hooks/use-profile-dm-feature';
 import { useReactionsFeature } from './chat/hooks/use-reactions-feature';
+import { VoiceSfuClient } from './chat/voice-sfu-client';
 import { useVoiceFeature } from './chat/hooks/use-voice-feature';
 import { useAuth } from '../store/auth-store';
 import type {
@@ -166,6 +174,7 @@ type VoiceDetailedConnectionStats = {
 type VoiceProtectionLevel = 'stable' | 'mild' | 'severe';
 type AdminVoiceTestId =
   | 'ws-link'
+  | 'sfu-handshake'
   | 'audio-context-state'
   | 'rtc-config'
   | 'microphone'
@@ -190,6 +199,11 @@ const ADMIN_VOICE_TEST_DEFINITIONS: Array<{
     id: 'ws-link',
     label: 'Realtime Link',
     description: 'Checks if the websocket realtime connection is active.',
+  },
+  {
+    id: 'sfu-handshake',
+    label: 'SFU Handshake',
+    description: 'Checks server-audio SFU handshake and channel-scoped capabilities.',
   },
   {
     id: 'audio-context-state',
@@ -467,6 +481,9 @@ export function ChatPage() {
   const [voiceIceConfig, setVoiceIceConfig] = useState<RTCConfiguration>(() =>
     createDefaultVoiceIceConfig(),
   );
+  const [voiceSfuEnabled, setVoiceSfuEnabled] = useState(false);
+  const [voiceSfuAudioOnly, setVoiceSfuAudioOnly] = useState(true);
+  const [voiceAudioTransportMode, setVoiceAudioTransportMode] = useState<'p2p' | 'sfu'>('p2p');
   const [savingVoiceSettingsChannelId, setSavingVoiceSettingsChannelId] = useState<string | null>(null);
   const [streamStatusBanner, setStreamStatusBanner] = useState<{
     type: 'error' | 'info';
@@ -511,6 +528,7 @@ export function ChatPage() {
   const remoteSpeakingLastSpokeAtByUserRef = useRef<Map<string, number>>(new Map());
   const localVoiceInputDeviceIdRef = useRef<string | null>(null);
   const peerConnectionsRef = useRef<Map<string, RTCPeerConnection>>(new Map());
+  const peerSignalingQueueRef = useRef<Map<string, Promise<void>>>(new Map());
   const videoSenderByPeerRef = useRef<Map<string, RTCRtpSender>>(new Map());
   const pendingVideoRenegotiationByPeerRef = useRef<Set<string>>(new Set());
   const makingOfferByPeerRef = useRef<Map<string, boolean>>(new Map());
@@ -535,6 +553,18 @@ export function ChatPage() {
   >(new Map());
   const remoteVideoRecoveryAttemptByPeerRef = useRef<Map<string, number>>(new Map());
   const remoteVideoRecoveryStreakByPeerRef = useRef<Map<string, number>>(new Map());
+  const voiceSfuClientRef = useRef<VoiceSfuClient | null>(null);
+  const voiceSfuChannelIdRef = useRef<string | null>(null);
+  const voiceSfuAudioActiveRef = useRef(false);
+  const remoteAudioUsersViaSfuRef = useRef<Set<string>>(new Set());
+  const requestVoiceSfuRef = useRef(
+    ((() => Promise.reject(new Error('SFU request unavailable'))) as <TData = unknown>(
+      channelId: string,
+      action: VoiceSfuRequestAction,
+      data?: unknown,
+      timeoutMs?: number,
+    ) => Promise<TData>),
+  );
   const sendVoiceSignalRef = useRef((() => false) as (channelId: string, targetUserId: string, data: unknown) => boolean);
   const createOfferForPeerRef = useRef((() => Promise.resolve()) as (peerUserId: string, channelId: string) => Promise<void>);
   const leaveVoiceRef = useRef((() => false) as (channelId?: string) => boolean);
@@ -1198,6 +1228,12 @@ export function ChatPage() {
   const teardownVoiceTransport = useCallback(() => {
     voiceTransportEpochRef.current += 1;
     localVoiceAcquirePromiseRef.current = null;
+    voiceSfuClientRef.current?.stop();
+    voiceSfuClientRef.current = null;
+    voiceSfuChannelIdRef.current = null;
+    voiceSfuAudioActiveRef.current = false;
+    remoteAudioUsersViaSfuRef.current.clear();
+    setVoiceAudioTransportMode('p2p');
     for (const peerUserId of peerConnectionsRef.current.keys()) {
       closePeerConnection(peerUserId);
     }
@@ -1351,6 +1387,104 @@ export function ChatPage() {
     remoteSpeakingDataByUserRef.current.delete(userId);
     remoteSpeakingLastSpokeAtByUserRef.current.delete(userId);
   }, []);
+
+  const stopVoiceSfuTransport = useCallback(() => {
+    voiceSfuClientRef.current?.stop();
+    voiceSfuClientRef.current = null;
+    voiceSfuChannelIdRef.current = null;
+    voiceSfuAudioActiveRef.current = false;
+    remoteAudioUsersViaSfuRef.current.clear();
+    setVoiceAudioTransportMode('p2p');
+  }, []);
+
+  const startVoiceSfuTransport = useCallback(
+    async (channelId: string, localAudioTrack: MediaStreamTrack | null) => {
+      if (!auth.user || !voiceSfuEnabled) {
+        stopVoiceSfuTransport();
+        return false;
+      }
+      const existingClient = voiceSfuClientRef.current;
+      if (existingClient && voiceSfuChannelIdRef.current === channelId) {
+        await existingClient.replaceLocalAudioTrack(localAudioTrack);
+        voiceSfuAudioActiveRef.current = true;
+        setVoiceAudioTransportMode('sfu');
+        return true;
+      }
+
+      stopVoiceSfuTransport();
+
+      const client = new VoiceSfuClient({
+        selfUserId: auth.user.id,
+        request: (action, data, timeoutMs) =>
+          requestVoiceSfuRef.current(channelId, action, data, timeoutMs),
+        callbacks: {
+          onRemoteAudio: (userId, stream) => {
+            remoteAudioUsersViaSfuRef.current.add(userId);
+            setRemoteAudioStreams((prev) => ({
+              ...prev,
+              [userId]: stream,
+            }));
+          },
+          onRemoteAudioRemoved: (userId) => {
+            remoteAudioUsersViaSfuRef.current.delete(userId);
+            setRemoteAudioStreams((prev) => {
+              if (!prev[userId]) {
+                return prev;
+              }
+              const next = { ...prev };
+              delete next[userId];
+              return next;
+            });
+          },
+          onStateChange: (state) => {
+            logVoiceDebug('voice_sfu_transport_state', {
+              channelId,
+              state,
+            });
+          },
+        },
+      });
+
+      try {
+        await client.start(localAudioTrack);
+        voiceSfuClientRef.current = client;
+        voiceSfuChannelIdRef.current = channelId;
+        voiceSfuAudioActiveRef.current = true;
+        setVoiceAudioTransportMode('sfu');
+        return true;
+      } catch (error) {
+        stopVoiceSfuTransport();
+        logVoiceDebug('voice_sfu_start_failed', {
+          channelId,
+          error: error instanceof Error ? error.message : String(error),
+        });
+        return false;
+      }
+    },
+    [auth.user, logVoiceDebug, stopVoiceSfuTransport, voiceSfuEnabled],
+  );
+
+  const handleVoiceSfuEvent = useCallback(
+    async (payload: VoiceSfuEventPayload) => {
+      if (payload.channelId !== activeVoiceChannelIdRef.current) {
+        return;
+      }
+      const client = voiceSfuClientRef.current;
+      if (!client) {
+        return;
+      }
+      try {
+        await client.handleSfuEvent(payload);
+      } catch (error) {
+        logVoiceDebug('voice_sfu_event_failed', {
+          channelId: payload.channelId,
+          event: payload.event,
+          error: error instanceof Error ? error.message : String(error),
+        });
+      }
+    },
+    [logVoiceDebug],
+  );
 
   const applyRemoteAudioGain = useCallback(
     (userId: string, element: HTMLAudioElement, gainValue: number) => {
@@ -1575,6 +1709,9 @@ export function ChatPage() {
       localVoiceInputDeviceIdRef.current = resolvedDeviceId;
 
       await replaceAudioTrackAcrossPeers(processedTrack);
+      if (voiceSfuAudioActiveRef.current) {
+        await voiceSfuClientRef.current?.replaceLocalAudioTrack(processedTrack);
+      }
 
       if (previousGainNode) {
         try {
@@ -1839,10 +1976,13 @@ export function ChatPage() {
         channelId,
         hasTurnRelayConfigured,
         iceTransportPolicy: voiceIceConfig.iceTransportPolicy ?? 'all',
+        audioMode: voiceSfuAudioActiveRef.current ? 'sfu' : 'p2p',
       });
 
-      for (const track of stream.getTracks()) {
-        connection.addTrack(track, stream);
+      if (!voiceSfuAudioActiveRef.current) {
+        for (const track of stream.getTracks()) {
+          connection.addTrack(track, stream);
+        }
       }
       const videoSender = getOrCreateVideoSender(connection);
       videoSenderByPeerRef.current.set(peerUserId, videoSender);
@@ -1876,6 +2016,9 @@ export function ChatPage() {
         applyReceiverBuffering(event.receiver, event.track.kind === 'video' ? 'video' : 'audio');
         const streamFromTrack = event.streams[0] ?? new MediaStream([event.track]);
         if (event.track.kind === 'audio') {
+          if (remoteAudioUsersViaSfuRef.current.has(peerUserId)) {
+            return;
+          }
           setRemoteAudioStreams((prev) => ({
             ...prev,
             [peerUserId]: streamFromTrack,
@@ -2198,8 +2341,12 @@ export function ChatPage() {
       if (!auth.user || payload.fromUserId === auth.user.id) {
         return;
       }
+      const selfUserId = auth.user.id;
 
-      const signal = payload.data;
+      const currentQueue = peerSignalingQueueRef.current.get(payload.fromUserId) ?? Promise.resolve();
+      const nextQueue = currentQueue
+        .then(async () => {
+          const signal = payload.data;
       if (signal.kind === 'stream-snapshot-request') {
         sendStreamSnapshotToPeer(payload.channelId, payload.fromUserId);
         return;
@@ -2333,8 +2480,7 @@ export function ChatPage() {
       }
 
       if (signal.kind === 'renegotiate') {
-        const localUserId = auth.user.id;
-        if (!shouldInitiateOffer(localUserId, payload.fromUserId)) {
+        if (!shouldInitiateOffer(selfUserId, payload.fromUserId)) {
           return;
         }
         const existingConnection = peerConnectionsRef.current.get(payload.fromUserId);
@@ -2377,10 +2523,9 @@ export function ChatPage() {
       }
 
       const connection = await ensurePeerConnection(payload.fromUserId, payload.channelId);
-      const localUserId = auth.user.id;
 
       if (signal.kind === 'offer') {
-        if (shouldInitiateOffer(localUserId, payload.fromUserId)) {
+        if (shouldInitiateOffer(selfUserId, payload.fromUserId)) {
           return;
         }
 
@@ -2403,19 +2548,17 @@ export function ChatPage() {
           
           applyConnectionReceiverBuffering(connection);
           await flushPendingIceCandidates(payload.fromUserId, connection);
+
+          // Modern atomic answer creation & setting
+          await connection.setLocalDescription(); 
           
-          if (connection.signalingState !== 'have-remote-offer') {
+          if (!connection.localDescription) {
              return;
           }
 
-          const answer = await connection.createAnswer();
-          if (connection.signalingState !== 'have-remote-offer') {
-             return;
-          }
-          await connection.setLocalDescription(answer);
           sendVoiceSignalRef.current(payload.channelId, payload.fromUserId, {
             kind: 'answer',
-            sdp: answer,
+            sdp: connection.localDescription,
           } satisfies VoiceSignalData);
         } catch (err) {
           trackTelemetryError('voice_signal_offer_processing_failed', err, {
@@ -2428,7 +2571,7 @@ export function ChatPage() {
         return;
       }
 
-      if (!shouldInitiateOffer(localUserId, payload.fromUserId)) {
+      if (!shouldInitiateOffer(selfUserId, payload.fromUserId)) {
         return;
       }
 
@@ -2462,22 +2605,31 @@ export function ChatPage() {
       }
       applyConnectionReceiverBuffering(connection);
       await flushPendingIceCandidates(payload.fromUserId, connection);
-    },
-    [
-      auth.user,
-      applyConnectionReceiverBuffering,
-      applyVideoBitrateToConnection,
-      closePeerConnection,
-      effectiveStreamBitrateKbps,
-      ensurePeerConnection,
-      flushPendingIceCandidates,
-      getLocalVideoSourceSnapshot,
-      getOrCreateVideoSender,
-      localStreamSource,
-      requestVideoRenegotiationForPeer,
-      sendStreamSnapshotToPeer,
-    ],
-  );
+    })
+    .catch((err) => {
+      trackTelemetryError('voice_signal_queue_processing_failed', err, {
+        fromUserId: payload.fromUserId,
+        channelId: payload.channelId,
+      });
+    });
+
+  peerSignalingQueueRef.current.set(payload.fromUserId, nextQueue);
+},
+[
+  auth.user,
+  applyConnectionReceiverBuffering,
+  applyVideoBitrateToConnection,
+  closePeerConnection,
+  effectiveStreamBitrateKbps,
+  ensurePeerConnection,
+  flushPendingIceCandidates,
+  getLocalVideoSourceSnapshot,
+  getOrCreateVideoSender,
+  localStreamSource,
+  requestVideoRenegotiationForPeer,
+  sendStreamSnapshotToPeer,
+],
+);
 
   const drainQueuedVoiceSignals = useCallback(async () => {
     if (drainingVoiceSignalsRef.current || !auth.user) {
@@ -2710,6 +2862,9 @@ export function ChatPage() {
     onVoiceSignal: (payload) => {
       void handleVoiceSignal(payload);
     },
+    onVoiceSfuEvent: (payload) => {
+      void handleVoiceSfuEvent(payload);
+    },
   });
 
   useEffect(() => {
@@ -2857,6 +3012,10 @@ export function ChatPage() {
   useEffect(() => {
     sendVoiceSignalRef.current = ws.sendVoiceSignal;
   }, [ws.sendVoiceSignal]);
+
+  useEffect(() => {
+    requestVoiceSfuRef.current = ws.requestVoiceSfu;
+  }, [ws.requestVoiceSfu]);
 
   useEffect(() => {
     createOfferForPeerRef.current = createOfferForPeer;
@@ -3047,9 +3206,14 @@ export function ChatPage() {
           return;
         }
         setVoiceIceConfig(normalizeVoiceIceConfig(response.rtc));
+        const sfuEnabled = Boolean(response.sfu?.enabled);
+        setVoiceSfuEnabled(sfuEnabled);
+        setVoiceSfuAudioOnly(response.sfu?.audioOnly !== false);
       } catch {
         if (!disposed) {
           setVoiceIceConfig(createDefaultVoiceIceConfig());
+          setVoiceSfuEnabled(false);
+          setVoiceSfuAudioOnly(true);
         }
       }
     };
@@ -3201,6 +3365,21 @@ export function ChatPage() {
 
         if (cancelled || voiceTransportEpochRef.current !== transportEpoch) return;
 
+        const localProcessedAudioTrack =
+          (localVoiceProcessedStreamRef.current ?? localVoiceStreamRef.current)
+            ?.getAudioTracks()
+            .find((track) => track.readyState === 'live') ?? null;
+        if (voiceSfuEnabled) {
+          const sfuStarted = await startVoiceSfuTransport(activeVoiceChannelId, localProcessedAudioTrack);
+          if (!sfuStarted) {
+            setNotice('Voice fallback active: using direct P2P audio transport.');
+          } else {
+            await voiceSfuClientRef.current?.syncProducers();
+          }
+        } else {
+          stopVoiceSfuTransport();
+        }
+
         const desiredPeerUserIds = new Set(
           participants
             .map((p) => p.userId)
@@ -3251,6 +3430,9 @@ export function ChatPage() {
     ensurePeerConnection,
     createOfferForPeer,
     requestStreamSnapshotFromPeer,
+    startVoiceSfuTransport,
+    stopVoiceSfuTransport,
+    voiceSfuEnabled,
   ]);
 
   useEffect(() => {
@@ -4162,6 +4344,30 @@ export function ChatPage() {
         return;
       }
 
+      if (testId === 'sfu-handshake') {
+        if (!voiceSfuEnabled) {
+          updateTestState('fail', 'SFU is disabled in server RTC config.');
+          return;
+        }
+        if (!activeVoiceChannelId || !auth.user) {
+          updateTestState('fail', 'Join a voice channel first to validate SFU handshake.');
+          return;
+        }
+        const response = await ws.requestVoiceSfu<{
+          rtpCapabilities?: { codecs?: unknown[] };
+          audioOnly?: boolean;
+        }>(activeVoiceChannelId, 'get-rtp-capabilities');
+        const codecCount = response?.rtpCapabilities?.codecs?.length ?? 0;
+        const transportModeLabel = voiceAudioTransportMode === 'sfu' ? 'server-sfu' : 'p2p-fallback';
+        updateTestState(
+          codecCount > 0 ? 'pass' : 'fail',
+          codecCount > 0
+            ? `SFU handshake ok (${codecCount} codec(s), audioOnly=${response?.audioOnly !== false}, mode=${transportModeLabel}).`
+            : 'SFU handshake returned no RTP codecs.',
+        );
+        return;
+      }
+
       if (testId === 'audio-context-state') {
         const formatState = (label: string, context: AudioContext | null) =>
           `${label}:${context?.state ?? 'none'}`;
@@ -4302,6 +4508,8 @@ export function ChatPage() {
   }, [
     ws,
     voiceIceConfig.iceServers,
+    voiceSfuEnabled,
+    voiceAudioTransportMode,
     getLocalVoiceStream,
     activeVoiceBitrateKbps,
     activeVoiceChannelId,
@@ -4736,6 +4944,9 @@ export function ChatPage() {
                   : ''}
                 {' • '}
                 {activeRemoteAudioUsers.length} remote stream(s)
+                {' • '}
+                Audio via {voiceAudioTransportMode === 'sfu' ? 'Server SFU' : 'P2P'}
+                {voiceAudioTransportMode === 'sfu' && voiceSfuAudioOnly ? ' (audio-only)' : ''}
               </small>
             </div>
             <button

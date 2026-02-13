@@ -42,6 +42,15 @@ Validated in `backend/src/config/env.ts`.
 | `TURN_CREDENTIAL_TTL_SECONDS` | int | `60..86400`, default `3600` |
 | `RTC_FORCE_RELAY` | boolean | default `false` |
 | `RTC_ENABLE_PUBLIC_FALLBACK_TURN` | boolean | default `true`; ignored in production when no TURN configured |
+| `SFU_ENABLED` | boolean | default `false` |
+| `SFU_AUDIO_ONLY` | boolean | default `true` |
+| `SFU_ANNOUNCED_IP` | string | optional public IP/DNS for mediasoup candidates |
+| `SFU_LISTEN_IP` | string | default `0.0.0.0` |
+| `SFU_MIN_PORT` | int | `1024..65535`, default `40000`, must be `<= SFU_MAX_PORT` |
+| `SFU_MAX_PORT` | int | `1024..65535`, default `49999`, must be `>= SFU_MIN_PORT` |
+| `SFU_WEBRTC_TCP` | boolean | default `true` |
+| `SFU_WEBRTC_UDP` | boolean | default `true` |
+| `SFU_PREFER_TCP` | boolean | default `false` |
 
 ## Boot Sequence (`buildApp`)
 
