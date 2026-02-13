@@ -188,6 +188,16 @@ export const chatApi = {
     );
   },
 
+  clearAdminUsersExceptSelf(token: string) {
+    return apiRequest<{ deletedCount: number }>(
+      '/admin/users/clear-others',
+      {
+        method: 'POST',
+      },
+      token,
+    );
+  },
+
   friends(token: string) {
     return apiRequest<{ friends: FriendSummary[] }>('/friends', {}, token);
   },

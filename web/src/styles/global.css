@@ -787,6 +787,12 @@ body.theme-light .role-pill {
   margin-bottom: 8px;
 }
 
+.admin-header-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
 .stat-card .stat-big {
   font-size: 16px;
   font-weight: 700;
@@ -964,6 +970,10 @@ body.theme-light .role-pill {
   color: var(--text-header);
   border-radius: var(--radius-sharp);
   padding: 8px 10px;
+}
+
+.admin-clear-others-row {
+  margin-bottom: 10px;
 }
 
 .jump-latest-btn {

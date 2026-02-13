@@ -294,6 +294,7 @@ export function ChatPage() {
   const [adminUsersError, setAdminUsersError] = useState<string | null>(null);
   const [updatingAdminUserId, setUpdatingAdminUserId] = useState<string | null>(null);
   const [deletingAdminUserId, setDeletingAdminUserId] = useState<string | null>(null);
+  const [clearingAdminUsers, setClearingAdminUsers] = useState(false);
 
   const [friends, setFriends] = useState<FriendSummary[]>([]);
   const [incomingRequests, setIncomingRequests] = useState<FriendRequestSummary[]>([]);
@@ -2771,6 +2772,27 @@ export function ChatPage() {
     [auth.token, auth.user?.isAdmin],
   );
 
+  const clearAdminUsersExceptCurrent = useCallback(async () => {
+    if (!auth.token || !auth.user?.isAdmin) {
+      return;
+    }
+    setClearingAdminUsers(true);
+    try {
+      const response = await chatApi.clearAdminUsersExceptSelf(auth.token);
+      setAdminUsers((prev) => prev.filter((user) => user.id === auth.user?.id));
+      setAdminUsersError(null);
+      setNotice(
+        response.deletedCount === 1
+          ? 'Deleted 1 user. Your account was kept.'
+          : `Deleted ${response.deletedCount} users. Your account was kept.`,
+      );
+    } catch (err) {
+      setAdminUsersError(getErrorMessage(err, 'Could not clear users'));
+    } finally {
+      setClearingAdminUsers(false);
+    }
+  }, [auth.token, auth.user?.id, auth.user?.isAdmin]);
+
   const sendFriendRequest = useCallback(
     async (username: string) => {
       if (!auth.token) {
@@ -3518,6 +3540,8 @@ export function ChatPage() {
             onRefreshUsers={loadAdminUsers}
             onUpdateUser={updateAdminUser}
             onDeleteUser={deleteAdminUser}
+            onClearUsersExceptCurrent={clearAdminUsersExceptCurrent}
+            clearingUsersExceptCurrent={clearingAdminUsers}
             currentUserId={auth.user.id}
           />
         ) : null}

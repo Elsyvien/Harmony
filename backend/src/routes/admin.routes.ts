@@ -157,4 +157,21 @@ export const adminRoutes: FastifyPluginAsync<AdminRoutesOptions> = async (fastif
       reply.code(200).send({ deletedUserId: result.id });
     },
   );
+
+  fastify.post(
+    '/admin/users/clear-others',
+    {
+      preHandler: [authPreHandler],
+      config: {
+        rateLimit: { max: 5, timeWindow: 60_000 },
+      },
+    },
+    async (request) => {
+      const result = await options.adminUserService.deleteAllUsersExceptCurrent({
+        id: request.user.userId,
+        role: request.user.role,
+      });
+      return { deletedCount: result.deletedCount };
+    },
+  );
 };

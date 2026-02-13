@@ -259,4 +259,28 @@ export class AdminUserService {
     await prisma.user.delete({ where: { id: target.id } });
     return { id: target.id };
   }
+
+  async deleteAllUsersExceptCurrent(actor: { id: string; role: UserRole }): Promise<{ deletedCount: number }> {
+    assertRoleCanManageUsers(actor.role);
+    if (actor.role !== 'OWNER') {
+      throw new AppError('FORBIDDEN', 403, 'Only owner can clear all other users');
+    }
+
+    const actorExists = await prisma.user.findUnique({
+      where: { id: actor.id },
+      select: { id: true },
+    });
+    if (!actorExists) {
+      throw new AppError('INVALID_SESSION', 401, 'Session is no longer valid. Please log in again.');
+    }
+
+    const result = await prisma.user.deleteMany({
+      where: {
+        id: {
+          not: actor.id,
+        },
+      },
+    });
+    return { deletedCount: result.count };
+  }
 }

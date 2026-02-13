@@ -28,6 +28,8 @@ interface AdminSettingsPanelProps {
     }>,
   ) => Promise<void>;
   onDeleteUser: (userId: string) => Promise<void>;
+  onClearUsersExceptCurrent: () => Promise<void>;
+  clearingUsersExceptCurrent: boolean;
   currentUserId: string;
 }
 
@@ -58,6 +60,8 @@ export function AdminSettingsPanel(props: AdminSettingsPanelProps) {
   const [confirmDeleteText, setConfirmDeleteText] = useState('');
   const [avatarDraftByUserId, setAvatarDraftByUserId] = useState<Record<string, string>>({});
   const [suspensionHoursByUserId, setSuspensionHoursByUserId] = useState<Record<string, number>>({});
+  const [confirmClearOthersOpen, setConfirmClearOthersOpen] = useState(false);
+  const [confirmClearOthersText, setConfirmClearOthersText] = useState('');
 
   useEffect(() => {
     if (props.settings) {
@@ -218,9 +222,30 @@ export function AdminSettingsPanel(props: AdminSettingsPanelProps) {
       <article className="setting-card">
         <div className="admin-header">
           <h3>User Management</h3>
-          <button className="ghost-btn" onClick={() => void props.onRefreshUsers()} disabled={props.usersLoading}>
-            {props.usersLoading ? 'Loading...' : 'Reload users'}
-          </button>
+          <div className="admin-header-actions">
+            <button className="ghost-btn" onClick={() => void props.onRefreshUsers()} disabled={props.usersLoading || props.clearingUsersExceptCurrent}>
+              {props.usersLoading ? 'Loading...' : 'Reload users'}
+            </button>
+            <button
+              className="danger-btn"
+              onClick={() => {
+                if (confirmClearOthersOpen) {
+                  setConfirmClearOthersOpen(false);
+                  setConfirmClearOthersText('');
+                  return;
+                }
+                setConfirmClearOthersOpen(true);
+                setConfirmClearOthersText('');
+              }}
+              disabled={props.usersLoading || props.clearingUsersExceptCurrent}
+            >
+              {props.clearingUsersExceptCurrent
+                ? 'Clearing...'
+                : confirmClearOthersOpen
+                  ? 'Cancel'
+                  : 'Clear all other users'}
+            </button>
+          </div>
         </div>
 
         {props.usersError ? <p className="error-banner">{props.usersError}</p> : null}
@@ -249,6 +274,34 @@ export function AdminSettingsPanel(props: AdminSettingsPanelProps) {
             <option value="MEMBER">Member</option>
           </select>
         </div>
+
+        {confirmClearOthersOpen ? (
+          <div className="delete-confirm-row admin-clear-others-row">
+            <p>
+              This will delete every user account except your current one. Type <strong>DELETE ALL</strong> to confirm.
+            </p>
+            <input
+              value={confirmClearOthersText}
+              onChange={(event) => setConfirmClearOthersText(event.target.value)}
+              placeholder='Type "DELETE ALL" to confirm'
+              disabled={props.clearingUsersExceptCurrent}
+            />
+            <button
+              className="danger-btn"
+              disabled={
+                props.clearingUsersExceptCurrent ||
+                confirmClearOthersText.trim() !== 'DELETE ALL'
+              }
+              onClick={() => {
+                void props.onClearUsersExceptCurrent();
+                setConfirmClearOthersOpen(false);
+                setConfirmClearOthersText('');
+              }}
+            >
+              Confirm clear
+            </button>
+          </div>
+        ) : null}
 
         <div className="admin-user-table-wrap">
           <table className="admin-user-table">
