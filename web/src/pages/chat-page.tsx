@@ -534,6 +534,7 @@ export function ChatPage() {
     Map<string, { bytesReceived: number; packetsReceived: number; stagnantSamples: number }>
   >(new Map());
   const remoteVideoRecoveryAttemptByPeerRef = useRef<Map<string, number>>(new Map());
+  const remoteVideoRecoveryStreakByPeerRef = useRef<Map<string, number>>(new Map());
   const sendVoiceSignalRef = useRef((() => false) as (channelId: string, targetUserId: string, data: unknown) => boolean);
   const createOfferForPeerRef = useRef((() => Promise.resolve()) as (peerUserId: string, channelId: string) => Promise<void>);
   const leaveVoiceRef = useRef((() => false) as (channelId?: string) => boolean);
@@ -1156,6 +1157,7 @@ export function ChatPage() {
     pendingIceRef.current.delete(peerUserId);
     remoteVideoTrafficByPeerRef.current.delete(peerUserId);
     remoteVideoRecoveryAttemptByPeerRef.current.delete(peerUserId);
+    remoteVideoRecoveryStreakByPeerRef.current.delete(peerUserId);
     const remoteAudioSource = remoteAudioSourceByUserRef.current.get(peerUserId);
     if (remoteAudioSource) {
       remoteAudioSource.disconnect();
@@ -1213,6 +1215,7 @@ export function ChatPage() {
     pendingIceRef.current.clear();
     remoteVideoTrafficByPeerRef.current.clear();
     remoteVideoRecoveryAttemptByPeerRef.current.clear();
+    remoteVideoRecoveryStreakByPeerRef.current.clear();
     for (const timeoutId of disconnectTimeoutByPeerRef.current.values()) {
       window.clearTimeout(timeoutId);
     }
@@ -2228,6 +2231,10 @@ export function ChatPage() {
               delete next[payload.fromUserId];
               return next;
             });
+            sendVoiceSignalRef.current(payload.channelId, payload.fromUserId, {
+              kind: 'video-recovery-request',
+              reason: 'snapshot-mismatch',
+            } satisfies VoiceSignalData);
             requestVideoRenegotiationForPeer(payload.fromUserId, payload.channelId);
           }
         } else {
@@ -2258,6 +2265,42 @@ export function ChatPage() {
         if (peerMissingExpectedVideo) {
           requestVideoRenegotiationForPeer(payload.fromUserId, payload.channelId);
         }
+        return;
+      }
+
+      if (signal.kind === 'video-recovery-request') {
+        const connection = await ensurePeerConnection(payload.fromUserId, payload.channelId);
+        const sender = getOrCreateVideoSender(connection);
+        videoSenderByPeerRef.current.set(payload.fromUserId, sender);
+
+        const localVideoTrack = localScreenStreamRef.current
+          ?.getVideoTracks()
+          .find((track) => track.readyState === 'live') ?? null;
+        if (!localVideoTrack || !localStreamSource) {
+          try {
+            await sender.replaceTrack(null);
+          } catch {
+            // Best effort. Renegotiation path below can still recover receiver state.
+          }
+          sendVoiceSignalRef.current(payload.channelId, payload.fromUserId, {
+            kind: 'video-source',
+            source: null,
+          } satisfies VoiceSignalData);
+          requestVideoRenegotiationForPeer(payload.fromUserId, payload.channelId);
+          return;
+        }
+
+        try {
+          await sender.replaceTrack(localVideoTrack);
+        } catch {
+          // Best effort only. Recovery continues via renegotiation.
+        }
+        void applyVideoBitrateToConnection(connection, effectiveStreamBitrateKbps);
+        sendVoiceSignalRef.current(payload.channelId, payload.fromUserId, {
+          kind: 'video-source',
+          source: localStreamSource,
+        } satisfies VoiceSignalData);
+        requestVideoRenegotiationForPeer(payload.fromUserId, payload.channelId);
         return;
       }
 
@@ -2414,10 +2457,14 @@ export function ChatPage() {
     [
       auth.user,
       applyConnectionReceiverBuffering,
+      applyVideoBitrateToConnection,
       closePeerConnection,
+      effectiveStreamBitrateKbps,
       ensurePeerConnection,
       flushPendingIceCandidates,
       getLocalVideoSourceSnapshot,
+      getOrCreateVideoSender,
+      localStreamSource,
       requestVideoRenegotiationForPeer,
       sendStreamSnapshotToPeer,
     ],
@@ -3231,6 +3278,7 @@ export function ChatPage() {
     if (!activeVoiceChannelId || !ws.connected) {
       remoteVideoTrafficByPeerRef.current.clear();
       remoteVideoRecoveryAttemptByPeerRef.current.clear();
+      remoteVideoRecoveryStreakByPeerRef.current.clear();
       return;
     }
 
@@ -3243,6 +3291,7 @@ export function ChatPage() {
         if (!activePeerIds.has(peerUserId)) {
           remoteVideoTrafficByPeerRef.current.delete(peerUserId);
           remoteVideoRecoveryAttemptByPeerRef.current.delete(peerUserId);
+          remoteVideoRecoveryStreakByPeerRef.current.delete(peerUserId);
         }
       }
 
@@ -3295,6 +3344,10 @@ export function ChatPage() {
             stagnantSamples,
           });
 
+          if (hasProgress) {
+            remoteVideoRecoveryStreakByPeerRef.current.set(peerUserId, 0);
+          }
+
           if (stagnantSamples < 3) {
             return;
           }
@@ -3304,6 +3357,8 @@ export function ChatPage() {
           }
 
           remoteVideoRecoveryAttemptByPeerRef.current.set(peerUserId, now);
+          const nextRecoveryStreak = (remoteVideoRecoveryStreakByPeerRef.current.get(peerUserId) ?? 0) + 1;
+          remoteVideoRecoveryStreakByPeerRef.current.set(peerUserId, nextRecoveryStreak);
           remoteVideoTrafficByPeerRef.current.set(peerUserId, {
             bytesReceived,
             packetsReceived,
@@ -3314,8 +3369,32 @@ export function ChatPage() {
             peerUserId,
             bytesReceived,
             packetsReceived,
+            recoveryStreak: nextRecoveryStreak,
           });
+          sendVoiceSignalRef.current(activeVoiceChannelId, peerUserId, {
+            kind: 'video-recovery-request',
+            reason: 'stall-detected',
+            stagnantSamples,
+          } satisfies VoiceSignalData);
           requestVideoRenegotiationForPeer(peerUserId, activeVoiceChannelId);
+
+          if (nextRecoveryStreak < 2) {
+            return;
+          }
+
+          remoteVideoRecoveryStreakByPeerRef.current.set(peerUserId, 0);
+          closePeerConnection(peerUserId);
+          logVoiceDebug('remote_video_stall_hard_reset', {
+            channelId: activeVoiceChannelId,
+            peerUserId,
+          });
+          try {
+            await ensurePeerConnection(peerUserId, activeVoiceChannelId);
+            await createOfferForPeerRef.current(peerUserId, activeVoiceChannelId);
+            requestStreamSnapshotFromPeer(activeVoiceChannelId, peerUserId, 'post-reset');
+          } catch {
+            // Best effort only. Next transport sync can recover.
+          }
         }),
       );
 
@@ -3332,7 +3411,15 @@ export function ChatPage() {
       cancelled = true;
       window.clearInterval(intervalId);
     };
-  }, [activeVoiceChannelId, ws.connected, requestVideoRenegotiationForPeer, logVoiceDebug]);
+  }, [
+    activeVoiceChannelId,
+    ws.connected,
+    closePeerConnection,
+    ensurePeerConnection,
+    logVoiceDebug,
+    requestStreamSnapshotFromPeer,
+    requestVideoRenegotiationForPeer,
+  ]);
 
   // Speaking detection – local mic
   useEffect(() => {
