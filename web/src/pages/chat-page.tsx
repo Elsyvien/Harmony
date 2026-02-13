@@ -360,6 +360,13 @@ function shouldInitiateOffer(localUserId: string, remoteUserId: string) {
   return localUserId < remoteUserId;
 }
 
+function resolveAudioContextClass() {
+  return (
+    window.AudioContext ||
+    (window as typeof window & { webkitAudioContext?: typeof AudioContext }).webkitAudioContext
+  );
+}
+
 export function ChatPage() {
   const auth = useAuth();
   const { preferences, updatePreferences, resetPreferences } = useUserPreferences();
@@ -485,6 +492,7 @@ export function ChatPage() {
   const localVoiceAcquirePromiseRef = useRef<Promise<MediaStream> | null>(null);
   const voiceTransportEpochRef = useRef(0);
   const voiceDebugEnabledRef = useRef(false);
+  const audioContextsUnlockedRef = useRef(false);
   const remoteVideoTrafficByPeerRef = useRef<
     Map<string, { bytesReceived: number; packetsReceived: number; stagnantSamples: number }>
   >(new Map());
@@ -879,6 +887,42 @@ export function ChatPage() {
     }
   }, []);
 
+  const unlockAudioContexts = useCallback(async () => {
+    if (!audioContextsUnlockedRef.current) {
+      audioContextsUnlockedRef.current = true;
+    }
+
+    const AudioContextClass = resolveAudioContextClass();
+    if (!AudioContextClass) {
+      return false;
+    }
+
+    if (!remoteAudioContextRef.current || remoteAudioContextRef.current.state === 'closed') {
+      remoteAudioContextRef.current = new AudioContextClass();
+    }
+    if (!remoteSpeakingContextRef.current || remoteSpeakingContextRef.current.state === 'closed') {
+      remoteSpeakingContextRef.current = new AudioContextClass();
+    }
+
+    const contexts = [
+      remoteAudioContextRef.current,
+      remoteSpeakingContextRef.current,
+      localVoiceGainContextRef.current,
+      localAnalyserContextRef.current,
+    ].filter((context): context is AudioContext => Boolean(context && context.state !== 'closed'));
+
+    await Promise.allSettled(
+      contexts.map(async (context) => {
+        if (context.state !== 'suspended') {
+          return;
+        }
+        await context.resume();
+      }),
+    );
+
+    return contexts.some((context) => context.state === 'running');
+  }, []);
+
   const loadMessages = useCallback(
     async (channelId: string, before?: string, prepend = false) => {
       if (!auth.token) {
@@ -1023,13 +1067,15 @@ export function ChatPage() {
   );
 
   const toggleSelfMute = useCallback(() => {
+    void unlockAudioContexts();
     if (isSelfDeafened) {
       return;
     }
     setIsSelfMuted((current) => !current);
-  }, [isSelfDeafened]);
+  }, [isSelfDeafened, unlockAudioContexts]);
 
   const toggleSelfDeafen = useCallback(() => {
+    void unlockAudioContexts();
     if (!isSelfDeafened) {
       muteStateBeforeDeafenRef.current = isSelfMuted;
       setIsSelfMuted(true);
@@ -1040,7 +1086,7 @@ export function ChatPage() {
     setIsSelfDeafened(false);
     setIsSelfMuted(restoreMutedState);
     muteStateBeforeDeafenRef.current = null;
-  }, [isSelfDeafened, isSelfMuted]);
+  }, [isSelfDeafened, isSelfMuted, unlockAudioContexts]);
 
   const closePeerConnection = useCallback((peerUserId: string) => {
     const disconnectTimeout = disconnectTimeoutByPeerRef.current.get(peerUserId);
@@ -3311,6 +3357,7 @@ export function ChatPage() {
 
   const toggleVideoShare = useCallback(
     async (source: StreamSource) => {
+      await unlockAudioContexts();
       if (localScreenStreamRef.current && localStreamSource === source) {
         stopLocalVideoShare(true);
         return;
@@ -3422,6 +3469,7 @@ export function ChatPage() {
       effectiveStreamBitrateKbps,
       requestVideoRenegotiationForPeer,
       getOrCreateVideoSender,
+      unlockAudioContexts,
     ],
   );
 
@@ -3683,6 +3731,7 @@ export function ChatPage() {
       voiceBusyChannelIdRef.current = channelId;
       setVoiceBusyChannelId(channelId);
       try {
+        await unlockAudioContexts();
         // Pre-warm mic capture immediately on user gesture to reduce setup latency.
         void getLocalVoiceStream().catch(() => {
           // Join flow continues; sync phase will report errors if capture truly fails.
@@ -3720,6 +3769,7 @@ export function ChatPage() {
       isSelfDeafened,
       preferences.autoMuteOnJoin,
       getLocalVoiceStream,
+      unlockAudioContexts,
     ],
   );
 
@@ -3754,6 +3804,7 @@ export function ChatPage() {
     }
     setRequestingMicrophonePermission(true);
     try {
+      await unlockAudioContexts();
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
       for (const track of stream.getTracks()) {
         track.stop();
@@ -3766,7 +3817,7 @@ export function ChatPage() {
     } finally {
       setRequestingMicrophonePermission(false);
     }
-  }, [enumerateAudioInputDevices, refreshMicrophonePermission]);
+  }, [enumerateAudioInputDevices, refreshMicrophonePermission, unlockAudioContexts]);
 
   const runAdminVoiceTest = useCallback(async (rawTestId: string) => {
     const testId = rawTestId as AdminVoiceTestId;
