@@ -127,6 +127,12 @@ export async function buildApp() {
         username: env.TURN_USERNAME,
         credential: env.TURN_CREDENTIAL,
       });
+    } else if (env.RTC_ENABLE_PUBLIC_FALLBACK_TURN) {
+      iceServers.push({
+        urls: ['turn:openrelay.metered.ca:80'],
+        username: 'openrelayproject',
+        credential: 'openrelayproject',
+      });
     }
 
     return {

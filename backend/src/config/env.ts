@@ -16,6 +16,7 @@ const envSchema = z.object({
   TURN_USERNAME: z.string().default(''),
   TURN_CREDENTIAL: z.string().default(''),
   RTC_FORCE_RELAY: z.coerce.boolean().default(false),
+  RTC_ENABLE_PUBLIC_FALLBACK_TURN: z.coerce.boolean().default(true),
 });
 
 export type Env = z.infer<typeof envSchema>;
