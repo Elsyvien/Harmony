@@ -232,7 +232,9 @@ const ScreenShareItem = memo(function ScreenShareItem({
     try {
       if (video.requestFullscreen) await video.requestFullscreen();
       else (video as any).webkitRequestFullscreen?.();
-    } catch {}
+    } catch {
+      return;
+    }
   };
 
   return (
@@ -254,7 +256,7 @@ const ScreenShareItem = memo(function ScreenShareItem({
           inset: 0,
           display: 'flex',
           alignItems: 'center',
-          justify-content: center,
+          justifyContent: 'center',
           background: 'rgba(0,0,0,0.4)',
           color: '#fff',
           fontSize: '12px',
@@ -306,19 +308,11 @@ const ScreenShareItem = memo(function ScreenShareItem({
 
 export function VoiceChannelPanel(props: VoiceChannelPanelProps) {
   const speakingSet = new Set(props.speakingUserIds);
-  const longPressTimeoutRef = useRef<number | null>(null);
   const [maximizedStreamId, setMaximizedStreamId] = useState<string | null>(null);
   const [isCinemaMode, setIsCinemaMode] = useState(false);
   
   const hasLiveVideoTrack = (stream: MediaStream | null | undefined) =>
     Boolean(stream?.getVideoTracks().some((track) => track.readyState === 'live'));
-
-  const clearLongPress = () => {
-    if (longPressTimeoutRef.current) {
-      window.clearTimeout(longPressTimeoutRef.current);
-      longPressTimeoutRef.current = null;
-    }
-  };
 
   const hasLocalShare =
     props.localStreamSource !== null &&
