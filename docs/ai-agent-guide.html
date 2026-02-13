@@ -169,8 +169,7 @@
       }
 
       .checklist li {
-        display: grid;
-        grid-template-columns: 18px 1fr;
+        display: flex;
         gap: 8px;
         align-items: start;
         border: 1px solid var(--border);
@@ -186,6 +185,8 @@
         line-height: 1;
         margin-top: 1px;
         width: 18px;
+        min-width: 18px;
+        flex: 0 0 18px;
         text-align: center;
       }
 
