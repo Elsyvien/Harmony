@@ -184,12 +184,29 @@
         color: var(--positive);
         font-weight: 700;
         line-height: 1;
-        margin-top: 2px;
+        margin-top: 1px;
+        width: 18px;
+        text-align: center;
       }
 
       .warn-list li::before {
         content: "!";
-        color: var(--warning);
+        color: #1a1a1a;
+        background: var(--warning);
+        border-radius: 999px;
+        width: 18px;
+        height: 18px;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 0.72rem;
+        font-weight: 800;
+        margin-top: 0;
+      }
+
+      .warn-list li {
+        border-color: var(--warning);
+        background: var(--bg-surface);
       }
 
       table.tight td,
