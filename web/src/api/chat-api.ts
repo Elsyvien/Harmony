@@ -25,6 +25,11 @@ export const chatApi = {
         iceTransportPolicy?: RTCIceTransportPolicy;
         iceCandidatePoolSize?: number;
       };
+      sfu?: {
+        enabled?: boolean;
+        audioOnly?: boolean;
+        preferTcp?: boolean;
+      };
     }>('/rtc/config');
   },
 

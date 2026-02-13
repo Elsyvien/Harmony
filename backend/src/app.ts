@@ -173,6 +173,11 @@ export async function buildApp() {
         iceTransportPolicy: env.RTC_FORCE_RELAY ? 'relay' : 'all',
         iceCandidatePoolSize: 2,
       },
+      sfu: {
+        enabled: env.SFU_ENABLED,
+        audioOnly: env.SFU_AUDIO_ONLY,
+        preferTcp: env.SFU_PREFER_TCP,
+      },
     };
   });
 
