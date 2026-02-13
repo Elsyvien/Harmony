@@ -271,6 +271,27 @@ function createEmptyMediaStats(): VoiceDetailedMediaStats {
   };
 }
 
+function mapPeerConnectionStateToIceState(
+  state: RTCPeerConnectionState,
+): RTCIceConnectionState {
+  if (state === 'connected') {
+    return 'connected';
+  }
+  if (state === 'connecting') {
+    return 'checking';
+  }
+  if (state === 'disconnected') {
+    return 'disconnected';
+  }
+  if (state === 'failed') {
+    return 'failed';
+  }
+  if (state === 'closed') {
+    return 'closed';
+  }
+  return 'new';
+}
+
 function accumulateMediaStats(
   target: VoiceDetailedMediaStats,
   update: Partial<VoiceDetailedMediaStats>,
@@ -484,6 +505,8 @@ export function ChatPage() {
   const [voiceSfuEnabled, setVoiceSfuEnabled] = useState(false);
   const [voiceSfuAudioOnly, setVoiceSfuAudioOnly] = useState(true);
   const [voiceAudioTransportMode, setVoiceAudioTransportMode] = useState<'p2p' | 'sfu'>('p2p');
+  const [voiceSfuTransportState, setVoiceSfuTransportState] =
+    useState<RTCPeerConnectionState>('new');
   const [savingVoiceSettingsChannelId, setSavingVoiceSettingsChannelId] = useState<string | null>(null);
   const [streamStatusBanner, setStreamStatusBanner] = useState<{
     type: 'error' | 'info';
@@ -700,6 +723,29 @@ export function ChatPage() {
   const collectVoiceConnectionStats = useCallback(async () => {
     const connections = Array.from(peerConnectionsRef.current.entries());
     if (connections.length === 0) {
+      if (voiceAudioTransportMode === 'sfu' && auth.user) {
+        const syntheticStats = joinedVoiceParticipants
+          .filter((participant) => participant.userId !== auth.user?.id)
+          .map((participant) => ({
+            userId: participant.userId,
+            username: participant.username,
+            connectionState: voiceSfuTransportState,
+            iceConnectionState: mapPeerConnectionStateToIceState(voiceSfuTransportState),
+            signalingState: 'stable' as RTCSignalingState,
+            currentRttMs: null,
+            availableOutgoingBitrateKbps: null,
+            localCandidateType: 'sfu',
+            remoteCandidateType: 'sfu',
+            outboundAudio: createEmptyMediaStats(),
+            inboundAudio: createEmptyMediaStats(),
+            outboundVideo: createEmptyMediaStats(),
+            inboundVideo: createEmptyMediaStats(),
+          }));
+        syntheticStats.sort((a, b) => a.username.localeCompare(b.username));
+        setVoiceConnectionStats(syntheticStats);
+        setVoiceStatsUpdatedAt(Date.now());
+        return;
+      }
       setVoiceConnectionStats([]);
       setVoiceStatsUpdatedAt(Date.now());
       return;
@@ -843,7 +889,13 @@ export function ChatPage() {
     nextStats.sort((a, b) => a.username.localeCompare(b.username));
     setVoiceConnectionStats(nextStats);
     setVoiceStatsUpdatedAt(Date.now());
-  }, [computeKbpsFromSnapshot, joinedVoiceParticipants]);
+  }, [
+    computeKbpsFromSnapshot,
+    joinedVoiceParticipants,
+    auth.user,
+    voiceAudioTransportMode,
+    voiceSfuTransportState,
+  ]);
 
   useEffect(() => {
     if (!protectVoiceEnabled) {
@@ -1234,6 +1286,7 @@ export function ChatPage() {
     voiceSfuAudioActiveRef.current = false;
     remoteAudioUsersViaSfuRef.current.clear();
     setVoiceAudioTransportMode('p2p');
+    setVoiceSfuTransportState('new');
     for (const peerUserId of peerConnectionsRef.current.keys()) {
       closePeerConnection(peerUserId);
     }
@@ -1395,6 +1448,7 @@ export function ChatPage() {
     voiceSfuAudioActiveRef.current = false;
     remoteAudioUsersViaSfuRef.current.clear();
     setVoiceAudioTransportMode('p2p');
+    setVoiceSfuTransportState('new');
   }, []);
 
   const startVoiceSfuTransport = useCallback(
@@ -1437,6 +1491,7 @@ export function ChatPage() {
             });
           },
           onStateChange: (state) => {
+            setVoiceSfuTransportState(state as RTCPeerConnectionState);
             logVoiceDebug('voice_sfu_transport_state', {
               channelId,
               state,
@@ -2465,6 +2520,13 @@ export function ChatPage() {
               ...prev,
               [payload.fromUserId]: stream,
             }));
+          } else {
+            sendVoiceSignalRef.current(payload.channelId, payload.fromUserId, {
+              kind: 'video-recovery-request',
+              reason: 'snapshot-mismatch',
+            } satisfies VoiceSignalData);
+            requestVideoRenegotiationForPeer(payload.fromUserId, payload.channelId);
+            requestStreamSnapshotFromPeer(payload.channelId, payload.fromUserId, 'retry');
           }
         } else {
           setRemoteScreenShares((prev) => {
@@ -3397,16 +3459,17 @@ export function ChatPage() {
           sortedPeerUserIds.map(async (peerUserId) => {
             if (cancelled || voiceTransportEpochRef.current !== transportEpoch) return;
             try {
+              const hadExistingConnection = peerConnectionsRef.current.has(peerUserId);
               const pc = await ensurePeerConnection(peerUserId, activeVoiceChannelId);
-              if (pc.signalingState === 'stable' && !peerConnectionsRef.current.get(peerUserId)) {
-                 // Connection was just created or reset
-                 await createOfferForPeer(peerUserId, activeVoiceChannelId);
-                 requestStreamSnapshotFromPeer(activeVoiceChannelId, peerUserId, 'join-sync');
+              if (pc.signalingState === 'stable' && !hadExistingConnection) {
+                // Newly created peer connection needs an initial offer.
+                await createOfferForPeer(peerUserId, activeVoiceChannelId);
+                requestStreamSnapshotFromPeer(activeVoiceChannelId, peerUserId, 'join-sync');
               } else if (pc.signalingState === 'stable') {
-                 // Already exists, maybe just ensure it's healthy
-                 if (pc.connectionState === 'failed' || pc.connectionState === 'disconnected') {
-                    pc.restartIce?.();
-                 }
+                // Already exists, ensure it is healthy.
+                if (pc.connectionState === 'failed' || pc.connectionState === 'disconnected') {
+                  pc.restartIce?.();
+                }
               }
             } catch {}
           })
