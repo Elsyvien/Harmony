@@ -70,6 +70,9 @@ interface VoiceChannelPanelProps {
   onToggleDetailedStats: () => void;
   connectionStats: VoiceDetailedConnectionStats[];
   statsUpdatedAt: number | null;
+  protectVoiceEnabled: boolean;
+  protectVoiceStatus: 'stable' | 'mild' | 'severe';
+  onToggleProtectVoice: () => void;
 }
 
 function stringToColor(str: string) {
@@ -159,30 +162,100 @@ const ScreenShareItem = memo(function ScreenShareItem({
   const videoRef = useRef<HTMLVideoElement>(null);
 
   useEffect(() => {
-    if (!videoRef.current) {
+    const video = videoRef.current;
+    if (!video) {
       return;
     }
-    if (videoRef.current.srcObject !== stream) {
-      videoRef.current.srcObject = stream;
-    }
-    void videoRef.current.play().catch(() => {
-      // Best effort: some browsers delay autoplay until gesture.
-    });
 
-    // Re-trigger play() when a video track unmutes (e.g. after replaceTrack
-    // propagates media) so the element doesn't stay paused/black.
-    const videoTrack = stream.getVideoTracks()[0];
-    if (videoTrack) {
-      const onUnmute = () => {
-        if (videoRef.current && videoRef.current.paused) {
-          void videoRef.current.play().catch(() => {});
-        }
-      };
-      videoTrack.addEventListener('unmute', onUnmute);
-      return () => {
-        videoTrack.removeEventListener('unmute', onUnmute);
-      };
+    const ensurePlayback = (forceReattach = false) => {
+      const node = videoRef.current;
+      if (!node) {
+        return;
+      }
+      if (forceReattach || node.srcObject !== stream) {
+        node.srcObject = stream;
+      }
+      void node.play().catch(() => {
+        // Best effort: some browsers delay autoplay until gesture.
+      });
+    };
+
+    ensurePlayback();
+    const onLoadedMetadata = () => ensurePlayback();
+    const onCanPlay = () => ensurePlayback();
+    video.addEventListener('loadedmetadata', onLoadedMetadata);
+    video.addEventListener('canplay', onCanPlay);
+
+    const trackCleanup: Array<() => void> = [];
+    const attachVideoTrackListeners = (track: MediaStreamTrack) => {
+      if (track.kind !== 'video') {
+        return;
+      }
+      const onUnmute = () => ensurePlayback();
+      const onEnded = () => ensurePlayback(true);
+      track.addEventListener('unmute', onUnmute);
+      track.addEventListener('ended', onEnded);
+      trackCleanup.push(() => {
+        track.removeEventListener('unmute', onUnmute);
+        track.removeEventListener('ended', onEnded);
+      });
+    };
+    for (const track of stream.getVideoTracks()) {
+      attachVideoTrackListeners(track);
     }
+    const onAddTrack = (event: MediaStreamTrackEvent) => {
+      attachVideoTrackListeners(event.track);
+      ensurePlayback(true);
+    };
+    const onRemoveTrack = () => ensurePlayback(true);
+    stream.addEventListener('addtrack', onAddTrack);
+    stream.addEventListener('removetrack', onRemoveTrack);
+
+    let staleTicks = 0;
+    let lastObservedTime = -1;
+    const watchdog = window.setInterval(() => {
+      const node = videoRef.current;
+      if (!node) {
+        return;
+      }
+      const hasLiveVideoTrack = stream
+        .getVideoTracks()
+        .some((track) => track.readyState === 'live');
+      if (!hasLiveVideoTrack) {
+        return;
+      }
+
+      const hasRenderableFrame = node.videoWidth > 0 && node.videoHeight > 0;
+      if (hasRenderableFrame && !node.paused) {
+        staleTicks = 0;
+        lastObservedTime = node.currentTime;
+        return;
+      }
+
+      if (node.currentTime === lastObservedTime) {
+        staleTicks += 1;
+      } else {
+        staleTicks = 0;
+        lastObservedTime = node.currentTime;
+      }
+
+      if (staleTicks >= 2) {
+        staleTicks = 0;
+        ensurePlayback(true);
+      }
+    }, 1200);
+
+    return () => {
+      window.clearInterval(watchdog);
+      video.removeEventListener('loadedmetadata', onLoadedMetadata);
+      video.removeEventListener('canplay', onCanPlay);
+      stream.removeEventListener('addtrack', onAddTrack);
+      stream.removeEventListener('removetrack', onRemoveTrack);
+      for (const cleanup of trackCleanup) {
+        cleanup();
+      }
+    };
+
   }, [stream]);
 
   // When not maximized but another stream IS maximized, this component might differ visually 
@@ -321,6 +394,14 @@ export function VoiceChannelPanel(props: VoiceChannelPanelProps) {
           >
             Detailed Statistics
           </button>
+          <button
+            className={props.protectVoiceEnabled ? 'ghost-btn small active' : 'ghost-btn small'}
+            disabled={!props.joined}
+            onClick={props.onToggleProtectVoice}
+            title="Temporarily reduce video bitrate when network is stressed to protect voice clarity"
+          >
+            Protect Voice
+          </button>
         </div>
       </header>
 
@@ -346,6 +427,17 @@ export function VoiceChannelPanel(props: VoiceChannelPanelProps) {
         </span>
         <span className="voice-overview-chip">Participants: {connectedParticipantCount}</span>
         <span className="voice-overview-chip">Live streams: {totalStreamCount}</span>
+        <span
+          className={`voice-overview-chip ${props.protectVoiceEnabled ? (props.protectVoiceStatus === 'severe' ? 'warn' : 'ok') : ''}`}
+        >
+          {props.protectVoiceEnabled
+            ? props.protectVoiceStatus === 'stable'
+              ? 'Protect Voice: On'
+              : props.protectVoiceStatus === 'mild'
+                ? 'Protect Voice: Mild'
+                : 'Protect Voice: Severe'
+            : 'Protect Voice: Off'}
+        </span>
       </div>
 
       {/* Quality Controls Section */}
