@@ -407,6 +407,10 @@ export function ChatPage() {
   const localVoiceAcquirePromiseRef = useRef<Promise<MediaStream> | null>(null);
   const voiceTransportEpochRef = useRef(0);
   const voiceDebugEnabledRef = useRef(false);
+  const remoteVideoTrafficByPeerRef = useRef<
+    Map<string, { bytesReceived: number; packetsReceived: number; stagnantSamples: number }>
+  >(new Map());
+  const remoteVideoRecoveryAttemptByPeerRef = useRef<Map<string, number>>(new Map());
   const sendVoiceSignalRef = useRef((() => false) as (channelId: string, targetUserId: string, data: unknown) => boolean);
   const createOfferForPeerRef = useRef((() => Promise.resolve()) as (peerUserId: string, channelId: string) => Promise<void>);
   const leaveVoiceRef = useRef((() => false) as (channelId?: string) => boolean);
@@ -982,6 +986,8 @@ export function ChatPage() {
     remoteVideoSourceByPeerRef.current.delete(peerUserId);
     remoteVideoStreamByPeerRef.current.delete(peerUserId);
     pendingIceRef.current.delete(peerUserId);
+    remoteVideoTrafficByPeerRef.current.delete(peerUserId);
+    remoteVideoRecoveryAttemptByPeerRef.current.delete(peerUserId);
     const remoteAudioSource = remoteAudioSourceByUserRef.current.get(peerUserId);
     if (remoteAudioSource) {
       remoteAudioSource.disconnect();
@@ -1033,6 +1039,8 @@ export function ChatPage() {
     remoteVideoSourceByPeerRef.current.clear();
     remoteVideoStreamByPeerRef.current.clear();
     pendingIceRef.current.clear();
+    remoteVideoTrafficByPeerRef.current.clear();
+    remoteVideoRecoveryAttemptByPeerRef.current.clear();
     for (const timeoutId of disconnectTimeoutByPeerRef.current.values()) {
       window.clearTimeout(timeoutId);
     }
@@ -2874,6 +2882,113 @@ export function ChatPage() {
       window.clearInterval(intervalId);
     };
   }, [activeVoiceChannelId, ws.connected, pruneStaleRemoteScreenShares]);
+
+  useEffect(() => {
+    if (!activeVoiceChannelId || !ws.connected) {
+      remoteVideoTrafficByPeerRef.current.clear();
+      remoteVideoRecoveryAttemptByPeerRef.current.clear();
+      return;
+    }
+
+    let cancelled = false;
+    const monitorRemoteVideoFlow = async () => {
+      const now = Date.now();
+      const activePeerIds = new Set(peerConnectionsRef.current.keys());
+
+      for (const peerUserId of Array.from(remoteVideoTrafficByPeerRef.current.keys())) {
+        if (!activePeerIds.has(peerUserId)) {
+          remoteVideoTrafficByPeerRef.current.delete(peerUserId);
+          remoteVideoRecoveryAttemptByPeerRef.current.delete(peerUserId);
+        }
+      }
+
+      await Promise.allSettled(
+        Array.from(peerConnectionsRef.current.entries()).map(async ([peerUserId, connection]) => {
+          const advertisedSource = remoteVideoSourceByPeerRef.current.get(peerUserId);
+          const expectsRemoteVideo = advertisedSource === 'screen' || advertisedSource === 'camera';
+          if (!expectsRemoteVideo || connection.connectionState === 'closed') {
+            remoteVideoTrafficByPeerRef.current.delete(peerUserId);
+            return;
+          }
+
+          let bytesReceived = 0;
+          let packetsReceived = 0;
+          try {
+            const report = await connection.getStats();
+            for (const stat of report.values()) {
+              if (stat.type !== 'inbound-rtp') {
+                continue;
+              }
+              const inbound = stat as RTCInboundRtpStreamStats & {
+                kind?: string;
+                mediaType?: string;
+              };
+              const mediaKind = inbound.kind ?? inbound.mediaType ?? 'audio';
+              if (mediaKind !== 'video') {
+                continue;
+              }
+              if (typeof inbound.bytesReceived === 'number') {
+                bytesReceived += inbound.bytesReceived;
+              }
+              if (typeof inbound.packetsReceived === 'number') {
+                packetsReceived += inbound.packetsReceived;
+              }
+            }
+          } catch {
+            return;
+          }
+
+          const previous = remoteVideoTrafficByPeerRef.current.get(peerUserId);
+          const hasProgress =
+            !previous ||
+            bytesReceived > previous.bytesReceived + 1500 ||
+            packetsReceived > previous.packetsReceived + 2;
+          const stagnantSamples = hasProgress ? 0 : (previous?.stagnantSamples ?? 0) + 1;
+
+          remoteVideoTrafficByPeerRef.current.set(peerUserId, {
+            bytesReceived,
+            packetsReceived,
+            stagnantSamples,
+          });
+
+          if (stagnantSamples < 3) {
+            return;
+          }
+          const lastAttemptAt = remoteVideoRecoveryAttemptByPeerRef.current.get(peerUserId) ?? 0;
+          if (now - lastAttemptAt < 7000) {
+            return;
+          }
+
+          remoteVideoRecoveryAttemptByPeerRef.current.set(peerUserId, now);
+          remoteVideoTrafficByPeerRef.current.set(peerUserId, {
+            bytesReceived,
+            packetsReceived,
+            stagnantSamples: 0,
+          });
+          logVoiceDebug('remote_video_stall_recovery', {
+            channelId: activeVoiceChannelId,
+            peerUserId,
+            bytesReceived,
+            packetsReceived,
+          });
+          requestVideoRenegotiationForPeer(peerUserId, activeVoiceChannelId);
+        }),
+      );
+
+      if (cancelled) {
+        return;
+      }
+    };
+
+    void monitorRemoteVideoFlow();
+    const intervalId = window.setInterval(() => {
+      void monitorRemoteVideoFlow();
+    }, 2200);
+    return () => {
+      cancelled = true;
+      window.clearInterval(intervalId);
+    };
+  }, [activeVoiceChannelId, ws.connected, requestVideoRenegotiationForPeer, logVoiceDebug]);
 
   // Speaking detection – local mic
   useEffect(() => {
