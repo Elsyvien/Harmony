@@ -1264,17 +1264,21 @@ export function ChatPage() {
   }, [resetLocalAnalyser]);
 
   const replaceAudioTrackAcrossPeers = useCallback(async (audioTrack: MediaStreamTrack) => {
+    const replacementTasks: Promise<void>[] = [];
     for (const connection of peerConnectionsRef.current.values()) {
       for (const sender of connection.getSenders()) {
         if (sender.track?.kind !== 'audio') {
           continue;
         }
-        try {
-          await sender.replaceTrack(audioTrack);
-        } catch {
-          // Ignore replacement errors; next renegotiation can recover.
-        }
+        replacementTasks.push(
+          sender.replaceTrack(audioTrack).catch(() => {
+            // Ignore replacement errors; next renegotiation can recover.
+          }),
+        );
       }
+    }
+    if (replacementTasks.length > 0) {
+      await Promise.allSettled(replacementTasks);
     }
   }, []);
 
@@ -1333,6 +1337,8 @@ export function ChatPage() {
 
     const acquirePromise = (async () => {
       const previousRawStream = localVoiceStreamRef.current;
+      const previousGainNode = localVoiceGainNodeRef.current;
+      const previousGainContext = localVoiceGainContextRef.current;
       const { stream: rawStream, resolvedDeviceId } = await requestMicrophoneStream();
       const rawTrack = rawStream.getAudioTracks()[0] ?? null;
       if (!rawTrack) {
@@ -1342,14 +1348,8 @@ export function ChatPage() {
         throw new Error('No microphone track available');
       }
 
-      if (localVoiceGainNodeRef.current) {
-        localVoiceGainNodeRef.current.disconnect();
-        localVoiceGainNodeRef.current = null;
-      }
-      if (localVoiceGainContextRef.current) {
-        void localVoiceGainContextRef.current.close();
-        localVoiceGainContextRef.current = null;
-      }
+      localVoiceGainNodeRef.current = null;
+      localVoiceGainContextRef.current = null;
       localVoiceProcessedStreamRef.current = null;
 
       let processedStream = rawStream;
@@ -1369,7 +1369,13 @@ export function ChatPage() {
           if (gainContext.state === 'running') {
             const source = gainContext.createMediaStreamSource(rawStream);
             const gainNode = gainContext.createGain();
-            gainNode.gain.value = voiceInputGainRef.current / 100;
+            const targetGain = Math.max(0.0001, voiceInputGainRef.current / 100);
+            if (previousGainNode) {
+              gainNode.gain.setValueAtTime(0.0001, gainContext.currentTime);
+              gainNode.gain.exponentialRampToValueAtTime(targetGain, gainContext.currentTime + 0.22);
+            } else {
+              gainNode.gain.value = targetGain;
+            }
             const destination = gainContext.createMediaStreamDestination();
             source.connect(gainNode);
             gainNode.connect(destination);
@@ -1391,9 +1397,42 @@ export function ChatPage() {
 
       await replaceAudioTrackAcrossPeers(processedTrack);
 
+      if (previousGainNode) {
+        try {
+          const fadeStart = previousGainContext?.currentTime ?? 0;
+          const currentGain = Math.max(0.0001, previousGainNode.gain.value || 0.0001);
+          previousGainNode.gain.cancelScheduledValues(fadeStart);
+          previousGainNode.gain.setValueAtTime(currentGain, fadeStart);
+          previousGainNode.gain.exponentialRampToValueAtTime(0.0001, fadeStart + 0.22);
+        } catch {
+          // Best effort only for smoother transitions.
+        }
+      }
+
       if (previousRawStream && previousRawStream !== rawStream) {
-        for (const track of previousRawStream.getTracks()) {
-          track.stop();
+        window.setTimeout(() => {
+          for (const track of previousRawStream.getTracks()) {
+            track.stop();
+          }
+          if (previousGainNode) {
+            try {
+              previousGainNode.disconnect();
+            } catch {
+              // Ignore disconnect errors for stale nodes.
+            }
+          }
+          if (previousGainContext) {
+            void previousGainContext.close();
+          }
+        }, 320);
+      } else if (previousGainNode) {
+        try {
+          previousGainNode.disconnect();
+        } catch {
+          // Ignore disconnect errors for stale nodes.
+        }
+        if (previousGainContext) {
+          void previousGainContext.close();
         }
       }
 
