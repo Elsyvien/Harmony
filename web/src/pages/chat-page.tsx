@@ -334,7 +334,7 @@ function isVoiceSignalData(value: unknown): value is VoiceSignalData {
 function createDefaultVoiceIceConfig(): RTCConfiguration {
   return {
     iceServers: [{ urls: ['stun:stun.l.google.com:19302'] }],
-    iceCandidatePoolSize: 2,
+    iceCandidatePoolSize: 4,
     iceTransportPolicy: 'all',
   };
 }
@@ -1330,12 +1330,12 @@ export function ChatPage() {
   const disconnectRemoteAudioForUser = useCallback((userId: string) => {
     const source = remoteAudioSourceByUserRef.current.get(userId);
     if (source) {
-      source.disconnect();
+      try { source.disconnect(); } catch {}
       remoteAudioSourceByUserRef.current.delete(userId);
     }
     const gain = remoteAudioGainByUserRef.current.get(userId);
     if (gain) {
-      gain.disconnect();
+      try { gain.disconnect(); } catch {}
       remoteAudioGainByUserRef.current.delete(userId);
     }
     remoteAudioElementByUserRef.current.delete(userId);
@@ -1344,7 +1344,7 @@ export function ChatPage() {
   const disconnectRemoteSpeakingForUser = useCallback((userId: string) => {
     const source = remoteSpeakingSourceByUserRef.current.get(userId);
     if (source) {
-      source.disconnect();
+      try { source.disconnect(); } catch {}
       remoteSpeakingSourceByUserRef.current.delete(userId);
     }
     remoteSpeakingAnalyserByUserRef.current.delete(userId);
@@ -2415,12 +2415,24 @@ export function ChatPage() {
         }
         applyConnectionReceiverBuffering(connection);
         await flushPendingIceCandidates(payload.fromUserId, connection);
-        const answer = await connection.createAnswer();
-        await connection.setLocalDescription(answer);
-        sendVoiceSignalRef.current(payload.channelId, payload.fromUserId, {
-          kind: 'answer',
-          sdp: answer,
-        } satisfies VoiceSignalData);
+        
+        try {
+          const answer = await connection.createAnswer();
+          if (connection.signalingState !== 'have-remote-offer') {
+             // State changed while creating answer
+             return;
+          }
+          await connection.setLocalDescription(answer);
+          sendVoiceSignalRef.current(payload.channelId, payload.fromUserId, {
+            kind: 'answer',
+            sdp: answer,
+          } satisfies VoiceSignalData);
+        } catch (err) {
+          trackTelemetryError('voice_signal_answer_creation_failed', err, {
+            peerUserId: payload.fromUserId,
+            channelId: payload.channelId,
+          });
+        }
         return;
       }
 
@@ -3168,7 +3180,7 @@ export function ChatPage() {
     const transportEpoch = ++voiceTransportEpochRef.current;
     let cancelled = false;
 
-    // Debounce the sync to handle rapid participant changes
+    // Faster initial sync, but still debounced
     const timer = window.setTimeout(() => {
       const syncVoiceTransport = async () => {
         const participants = voiceParticipantsByChannel[activeVoiceChannelId] ?? [];
@@ -3227,7 +3239,7 @@ export function ChatPage() {
         );
       };
       void syncVoiceTransport();
-    }, 400);
+    }, 200);
 
     return () => {
       cancelled = true;
