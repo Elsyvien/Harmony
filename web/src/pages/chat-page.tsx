@@ -115,6 +115,32 @@ function getCameraCapturePresetLabels(preferredLabel: string): string[] {
   return [...new Set(labels.filter((label) => Boolean(STREAM_QUALITY_CONSTRAINTS[label])))];
 }
 
+function computeAdaptiveVoiceBitrateKbps(baseBitrateKbps: number, participantCount: number) {
+  if (participantCount >= 9) {
+    return Math.min(baseBitrateKbps, 64);
+  }
+  if (participantCount >= 5) {
+    return Math.min(baseBitrateKbps, 96);
+  }
+  return baseBitrateKbps;
+}
+
+function computeAdaptiveStreamBitrateKbps(baseBitrateKbps: number, participantCount: number) {
+  if (participantCount >= 6) {
+    return Math.min(baseBitrateKbps, 1000);
+  }
+  if (participantCount >= 5) {
+    return Math.min(baseBitrateKbps, 1400);
+  }
+  if (participantCount >= 4) {
+    return Math.min(baseBitrateKbps, 1800);
+  }
+  if (participantCount >= 3) {
+    return Math.min(baseBitrateKbps, 2500);
+  }
+  return baseBitrateKbps;
+}
+
 type VoiceSignalData =
   | { kind: 'offer'; sdp: RTCSessionDescriptionInit }
   | { kind: 'answer'; sdp: RTCSessionDescriptionInit }
@@ -468,6 +494,16 @@ export function ChatPage() {
     authUserId: auth.user?.id,
     authUserRole: auth.user?.role,
   });
+
+  const voiceTransportParticipantCount = Math.max(1, joinedVoiceParticipants.length);
+  const effectiveVoiceBitrateKbps = useMemo(
+    () => computeAdaptiveVoiceBitrateKbps(activeVoiceBitrateKbps, voiceTransportParticipantCount),
+    [activeVoiceBitrateKbps, voiceTransportParticipantCount],
+  );
+  const effectiveStreamBitrateKbps = useMemo(
+    () => computeAdaptiveStreamBitrateKbps(activeStreamBitrateKbps, voiceTransportParticipantCount),
+    [activeStreamBitrateKbps, voiceTransportParticipantCount],
+  );
 
   const subscribedChannelIds = useMemo(() => channels.map((channel) => channel.id), [channels]);
 
@@ -1113,7 +1149,7 @@ export function ChatPage() {
       const peerConnection = peerConnectionsRef.current.get(userId);
       const videoTracks = stream.getVideoTracks();
       const hasLiveVideoTrack = videoTracks.some((track) => track.readyState === 'live');
-      const isPeerClosed = !peerConnection || peerConnection.connectionState === 'closed';
+      const isPeerClosed = peerConnection?.connectionState === 'closed';
       if (!hasLiveVideoTrack || isPeerClosed) {
         staleUserIds.push(userId);
       }
@@ -1463,6 +1499,7 @@ export function ChatPage() {
       const connection = new RTCPeerConnection({
         ...voiceIceConfig,
       });
+      peerConnectionsRef.current.set(peerUserId, connection);
       applyConnectionReceiverBuffering(connection);
       logVoiceDebug('peer_connection_create', {
         peerUserId,
@@ -1484,8 +1521,8 @@ export function ChatPage() {
           // Keep empty sender and continue. Next renegotiation can recover.
         }
       }
-      await applyAudioBitrateToConnection(connection, activeVoiceBitrateKbps);
-      await applyVideoBitrateToConnection(connection, activeStreamBitrateKbps);
+      await applyAudioBitrateToConnection(connection, effectiveVoiceBitrateKbps);
+      await applyVideoBitrateToConnection(connection, effectiveStreamBitrateKbps);
 
       connection.onicecandidate = (event) => {
         if (!event.candidate) {
@@ -1612,8 +1649,6 @@ export function ChatPage() {
           disconnectTimeoutByPeerRef.current.set(peerUserId, timeoutId);
         }
       };
-
-      peerConnectionsRef.current.set(peerUserId, connection);
       return connection;
     },
     [
@@ -1622,8 +1657,8 @@ export function ChatPage() {
       applyVideoBitrateToConnection,
       closePeerConnection,
       getLocalVoiceStream,
-      activeVoiceBitrateKbps,
-      activeStreamBitrateKbps,
+      effectiveVoiceBitrateKbps,
+      effectiveStreamBitrateKbps,
       applyConnectionReceiverBuffering,
       applyReceiverBuffering,
       getOrCreateVideoSender,
@@ -1737,6 +1772,19 @@ export function ChatPage() {
       if (signal.kind === 'renegotiate') {
         const localUserId = auth.user.id;
         if (!shouldInitiateOffer(localUserId, payload.fromUserId)) {
+          return;
+        }
+        const existingConnection = peerConnectionsRef.current.get(payload.fromUserId);
+        if (existingConnection && existingConnection.connectionState !== 'closed') {
+          if (existingConnection.signalingState === 'stable') {
+            try {
+              await createOfferForPeerRef.current(payload.fromUserId, payload.channelId);
+            } catch {
+              pendingVideoRenegotiationByPeerRef.current.add(payload.fromUserId);
+            }
+          } else {
+            pendingVideoRenegotiationByPeerRef.current.add(payload.fromUserId);
+          }
           return;
         }
         closePeerConnection(payload.fromUserId);
@@ -2422,17 +2470,22 @@ export function ChatPage() {
       }
 
       const sortedPeerUserIds = Array.from(desiredPeerUserIds).sort();
-      for (const peerUserId of sortedPeerUserIds) {
-        try {
+      await Promise.allSettled(
+        sortedPeerUserIds.map(async (peerUserId) => {
           if (cancelled || voiceTransportEpochRef.current !== transportEpoch) {
             return;
           }
-          await ensurePeerConnection(peerUserId, activeVoiceChannelId);
-          await createOfferForPeer(peerUserId, activeVoiceChannelId);
-        } catch {
-          // Best effort: peer transport can recover on next state update.
-        }
-      }
+          try {
+            await ensurePeerConnection(peerUserId, activeVoiceChannelId);
+            if (cancelled || voiceTransportEpochRef.current !== transportEpoch) {
+              return;
+            }
+            await createOfferForPeer(peerUserId, activeVoiceChannelId);
+          } catch {
+            // Best effort: peer transport can recover on next state update.
+          }
+        }),
+      );
     };
 
     void syncVoiceTransport();
@@ -2457,9 +2510,9 @@ export function ChatPage() {
       return;
     }
     for (const connection of connections) {
-      void applyAudioBitrateToConnection(connection, activeVoiceBitrateKbps);
+      void applyAudioBitrateToConnection(connection, effectiveVoiceBitrateKbps);
     }
-  }, [applyAudioBitrateToConnection, activeVoiceBitrateKbps]);
+  }, [applyAudioBitrateToConnection, effectiveVoiceBitrateKbps]);
 
   useEffect(() => {
     const connections = Array.from(peerConnectionsRef.current.values());
@@ -2467,9 +2520,9 @@ export function ChatPage() {
       return;
     }
     for (const connection of connections) {
-      void applyVideoBitrateToConnection(connection, activeStreamBitrateKbps);
+      void applyVideoBitrateToConnection(connection, effectiveStreamBitrateKbps);
     }
-  }, [applyVideoBitrateToConnection, activeStreamBitrateKbps]);
+  }, [applyVideoBitrateToConnection, effectiveStreamBitrateKbps]);
 
   useEffect(() => {
     applyLocalVoiceTrackState(localVoiceStreamRef.current);
@@ -3016,6 +3069,10 @@ export function ChatPage() {
       voiceBusyChannelIdRef.current = channelId;
       setVoiceBusyChannelId(channelId);
       try {
+        // Pre-warm mic capture immediately on user gesture to reduce setup latency.
+        void getLocalVoiceStream().catch(() => {
+          // Join flow continues; sync phase will report errors if capture truly fails.
+        });
         const joinMuted = preferences.autoMuteOnJoin || isSelfDeafened;
         if (isSelfMuted !== joinMuted) {
           setIsSelfMuted(joinMuted);
@@ -3040,7 +3097,16 @@ export function ChatPage() {
         setVoiceBusyChannelId(null);
       }
     },
-    [auth.token, ws, activeVoiceChannelId, playVoiceStateSound, isSelfMuted, isSelfDeafened, preferences.autoMuteOnJoin],
+    [
+      auth.token,
+      ws,
+      activeVoiceChannelId,
+      playVoiceStateSound,
+      isSelfMuted,
+      isSelfDeafened,
+      preferences.autoMuteOnJoin,
+      getLocalVoiceStream,
+    ],
   );
 
   const leaveVoiceChannel = useCallback(
