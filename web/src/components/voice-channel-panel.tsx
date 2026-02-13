@@ -114,37 +114,19 @@ const STREAM_QUALITY_OPTIONS = [
 ];
 
 function formatVoiceBitrateOption(bitrateKbps: number) {
-  if (bitrateKbps === 24) {
-    return '24 kbps (Low)';
-  }
-  if (bitrateKbps === 64) {
-    return '64 kbps (Default)';
-  }
-  if (bitrateKbps === 128) {
-    return '128 kbps (High)';
-  }
-  if (bitrateKbps === 1411) {
-    return '1411 kbps (CD Quality)';
-  }
-  if (bitrateKbps === 1536) {
-    return '1536 kbps (Hi-Res Max)';
-  }
+  if (bitrateKbps === 24) return '24 kbps (Low)';
+  if (bitrateKbps === 64) return '64 kbps (Default)';
+  if (bitrateKbps === 128) return '128 kbps (High)';
+  if (bitrateKbps === 1411) return '1411 kbps (CD Quality)';
+  if (bitrateKbps === 1536) return '1536 kbps (Hi-Res Max)';
   return `${bitrateKbps} kbps`;
 }
 
 function formatStreamBitrateOption(bitrateKbps: number) {
-  if (bitrateKbps === 500) {
-    return '500 kbps (Low)';
-  }
-  if (bitrateKbps === 2500) {
-    return '2500 kbps (Default)';
-  }
-  if (bitrateKbps === 6000) {
-    return '6000 kbps (High)';
-  }
-  if (bitrateKbps === 10000) {
-    return '10000 kbps (Max)';
-  }
+  if (bitrateKbps === 500) return '500 kbps (Low)';
+  if (bitrateKbps === 2500) return '2500 kbps (Default)';
+  if (bitrateKbps === 6000) return '6000 kbps (High)';
+  if (bitrateKbps === 10000) return '10000 kbps (Max)';
   return `${bitrateKbps} kbps`;
 }
 
@@ -153,45 +135,48 @@ const ScreenShareItem = memo(function ScreenShareItem({
   label,
   isMaximized,
   onMaximize,
+  onCinema,
 }: {
   stream: MediaStream;
   label: string;
   isMaximized: boolean;
   onMaximize: () => void;
+  onCinema?: () => void;
 }) {
   const videoRef = useRef<HTMLVideoElement>(null);
+  const [isStalled, setIsStalled] = useState(false);
 
   useEffect(() => {
     const video = videoRef.current;
-    if (!video) {
-      return;
-    }
+    if (!video) return;
 
     const ensurePlayback = (forceReattach = false) => {
       const node = videoRef.current;
-      if (!node) {
-        return;
-      }
+      if (!node) return;
       if (forceReattach || node.srcObject !== stream) {
         node.srcObject = stream;
       }
       void node.play().catch(() => {
-        // Best effort: some browsers delay autoplay until gesture.
+        // Autoplay may be blocked
       });
     };
 
     ensurePlayback();
     const onLoadedMetadata = () => ensurePlayback();
-    const onCanPlay = () => ensurePlayback();
+    const onCanPlay = () => {
+      ensurePlayback();
+      setIsStalled(false);
+    };
+    
     video.addEventListener('loadedmetadata', onLoadedMetadata);
     video.addEventListener('canplay', onCanPlay);
 
     const trackCleanup: Array<() => void> = [];
-    const attachVideoTrackListeners = (track: MediaStreamTrack) => {
-      if (track.kind !== 'video') {
-        return;
-      }
-      const onUnmute = () => ensurePlayback();
+    for (const track of stream.getVideoTracks()) {
+      const onUnmute = () => {
+        ensurePlayback();
+        setIsStalled(false);
+      };
       const onEnded = () => ensurePlayback(true);
       track.addEventListener('unmute', onUnmute);
       track.addEventListener('ended', onEnded);
@@ -199,14 +184,9 @@ const ScreenShareItem = memo(function ScreenShareItem({
         track.removeEventListener('unmute', onUnmute);
         track.removeEventListener('ended', onEnded);
       });
-    };
-    for (const track of stream.getVideoTracks()) {
-      attachVideoTrackListeners(track);
     }
-    const onAddTrack = (event: MediaStreamTrackEvent) => {
-      attachVideoTrackListeners(event.track);
-      ensurePlayback(true);
-    };
+
+    const onAddTrack = () => ensurePlayback(true);
     const onRemoveTrack = () => ensurePlayback(true);
     stream.addEventListener('addtrack', onAddTrack);
     stream.addEventListener('removetrack', onRemoveTrack);
@@ -215,35 +195,26 @@ const ScreenShareItem = memo(function ScreenShareItem({
     let lastObservedTime = -1;
     const watchdog = window.setInterval(() => {
       const node = videoRef.current;
-      if (!node) {
-        return;
-      }
-      const hasLiveVideoTrack = stream
-        .getVideoTracks()
-        .some((track) => track.readyState === 'live');
-      if (!hasLiveVideoTrack) {
-        return;
-      }
+      if (!node) return;
+      
+      const hasLiveVideoTrack = stream.getVideoTracks().some(t => t.readyState === 'live');
+      if (!hasLiveVideoTrack) return;
 
       const hasRenderableFrame = node.videoWidth > 0 && node.videoHeight > 0;
-      if (hasRenderableFrame && !node.paused) {
+      if (hasRenderableFrame && !node.paused && node.currentTime !== lastObservedTime) {
         staleTicks = 0;
         lastObservedTime = node.currentTime;
+        setIsStalled(false);
         return;
       }
 
-      if (node.currentTime === lastObservedTime) {
-        staleTicks += 1;
-      } else {
-        staleTicks = 0;
-        lastObservedTime = node.currentTime;
-      }
-
+      staleTicks++;
       if (staleTicks >= 2) {
-        staleTicks = 0;
+        setIsStalled(true);
         ensurePlayback(true);
+        staleTicks = 0;
       }
-    }, 1200);
+    }, 1000);
 
     return () => {
       window.clearInterval(watchdog);
@@ -251,34 +222,18 @@ const ScreenShareItem = memo(function ScreenShareItem({
       video.removeEventListener('canplay', onCanPlay);
       stream.removeEventListener('addtrack', onAddTrack);
       stream.removeEventListener('removetrack', onRemoveTrack);
-      for (const cleanup of trackCleanup) {
-        cleanup();
-      }
+      trackCleanup.forEach(c => c());
     };
-
   }, [stream]);
-
-  // When not maximized but another stream IS maximized, this component might differ visually 
-  // (processed by parent classNames), but we keep the video playing.
-  // To "minimize traffic" effectively in P2P without signaling, we can't do much,
-  // but we can ensure we aren't using high-res rendering resources.
 
   const requestFullscreen = async () => {
     const video = videoRef.current;
-    if (!video) {
-      return;
-    }
+    if (!video) return;
     try {
-      if (video.requestFullscreen) {
-        await video.requestFullscreen();
-        return;
-      }
-      const legacyVideo = video as HTMLVideoElement & {
-        webkitRequestFullscreen?: () => Promise<void> | void;
-      };
-      legacyVideo.webkitRequestFullscreen?.();
+      if (video.requestFullscreen) await video.requestFullscreen();
+      else (video as any).webkitRequestFullscreen?.();
     } catch {
-      // Best effort only. Some environments or policies block fullscreen.
+      return;
     }
   };
 
@@ -286,9 +241,6 @@ const ScreenShareItem = memo(function ScreenShareItem({
     <div
       className={`voice-screen-share-item ${isMaximized ? 'maximized' : ''}`}
       onClick={onMaximize}
-      onDoubleClick={() => {
-        void requestFullscreen();
-      }}
     >
       <video
         ref={videoRef}
@@ -298,20 +250,56 @@ const ScreenShareItem = memo(function ScreenShareItem({
         disablePictureInPicture
         style={{ cursor: 'pointer' }}
       />
+      {isStalled && (
+        <div style={{
+          position: 'absolute',
+          inset: 0,
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          background: 'rgba(0,0,0,0.4)',
+          color: '#fff',
+          fontSize: '12px',
+          fontWeight: 'bold',
+          backdropFilter: 'blur(4px)',
+          zIndex: 5
+        }}>
+          Reconnecting stream...
+        </div>
+      )}
       <div className="voice-screen-share-overlay">
-        <div className="voice-screen-share-label">{label}</div>
-        <div className="voice-screen-share-controls">
-          <button
-            className="screen-share-control-btn"
-            onClick={(e) => {
-              e.stopPropagation();
-              void requestFullscreen();
-            }}
-            title="Fullscreen"
-            aria-label="Open stream in fullscreen"
-          >
-            ⛶
-          </button>
+        <div className="voice-screen-share-top">
+          <span className="voice-live-badge">Live</span>
+        </div>
+        <div className="voice-screen-share-bottom">
+          <div className="voice-screen-share-label">
+            <span style={{ opacity: 0.8 }}>📺</span> {label}
+          </div>
+          <div className="voice-screen-share-controls">
+            {onCinema && (
+              <button
+                className="screen-share-control-btn"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onCinema();
+                }}
+                title="Cinema Mode"
+                style={{ marginRight: '4px' }}
+              >
+                🎬
+              </button>
+            )}
+            <button
+              className="screen-share-control-btn"
+              onClick={(e) => {
+                e.stopPropagation();
+                void requestFullscreen();
+              }}
+              title="Fullscreen"
+            >
+              ⛶
+            </button>
+          </div>
         </div>
       </div>
     </div>
@@ -320,415 +308,288 @@ const ScreenShareItem = memo(function ScreenShareItem({
 
 export function VoiceChannelPanel(props: VoiceChannelPanelProps) {
   const speakingSet = new Set(props.speakingUserIds);
-  const longPressTimeoutRef = useRef<number | null>(null);
   const [maximizedStreamId, setMaximizedStreamId] = useState<string | null>(null);
+  const [isCinemaMode, setIsCinemaMode] = useState(false);
+  
   const hasLiveVideoTrack = (stream: MediaStream | null | undefined) =>
     Boolean(stream?.getVideoTracks().some((track) => track.readyState === 'live'));
-
-  const clearLongPress = () => {
-    if (!longPressTimeoutRef.current) {
-      return;
-    }
-    window.clearTimeout(longPressTimeoutRef.current);
-    longPressTimeoutRef.current = null;
-  };
 
   const hasLocalShare =
     props.localStreamSource !== null &&
     props.localScreenShareStream !== null &&
     hasLiveVideoTrack(props.localScreenShareStream);
+  
   const visibleRemoteScreenShares = Object.entries(props.remoteScreenShares).filter(([, stream]) =>
     hasLiveVideoTrack(stream),
   );
+  
   const hasScreenShares = hasLocalShare || visibleRemoteScreenShares.length > 0;
-  const remoteStreamCount = visibleRemoteScreenShares.length;
-  const totalStreamCount = remoteStreamCount + (hasLocalShare ? 1 : 0);
-  const connectedParticipantCount = props.participants.length;
-  const canEditBitrates = props.canEditChannelBitrate && !props.qualityBusy;
-  const localShareTitle =
-    props.localStreamSource === 'camera' ? 'You are sharing your camera' : 'You are sharing your screen';
+  const localShareTitle = props.localStreamSource === 'camera' ? 'Your Camera' : 'Your Screen';
 
   return (
     <section className="voice-panel">
       <header className="voice-panel-header">
-        <h2>Voice Channel: {props.channelName}</h2>
+        <h2>{props.channelName}</h2>
         <div className="voice-panel-header-actions">
           <button
-            className={props.isMuted ? 'ghost-btn small danger' : 'ghost-btn small'}
+            className={`voice-action-btn ${props.isMuted ? 'danger' : ''}`}
             disabled={!props.joined}
             onClick={props.onToggleMute}
           >
-            {props.isMuted ? 'Mic Muted' : 'Mic Live'}
+            {props.isMuted ? '🔇 Unmute' : '🎤 Mute'}
           </button>
           <button
-            className={props.joined ? 'ghost-btn danger' : 'ghost-btn'}
+            className={`voice-action-btn ${props.joined ? 'danger' : 'primary'}`}
             disabled={props.busy || !props.wsConnected}
-            onClick={() => {
-              if (props.joined) {
-                void props.onLeave();
-                return;
-              }
-              void props.onJoin();
-            }}
+            onClick={() => props.joined ? void props.onLeave() : void props.onJoin()}
           >
-            {props.busy ? 'Working...' : props.joined ? 'Leave Voice' : 'Join Voice'}
-          </button>
-          {props.joined ? (
-            <div className="voice-share-controls">
-              <button
-                className={props.localStreamSource === 'screen' ? 'ghost-btn danger small' : 'ghost-btn small'}
-                onClick={() => props.onToggleVideoShare('screen')}
-                disabled={props.busy || !props.wsConnected}
-                title="Share your screen"
-              >
-                {props.localStreamSource === 'screen' ? 'Stop Screen' : 'Share Screen'}
-              </button>
-              <button
-                className={props.localStreamSource === 'camera' ? 'ghost-btn danger small' : 'ghost-btn small'}
-                onClick={() => props.onToggleVideoShare('camera')}
-                disabled={props.busy || !props.wsConnected}
-                title="Share your camera"
-              >
-                {props.localStreamSource === 'camera' ? 'Stop Camera' : 'Share Camera'}
-              </button>
-            </div>
-          ) : null}
-          <button
-            className={props.showDetailedStats ? 'ghost-btn small active' : 'ghost-btn small'}
-            disabled={!props.joined}
-            onClick={props.onToggleDetailedStats}
-            title="Detailed connection statistics"
-          >
-            Detailed Statistics
-          </button>
-          <button
-            className={props.protectVoiceEnabled ? 'ghost-btn small active' : 'ghost-btn small'}
-            disabled={!props.joined}
-            onClick={props.onToggleProtectVoice}
-            title="Temporarily reduce video bitrate when network is stressed to protect voice clarity"
-          >
-            Protect Voice
+            {props.busy ? '⌛ ...' : props.joined ? '🚪 Leave' : '🔊 Join Voice'}
           </button>
         </div>
       </header>
 
-      <p className="setting-hint">
-        {props.joined
-          ? props.localAudioReady
-            ? props.isMuted
-              ? 'Connected. Your mic is muted.'
-              : 'Mic stream active. WebRTC peer transport is running.'
-            : 'Joining voice... requesting microphone access.'
-          : 'Join the channel to establish WebRTC voice transport.'}
-      </p>
-
-      <div className="voice-overview-chips" aria-live="polite">
+      <div className="voice-overview-chips">
         <span className={`voice-overview-chip ${props.wsConnected ? 'ok' : 'warn'}`}>
-          {props.wsConnected ? 'Realtime connected' : 'Realtime disconnected'}
+          {props.wsConnected ? '● Connected' : '○ Disconnected'}
         </span>
-        <span className={`voice-overview-chip ${props.joined ? 'ok' : ''}`}>
-          {props.joined ? 'In voice channel' : 'Not in voice'}
+        <span className="voice-overview-chip">
+          👥 {props.participants.length} Participants
         </span>
-        <span className={`voice-overview-chip ${props.isMuted ? 'warn' : 'ok'}`}>
-          {props.isMuted ? 'Mic muted' : 'Mic live'}
-        </span>
-        <span className="voice-overview-chip">Participants: {connectedParticipantCount}</span>
-        <span className="voice-overview-chip">Live streams: {totalStreamCount}</span>
-        <span
-          className={`voice-overview-chip ${props.protectVoiceEnabled ? (props.protectVoiceStatus === 'severe' ? 'warn' : 'ok') : ''}`}
+        {hasScreenShares && (
+          <span className="voice-overview-chip ok">
+            📡 {visibleRemoteScreenShares.length + (hasLocalShare ? 1 : 0)} Live
+          </span>
+        )}
+        <button 
+          className={`voice-overview-chip ${props.protectVoiceEnabled ? 'ok' : ''}`}
+          onClick={props.onToggleProtectVoice}
+          style={{ cursor: 'pointer' }}
         >
-          {props.protectVoiceEnabled
-            ? props.protectVoiceStatus === 'stable'
-              ? 'Protect Voice: On'
-              : props.protectVoiceStatus === 'mild'
-                ? 'Protect Voice: Mild'
-                : 'Protect Voice: Severe'
-            : 'Protect Voice: Off'}
-        </span>
+          🛡️ Protect Voice: {props.protectVoiceEnabled ? props.protectVoiceStatus.toUpperCase() : 'OFF'}
+        </button>
+        <button 
+          className={`voice-overview-chip ${props.showDetailedStats ? 'ok' : ''}`}
+          onClick={props.onToggleDetailedStats}
+          style={{ cursor: 'pointer' }}
+        >
+          📊 Stats
+        </button>
       </div>
 
-      {/* Quality Controls Section */}
-      {props.joined && (
-        <div className="voice-settings-grid">
-          <div className="voice-setting-col">
-            <label className="voice-quality-label">Voice Quality</label>
-            <DropdownSelect
-              options={VOICE_BITRATE_OPTIONS.map(formatVoiceBitrateOption)}
-              value={formatVoiceBitrateOption(props.voiceBitrateKbps)}
-              disabled={!canEditBitrates}
-              onChange={(val) => {
-                if (!canEditBitrates) {
-                  return;
-                }
-                const bitrate = parseInt(val.split(' ')[0], 10);
-                props.onVoiceBitrateChange(bitrate);
-              }}
-            />
-            {props.qualityBusy ? <small>Saving...</small> : <small>Channel-wide setting</small>}
-          </div>
-
-          <div className="voice-setting-col">
-            <label className="voice-quality-label">Stream Bitrate</label>
-            <DropdownSelect
-              options={STREAM_BITRATE_OPTIONS.map(formatStreamBitrateOption)}
-              value={formatStreamBitrateOption(props.streamBitrateKbps)}
-              disabled={!canEditBitrates}
-              onChange={(val) => {
-                if (!canEditBitrates) {
-                  return;
-                }
-                const bitrate = parseInt(val.split(' ')[0], 10);
-                props.onStreamBitrateChange(bitrate);
-              }}
-            />
-            {props.qualityBusy ? <small>Saving...</small> : <small>Channel-wide setting</small>}
-          </div>
-
-          <div className="voice-setting-col">
-            <label className="voice-quality-label">Live Stream Resolution</label>
-            <DropdownSelect
-              options={STREAM_QUALITY_OPTIONS}
-              value={props.streamQualityLabel}
-              disabled={!props.localScreenShareStream}
-              onChange={props.onStreamQualityChange}
-            />
-            <small>
-              {props.localScreenShareStream
-                ? props.localStreamSource === 'camera'
-                  ? 'Applies to your camera stream'
-                  : 'Applies to your screen stream'
-                : 'Start a stream to apply this preset'}
-            </small>
-          </div>
-        </div>
-      )}
-
-      {/* Screen & Camera Share Layout */}
       {hasScreenShares && (
-        <div className={`voice-screen-shares ${maximizedStreamId ? 'has-maximized' : 'grid-layout'}`}>
-          {hasLocalShare && props.localScreenShareStream ? (
+        <div className={`voice-screen-shares ${isCinemaMode ? 'cinema-mode' : maximizedStreamId ? 'has-maximized' : 'grid-layout'}`}>
+          {isCinemaMode && (
+            <button 
+              style={{
+                position: 'fixed',
+                top: '20px',
+                right: '20px',
+                zIndex: 101,
+                background: 'rgba(0,0,0,0.5)',
+                color: '#fff',
+                border: '1px solid rgba(255,255,255,0.2)',
+                padding: '8px 12px',
+                borderRadius: '8px',
+                cursor: 'pointer'
+              }}
+              onClick={() => setIsCinemaMode(false)}
+            >
+              ✕ Exit Cinema Mode
+            </button>
+          )}
+          {hasLocalShare && props.localScreenShareStream && (
             <ScreenShareItem
               stream={props.localScreenShareStream}
               label={localShareTitle}
               isMaximized={maximizedStreamId === 'local'}
               onMaximize={() => setMaximizedStreamId(maximizedStreamId === 'local' ? null : 'local')}
+              onCinema={() => {
+                setMaximizedStreamId('local');
+                setIsCinemaMode(true);
+              }}
             />
-          ) : null}
+          )}
           {visibleRemoteScreenShares.map(([userId, stream]) => {
             const participant = props.participants.find((p) => p.userId === userId);
-            const name = participant?.username ?? 'Unknown';
             return (
               <ScreenShareItem
                 key={userId}
                 stream={stream}
-                label={`${name}'s Stream`}
+                label={`${participant?.username ?? 'Unknown'}'s Stream`}
                 isMaximized={maximizedStreamId === userId}
                 onMaximize={() => setMaximizedStreamId(maximizedStreamId === userId ? null : userId)}
+                onCinema={() => {
+                  setMaximizedStreamId(userId);
+                  setIsCinemaMode(true);
+                }}
               />
             );
           })}
         </div>
       )}
 
-      {props.joined && !hasScreenShares ? (
+      {props.joined && !hasScreenShares && (
         <div className="voice-stream-empty-state">
-          <strong>No live stream yet</strong>
-          <p>Start sharing your screen or camera so others can watch a preview.</p>
-          <div className="voice-stream-empty-actions">
-            <button
-              className="ghost-btn small"
-              onClick={() => props.onToggleVideoShare('screen')}
-              disabled={props.busy || !props.wsConnected}
-            >
-              Share Screen
+          <div className="voice-stream-empty-icon">📺</div>
+          <strong>No one is streaming</strong>
+          <p>Share your screen or camera to start a live broadcast in this channel.</p>
+          <div className="voice-panel-header-actions" style={{ justifyContent: 'center' }}>
+            <button className="voice-action-btn" onClick={() => props.onToggleVideoShare('screen')}>
+              🖥️ Share Screen
             </button>
-            <button
-              className="ghost-btn small"
-              onClick={() => props.onToggleVideoShare('camera')}
-              disabled={props.busy || !props.wsConnected}
-            >
-              Share Camera
+            <button className="voice-action-btn" onClick={() => props.onToggleVideoShare('camera')}>
+              📷 Share Camera
             </button>
           </div>
         </div>
-      ) : null}
+      )}
 
-      {props.showDetailedStats ? (
-        <section className="voice-detailed-stats">
-          <header className="voice-detailed-stats-header">
-            <strong>Detailed Connection Statistics</strong>
-            <small>
-              {props.statsUpdatedAt
-                ? `Updated ${new Date(props.statsUpdatedAt).toLocaleTimeString()}`
-                : 'Waiting for samples...'}
-            </small>
-          </header>
-          {props.connectionStats.length === 0 ? (
-            <p className="muted">No active peer connection stats yet.</p>
-          ) : (
-            <div className="voice-detailed-stats-grid">
-              {props.connectionStats.map((stats) => (
-                <article key={stats.userId} className="voice-detailed-stat-card">
-                  <header>
-                    <strong>{stats.username}</strong>
-                    <small>
-                      {stats.connectionState} • {stats.iceConnectionState} • {stats.signalingState}
-                    </small>
-                  </header>
-                  <div className="voice-detailed-metrics">
-                    <div>
-                      <label>RTT</label>
-                      <span>{formatMetric(stats.currentRttMs, 1)} ms</span>
-                    </div>
-                    <div>
-                      <label>Available Out</label>
-                      <span>{formatMetric(stats.availableOutgoingBitrateKbps, 1)} kbps</span>
-                    </div>
-                    <div>
-                      <label>Local Candidate</label>
-                      <span>{stats.localCandidateType ?? '--'}</span>
-                    </div>
-                    <div>
-                      <label>Remote Candidate</label>
-                      <span>{stats.remoteCandidateType ?? '--'}</span>
-                    </div>
-                    <div>
-                      <label>Outbound Audio</label>
-                      <span>{formatMetric(stats.outboundAudio.bitrateKbps, 1)} kbps</span>
-                    </div>
-                    <div>
-                      <label>Inbound Audio</label>
-                      <span>{formatMetric(stats.inboundAudio.bitrateKbps, 1)} kbps</span>
-                    </div>
-                    <div>
-                      <label>Inbound Audio Loss</label>
-                      <span>{formatMetric(stats.inboundAudio.packetsLost, 0)}</span>
-                    </div>
-                    <div>
-                      <label>Inbound Audio Jitter</label>
-                      <span>{formatMetric(stats.inboundAudio.jitterMs, 2)} ms</span>
-                    </div>
-                    <div>
-                      <label>Outbound Video</label>
-                      <span>{formatMetric(stats.outboundVideo.bitrateKbps, 1)} kbps</span>
-                    </div>
-                    <div>
-                      <label>Inbound Video</label>
-                      <span>{formatMetric(stats.inboundVideo.bitrateKbps, 1)} kbps</span>
-                    </div>
-                    <div>
-                      <label>Inbound Video FPS</label>
-                      <span>{formatMetric(stats.inboundVideo.framesPerSecond, 1)}</span>
-                    </div>
-                    <div>
-                      <label>Inbound Video Size</label>
-                      <span>
-                        {stats.inboundVideo.frameWidth && stats.inboundVideo.frameHeight
-                          ? `${formatMetric(stats.inboundVideo.frameWidth, 0)}x${formatMetric(stats.inboundVideo.frameHeight, 0)}`
-                          : '--'}
-                      </span>
-                    </div>
-                  </div>
-                </article>
-              ))}
-            </div>
-          )}
-        </section>
-      ) : null}
+      {props.joined && (
+        <div className="voice-settings-grid">
+          <div className="voice-setting-col">
+            <label className="voice-quality-label">Voice Bitrate</label>
+            <DropdownSelect
+              options={VOICE_BITRATE_OPTIONS.map(formatVoiceBitrateOption)}
+              value={formatVoiceBitrateOption(props.voiceBitrateKbps)}
+              disabled={!props.canEditChannelBitrate || props.qualityBusy}
+              onChange={(val) => props.onVoiceBitrateChange(parseInt(val, 10))}
+            />
+          </div>
+          <div className="voice-setting-col">
+            <label className="voice-quality-label">Stream Bitrate</label>
+            <DropdownSelect
+              options={STREAM_BITRATE_OPTIONS.map(formatStreamBitrateOption)}
+              value={formatStreamBitrateOption(props.streamBitrateKbps)}
+              disabled={!props.canEditChannelBitrate || props.qualityBusy}
+              onChange={(val) => props.onStreamBitrateChange(parseInt(val, 10))}
+            />
+          </div>
+          <div className="voice-setting-col">
+            <label className="voice-quality-label">Resolution Preset</label>
+            <DropdownSelect
+              options={STREAM_QUALITY_OPTIONS}
+              value={props.streamQualityLabel}
+              disabled={!props.localScreenShareStream}
+              onChange={props.onStreamQualityChange}
+            />
+          </div>
+        </div>
+      )}
 
       <div className="voice-participant-list">
-        {props.participants.length === 0 ? <p className="muted">No one in this voice channel yet.</p> : null}
         {props.participants.map((participant) => {
           const isSelf = participant.userId === props.currentUserId;
-          const hasAudio = props.remoteAudioUsers.some((user) => user.userId === participant.userId);
           const isSpeaking = props.showVoiceActivity && speakingSet.has(participant.userId);
-          const localAudioState = !isSelf ? props.getParticipantAudioState?.(participant.userId) : null;
           const avatarUrl = resolveMediaUrl(participant.avatarUrl);
-          const remoteVoiceState = participant.deafened
-            ? 'Deafened'
-            : participant.muted
-              ? 'Muted'
-              : hasAudio
-                ? isSpeaking
-                  ? 'Speaking'
-                  : 'Audio Connected'
-                : 'Signaling';
+          const audioState = !isSelf ? props.getParticipantAudioState?.(participant.userId) : null;
+          const stats = props.connectionStats.find(s => s.userId === participant.userId);
+          const rtt = stats?.currentRttMs;
+          const connState = stats?.connectionState || 'new';
+          
+          let signalIcon = '📶';
+          let signalClass = 'good';
+          if (rtt !== undefined && rtt !== null) {
+            if (rtt > 300) { signalIcon = '📶'; signalClass = 'bad'; }
+            else if (rtt > 150) { signalIcon = '📶'; signalClass = 'fair'; }
+          }
+
+          let displayStatus = participant.deafened ? 'Deafened' : participant.muted ? 'Muted' : isSpeaking ? 'Speaking' : 'Connected';
+          if (props.joined && !isSelf) {
+            if (connState === 'connecting' || connState === 'checking') displayStatus = 'Connecting...';
+            else if (connState === 'reconnecting' || connState === 'disconnected') displayStatus = 'Reconnecting...';
+            else if (connState === 'failed') displayStatus = 'Connection Failed';
+          }
+
           return (
             <div
               key={participant.userId}
-              className={`voice-participant-item ${isSpeaking ? 'speaking' : ''}`}
-              onContextMenu={(event) => {
-                if (!props.onParticipantContextMenu) {
-                  return;
-                }
-                event.preventDefault();
-                props.onParticipantContextMenu(participant, {
-                  x: event.clientX,
-                  y: event.clientY,
-                });
+              className={`voice-participant-item ${isSpeaking ? 'speaking' : ''} ${connState !== 'connected' && connState !== 'new' && props.joined && !isSelf ? 'reconnecting' : ''}`}
+              onContextMenu={(e) => {
+                e.preventDefault();
+                props.onParticipantContextMenu?.(participant, { x: e.clientX, y: e.clientY });
               }}
-              onTouchStart={(event) => {
-                if (!props.onParticipantContextMenu) {
-                  return;
-                }
-                const touch = event.touches[0];
-                if (!touch) {
-                  return;
-                }
-                clearLongPress();
-                longPressTimeoutRef.current = window.setTimeout(() => {
-                  props.onParticipantContextMenu?.(participant, {
-                    x: touch.clientX,
-                    y: touch.clientY,
-                  });
-                }, 440);
-              }}
-              onTouchEnd={clearLongPress}
-              onTouchCancel={clearLongPress}
-              onTouchMove={clearLongPress}
             >
-              <div className="voice-participant-main">
-                <div
-                  className="voice-participant-avatar"
-                  style={{
-                    backgroundColor: avatarUrl ? 'transparent' : stringToColor(participant.username),
-                  }}
-                >
-                  {avatarUrl ? (
-                    <img crossOrigin="anonymous" src={avatarUrl} alt={participant.username} />
-                  ) : (
-                    participant.username.slice(0, 1).toUpperCase()
-                  )}
+              <div style={{ display: 'flex', alignItems: 'center', minWidth: 0 }}>
+                <div className="voice-participant-avatar-wrap">
+                  <div
+                    className="voice-participant-avatar"
+                    style={{
+                      backgroundColor: avatarUrl ? 'transparent' : stringToColor(participant.username),
+                      backgroundImage: avatarUrl ? `url(${avatarUrl})` : 'none'
+                    }}
+                  >
+                    {!avatarUrl && participant.username[0].toUpperCase()}
+                  </div>
                 </div>
-                <span>
-                  {participant.username}
-                  {props.showVoiceActivity ? (
-                    <em className={`voice-speaking-dot ${isSpeaking ? 'active' : ''}`} aria-hidden="true" />
-                  ) : null}
-                </span>
+                <div className="voice-participant-info">
+                  <div className="voice-participant-name">
+                    {participant.username} {isSelf && '(You)'}
+                  </div>
+                  <div className="voice-participant-status">
+                    {displayStatus}
+                    {audioState && ` • ${audioState.volume}%`}
+                  </div>
+                </div>
               </div>
-              <small>
-                {isSelf
-                  ? props.joined
-                    ? props.localAudioReady
-                      ? props.isMuted
-                        ? 'You (Muted)'
-                        : isSpeaking
-                          ? 'You (Speaking)'
-                          : 'You (Mic Active)'
-                      : 'You (Connecting)'
-                    : 'You'
-                  : remoteVoiceState}
-                {!isSelf && localAudioState
-                  ? localAudioState.muted
-                    ? ' • Muted locally'
-                    : ` • ${localAudioState.volume}%`
-                  : ''}
-              </small>
+              <div className="voice-participant-icons">
+                <span 
+                  className={`voice-status-icon signal ${signalClass}`} 
+                  title={rtt !== undefined && rtt !== null ? `Ping: ${Math.round(rtt)}ms` : 'Signal details unavailable'}
+                >
+                  {signalIcon}
+                </span>
+                {participant.muted && <span className="voice-status-icon muted">🔇</span>}
+                {participant.deafened && <span className="voice-status-icon deafened">🎧</span>}
+              </div>
             </div>
           );
         })}
       </div>
+
+      {props.showDetailedStats && (
+        <section className="voice-detailed-stats">
+          <header className="voice-detailed-stats-header">
+            <strong>Connection Analytics</strong>
+            <small>{props.statsUpdatedAt ? `Last update: ${new Date(props.statsUpdatedAt).toLocaleTimeString()}` : 'Waiting...'}</small>
+          </header>
+          <div className="voice-detailed-stats-grid">
+            {props.connectionStats.map((stats) => (
+              <article key={stats.userId} className="voice-detailed-stat-card">
+                <header>
+                  <strong>{stats.username}</strong>
+                  <small>{stats.connectionState} • {stats.iceConnectionState}</small>
+                </header>
+                <div className="voice-detailed-metrics">
+                  <div className="voice-metric-item">
+                    <label>Latency (RTT)</label>
+                    <span>{formatMetric(stats.currentRttMs)} ms</span>
+                  </div>
+                  <div className="voice-metric-item">
+                    <label>Bitrate Out</label>
+                    <span>{formatMetric(stats.availableOutgoingBitrateKbps)} kbps</span>
+                  </div>
+                  <div className="voice-metric-item">
+                    <label>Audio In/Out</label>
+                    <span>{formatMetric(stats.inboundAudio.bitrateKbps)} / {formatMetric(stats.outboundAudio.bitrateKbps)} kbps</span>
+                  </div>
+                  <div className="voice-metric-item">
+                    <label>Video In/Out</label>
+                    <span>{formatMetric(stats.inboundVideo.bitrateKbps)} / {formatMetric(stats.outboundVideo.bitrateKbps)} kbps</span>
+                  </div>
+                  <div className="voice-metric-item">
+                    <label>Video Resolution</label>
+                    <span>{stats.inboundVideo.frameWidth ? `${stats.inboundVideo.frameWidth}x${stats.inboundVideo.frameHeight}` : '--'}</span>
+                  </div>
+                  <div className="voice-metric-item">
+                    <label>Packet Loss</label>
+                    <span>{formatMetric(stats.inboundAudio.packetsLost, 0)}</span>
+                  </div>
+                </div>
+              </article>
+            ))}
+          </div>
+        </section>
+      )}
     </section>
   );
 }
