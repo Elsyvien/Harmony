@@ -2743,6 +2743,41 @@ export function ChatPage() {
   }, [refreshMicrophonePermission, enumerateAudioInputDevices]);
 
   useEffect(() => {
+    if (audioContextsUnlockedRef.current) {
+      return;
+    }
+
+    let removed = false;
+    const removeListeners = () => {
+      if (removed) {
+        return;
+      }
+      removed = true;
+      window.removeEventListener('pointerdown', onUserGestureUnlock);
+      window.removeEventListener('keydown', onUserGestureUnlock);
+      window.removeEventListener('touchstart', onUserGestureUnlock);
+    };
+    const onUserGestureUnlock = () => {
+      void unlockAudioContexts()
+        .catch(() => {
+          // Keep listeners active. Next gesture can retry unlock.
+        })
+        .finally(() => {
+          if (audioContextsUnlockedRef.current) {
+            removeListeners();
+          }
+        });
+    };
+
+    window.addEventListener('pointerdown', onUserGestureUnlock);
+    window.addEventListener('keydown', onUserGestureUnlock);
+    window.addEventListener('touchstart', onUserGestureUnlock, { passive: true });
+    return () => {
+      removeListeners();
+    };
+  }, [unlockAudioContexts]);
+
+  useEffect(() => {
     if (!preferences.voiceInputDeviceId) {
       return;
     }
