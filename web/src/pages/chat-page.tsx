@@ -66,6 +66,11 @@ const CAMERA_MAX_CAPTURE_CONSTRAINTS = {
   frameRate: 30,
 } as const;
 
+const REMOTE_VIDEO_PLAYOUT_DELAY_HINT_SECONDS = 0.35;
+const REMOTE_VIDEO_JITTER_BUFFER_TARGET_MS = 300;
+const REMOTE_AUDIO_PLAYOUT_DELAY_HINT_SECONDS = 0.2;
+const REMOTE_AUDIO_JITTER_BUFFER_TARGET_MS = 180;
+
 const CAMERA_FALLBACK_QUALITY_LABELS = [
   '1080p 30fps',
   '720p 30fps',
@@ -1245,16 +1250,27 @@ export function ChatPage() {
           (window as typeof window & { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
         if (AudioContextClass) {
           const gainContext = new AudioContextClass();
-          const source = gainContext.createMediaStreamSource(rawStream);
-          const gainNode = gainContext.createGain();
-          gainNode.gain.value = voiceInputGainRef.current / 100;
-          const destination = gainContext.createMediaStreamDestination();
-          source.connect(gainNode);
-          gainNode.connect(destination);
-          localVoiceGainContextRef.current = gainContext;
-          localVoiceGainNodeRef.current = gainNode;
-          localVoiceProcessedStreamRef.current = destination.stream;
-          processedStream = destination.stream;
+          if (gainContext.state === 'suspended') {
+            try {
+              await gainContext.resume();
+            } catch {
+              // Some browsers only allow resume from a direct user gesture.
+            }
+          }
+          if (gainContext.state === 'running') {
+            const source = gainContext.createMediaStreamSource(rawStream);
+            const gainNode = gainContext.createGain();
+            gainNode.gain.value = voiceInputGainRef.current / 100;
+            const destination = gainContext.createMediaStreamDestination();
+            source.connect(gainNode);
+            gainNode.connect(destination);
+            localVoiceGainContextRef.current = gainContext;
+            localVoiceGainNodeRef.current = gainNode;
+            localVoiceProcessedStreamRef.current = destination.stream;
+            processedStream = destination.stream;
+          } else {
+            void gainContext.close();
+          }
         }
       } catch {
         processedStream = rawStream;
@@ -1350,19 +1366,72 @@ export function ChatPage() {
     [],
   );
 
-  const getOrCreateVideoSender = useCallback((connection: RTCPeerConnection) => {
-    const fromVideoTransceiver = connection
-      .getTransceivers()
-      .find((transceiver) => transceiver.receiver.track?.kind === 'video')
-      ?.sender;
-    if (fromVideoTransceiver) {
-      return fromVideoTransceiver;
-    }
+  const applyReceiverBuffering = useCallback(
+    (receiver: RTCRtpReceiver | null | undefined, kind: 'audio' | 'video') => {
+      if (!receiver) {
+        return;
+      }
+      const bufferedReceiver = receiver as RTCRtpReceiver & {
+        playoutDelayHint?: number;
+        jitterBufferTarget?: number;
+      };
+      const playoutDelayHintSeconds =
+        kind === 'video'
+          ? REMOTE_VIDEO_PLAYOUT_DELAY_HINT_SECONDS
+          : REMOTE_AUDIO_PLAYOUT_DELAY_HINT_SECONDS;
+      const jitterBufferTargetMs =
+        kind === 'video' ? REMOTE_VIDEO_JITTER_BUFFER_TARGET_MS : REMOTE_AUDIO_JITTER_BUFFER_TARGET_MS;
 
+      if ('playoutDelayHint' in bufferedReceiver) {
+        try {
+          bufferedReceiver.playoutDelayHint = playoutDelayHintSeconds;
+        } catch {
+          // Browser can reject runtime tuning on some builds.
+        }
+      }
+      if ('jitterBufferTarget' in bufferedReceiver) {
+        try {
+          bufferedReceiver.jitterBufferTarget = jitterBufferTargetMs;
+        } catch {
+          // Browser can reject runtime tuning on some builds.
+        }
+      }
+    },
+    [],
+  );
+
+  const applyConnectionReceiverBuffering = useCallback(
+    (connection: RTCPeerConnection) => {
+      for (const receiver of connection.getReceivers()) {
+        const kind = receiver.track?.kind;
+        if (kind !== 'audio' && kind !== 'video') {
+          continue;
+        }
+        applyReceiverBuffering(receiver, kind);
+      }
+    },
+    [applyReceiverBuffering],
+  );
+
+  const getOrCreateVideoSender = useCallback((connection: RTCPeerConnection) => {
     const existingVideoSender =
       connection.getSenders().find((candidate) => candidate.track?.kind === 'video') ?? null;
     if (existingVideoSender) {
       return existingVideoSender;
+    }
+
+    const sendCapableVideoTransceiver = connection.getTransceivers().find((transceiver) => {
+      const direction = transceiver.currentDirection ?? transceiver.direction;
+      if (direction !== 'sendrecv' && direction !== 'sendonly') {
+        return false;
+      }
+      return (
+        transceiver.sender.track?.kind === 'video' ||
+        transceiver.receiver.track?.kind === 'video'
+      );
+    });
+    if (sendCapableVideoTransceiver) {
+      return sendCapableVideoTransceiver.sender;
     }
 
     return connection.addTransceiver('video', { direction: 'sendrecv' }).sender;
@@ -1395,6 +1464,7 @@ export function ChatPage() {
       const connection = new RTCPeerConnection({
         ...voiceIceConfig,
       });
+      applyConnectionReceiverBuffering(connection);
       logVoiceDebug('peer_connection_create', {
         peerUserId,
         channelId,
@@ -1434,6 +1504,7 @@ export function ChatPage() {
       } satisfies VoiceSignalData);
 
       connection.ontrack = (event) => {
+        applyReceiverBuffering(event.receiver, event.track.kind === 'video' ? 'video' : 'audio');
         const streamFromTrack = event.streams[0] ?? new MediaStream([event.track]);
         if (event.track.kind === 'audio') {
           setRemoteAudioStreams((prev) => ({
@@ -1485,6 +1556,12 @@ export function ChatPage() {
           return;
         }
         pendingVideoRenegotiationByPeerRef.current.delete(peerUserId);
+        if (!auth.user || !shouldInitiateOffer(auth.user.id, peerUserId)) {
+          sendVoiceSignalRef.current(activeChannelId, peerUserId, {
+            kind: 'renegotiate',
+          } satisfies VoiceSignalData);
+          return;
+        }
         void createOfferForPeerRef.current(peerUserId, activeChannelId);
       };
 
@@ -1552,6 +1629,8 @@ export function ChatPage() {
       getLocalVoiceStream,
       activeVoiceBitrateKbps,
       activeStreamBitrateKbps,
+      applyConnectionReceiverBuffering,
+      applyReceiverBuffering,
       getOrCreateVideoSender,
       localStreamSource,
       voiceIceConfig,
@@ -1602,6 +1681,22 @@ export function ChatPage() {
       }
     },
     [auth.user, ensurePeerConnection],
+  );
+
+  const requestVideoRenegotiationForPeer = useCallback(
+    (peerUserId: string, channelId: string) => {
+      if (!auth.user) {
+        return;
+      }
+      if (shouldInitiateOffer(auth.user.id, peerUserId)) {
+        void createOfferForPeer(peerUserId, channelId);
+        return;
+      }
+      sendVoiceSignalRef.current(channelId, peerUserId, {
+        kind: 'renegotiate',
+      } satisfies VoiceSignalData);
+    },
+    [auth.user, createOfferForPeer],
   );
 
   const canProcessVoiceSignalsForChannel = useCallback((channelId: string) => {
@@ -1708,6 +1803,7 @@ export function ChatPage() {
           }
           return;
         }
+        applyConnectionReceiverBuffering(connection);
         await flushPendingIceCandidates(payload.fromUserId, connection);
         const answer = await connection.createAnswer();
         await connection.setLocalDescription(answer);
@@ -1743,9 +1839,16 @@ export function ChatPage() {
         }
         return;
       }
+      applyConnectionReceiverBuffering(connection);
       await flushPendingIceCandidates(payload.fromUserId, connection);
     },
-    [auth.user, closePeerConnection, ensurePeerConnection, flushPendingIceCandidates],
+    [
+      auth.user,
+      applyConnectionReceiverBuffering,
+      closePeerConnection,
+      ensurePeerConnection,
+      flushPendingIceCandidates,
+    ],
   );
 
   const drainQueuedVoiceSignals = useCallback(async () => {
@@ -2518,14 +2621,15 @@ export function ChatPage() {
       setLocalScreenShareStream(null);
       setLocalStreamSource(null);
 
-      if (!renegotiatePeers || !activeVoiceChannelIdRef.current) {
+      const activeChannelId = activeVoiceChannelIdRef.current;
+      if (!renegotiatePeers || !activeChannelId) {
         return;
       }
       for (const peerUserId of peerConnectionsRef.current.keys()) {
-        void createOfferForPeer(peerUserId, activeVoiceChannelIdRef.current);
+        requestVideoRenegotiationForPeer(peerUserId, activeChannelId);
       }
     },
-    [createOfferForPeer],
+    [requestVideoRenegotiationForPeer],
   );
 
   const toggleVideoShare = useCallback(
@@ -2618,7 +2722,7 @@ export function ChatPage() {
             kind: 'video-source',
             source,
           } satisfies VoiceSignalData);
-          void createOfferForPeer(peerUserId, currentVoiceChannelId);
+          requestVideoRenegotiationForPeer(peerUserId, currentVoiceChannelId);
         }
       } catch (err) {
         trackTelemetryError('video_share_start_failed', err, {
@@ -2639,7 +2743,7 @@ export function ChatPage() {
       showStreamStatusBanner,
       applyVideoBitrateToConnection,
       activeStreamBitrateKbps,
-      createOfferForPeer,
+      requestVideoRenegotiationForPeer,
       getOrCreateVideoSender,
     ],
   );
@@ -3586,6 +3690,11 @@ export function ChatPage() {
                 localAudio.muted ||
                 preferences.voiceOutputVolume <= 0 ||
                 localAudio.volume <= 0;
+              if (!node.muted) {
+                void node.play().catch(() => {
+                  // Best effort for browsers that need an explicit playback call after stream updates.
+                });
+              }
             }}
           />
         ))}
