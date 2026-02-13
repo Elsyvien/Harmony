@@ -511,6 +511,7 @@ export function ChatPage() {
   const remoteSpeakingLastSpokeAtByUserRef = useRef<Map<string, number>>(new Map());
   const localVoiceInputDeviceIdRef = useRef<string | null>(null);
   const peerConnectionsRef = useRef<Map<string, RTCPeerConnection>>(new Map());
+  const peerSignalingQueueRef = useRef<Map<string, Promise<void>>>(new Map());
   const videoSenderByPeerRef = useRef<Map<string, RTCRtpSender>>(new Map());
   const pendingVideoRenegotiationByPeerRef = useRef<Set<string>>(new Set());
   const makingOfferByPeerRef = useRef<Map<string, boolean>>(new Map());
@@ -2199,7 +2200,10 @@ export function ChatPage() {
         return;
       }
 
-      const signal = payload.data;
+      const currentQueue = peerSignalingQueueRef.current.get(payload.fromUserId) ?? Promise.resolve();
+      const nextQueue = currentQueue
+        .then(async () => {
+          const signal = payload.data;
       if (signal.kind === 'stream-snapshot-request') {
         sendStreamSnapshotToPeer(payload.channelId, payload.fromUserId);
         return;
@@ -2408,14 +2412,16 @@ export function ChatPage() {
              return;
           }
 
-          const answer = await connection.createAnswer();
-          if (connection.signalingState !== 'have-remote-offer') {
+          // Modern atomic answer creation & setting
+          await connection.setLocalDescription(); 
+          
+          if (!connection.localDescription) {
              return;
           }
-          await connection.setLocalDescription(answer);
+
           sendVoiceSignalRef.current(payload.channelId, payload.fromUserId, {
             kind: 'answer',
-            sdp: answer,
+            sdp: connection.localDescription,
           } satisfies VoiceSignalData);
         } catch (err) {
           trackTelemetryError('voice_signal_offer_processing_failed', err, {
@@ -2462,22 +2468,31 @@ export function ChatPage() {
       }
       applyConnectionReceiverBuffering(connection);
       await flushPendingIceCandidates(payload.fromUserId, connection);
-    },
-    [
-      auth.user,
-      applyConnectionReceiverBuffering,
-      applyVideoBitrateToConnection,
-      closePeerConnection,
-      effectiveStreamBitrateKbps,
-      ensurePeerConnection,
-      flushPendingIceCandidates,
-      getLocalVideoSourceSnapshot,
-      getOrCreateVideoSender,
-      localStreamSource,
-      requestVideoRenegotiationForPeer,
-      sendStreamSnapshotToPeer,
-    ],
-  );
+    })
+    .catch((err) => {
+      trackTelemetryError('voice_signal_queue_processing_failed', err, {
+        fromUserId: payload.fromUserId,
+        channelId: payload.channelId,
+      });
+    });
+
+  peerSignalingQueueRef.current.set(payload.fromUserId, nextQueue);
+},
+[
+  auth.user,
+  applyConnectionReceiverBuffering,
+  applyVideoBitrateToConnection,
+  closePeerConnection,
+  effectiveStreamBitrateKbps,
+  ensurePeerConnection,
+  flushPendingIceCandidates,
+  getLocalVideoSourceSnapshot,
+  getOrCreateVideoSender,
+  localStreamSource,
+  requestVideoRenegotiationForPeer,
+  sendStreamSnapshotToPeer,
+],
+);
 
   const drainQueuedVoiceSignals = useCallback(async () => {
     if (drainingVoiceSignalsRef.current || !auth.user) {
