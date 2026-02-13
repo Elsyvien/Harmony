@@ -1923,6 +1923,21 @@ export function ChatPage() {
     [auth.user, createOfferForPeer],
   );
 
+  const syncLocalVideoSourceToPeers = useCallback(
+    (channelId: string, targetPeerUserIds: string[]) => {
+      if (targetPeerUserIds.length === 0) {
+        return;
+      }
+      for (const peerUserId of targetPeerUserIds) {
+        sendVoiceSignalRef.current(channelId, peerUserId, {
+          kind: 'video-source',
+          source: localStreamSource,
+        } satisfies VoiceSignalData);
+      }
+    },
+    [localStreamSource],
+  );
+
   const canProcessVoiceSignalsForChannel = useCallback((channelId: string) => {
     const activeVoiceChannelId = activeVoiceChannelIdRef.current;
     const busyVoiceChannelId = voiceBusyChannelIdRef.current;
@@ -2440,6 +2455,33 @@ export function ChatPage() {
     }
     ws.sendVoiceSelfState(activeVoiceChannelId, desiredMuted, desiredDeafened);
   }, [ws, auth.user, activeVoiceChannelId, voiceParticipantsByChannel, isSelfMuted, isSelfDeafened]);
+
+  useEffect(() => {
+    if (!ws.connected || !auth.user || !activeVoiceChannelId || !localStreamSource) {
+      return;
+    }
+    const participants = voiceParticipantsByChannel[activeVoiceChannelId] ?? [];
+    const targetPeerUserIds = participants
+      .map((participant) => participant.userId)
+      .filter((userId) => userId !== auth.user?.id);
+    if (targetPeerUserIds.length === 0) {
+      return;
+    }
+    syncLocalVideoSourceToPeers(activeVoiceChannelId, targetPeerUserIds);
+    const intervalId = window.setInterval(() => {
+      syncLocalVideoSourceToPeers(activeVoiceChannelId, targetPeerUserIds);
+    }, 2500);
+    return () => {
+      window.clearInterval(intervalId);
+    };
+  }, [
+    ws.connected,
+    auth.user,
+    activeVoiceChannelId,
+    voiceParticipantsByChannel,
+    localStreamSource,
+    syncLocalVideoSourceToPeers,
+  ]);
 
   useEffect(() => {
     sendVoiceSignalRef.current = ws.sendVoiceSignal;
