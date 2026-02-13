@@ -970,10 +970,11 @@ export function ChatPage() {
     if (!preferences.playMessageSound) {
       return;
     }
+    if (!audioContextsUnlockedRef.current) {
+      return;
+    }
     try {
-      const AudioContextClass =
-        window.AudioContext ||
-        (window as typeof window & { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
+      const AudioContextClass = resolveAudioContextClass();
       if (!AudioContextClass) {
         return;
       }
@@ -998,10 +999,11 @@ export function ChatPage() {
   }, [preferences.playMessageSound]);
 
   const playVoiceStateSound = useCallback((kind: 'join' | 'leave') => {
+    if (!audioContextsUnlockedRef.current) {
+      return;
+    }
     try {
-      const AudioContextClass =
-        window.AudioContext ||
-        (window as typeof window & { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
+      const AudioContextClass = resolveAudioContextClass();
       if (!AudioContextClass) {
         return;
       }
@@ -1245,12 +1247,13 @@ export function ChatPage() {
   }, []);
 
   const ensureRemoteAudioContext = useCallback(() => {
+    if (!audioContextsUnlockedRef.current) {
+      return null;
+    }
     if (remoteAudioContextRef.current && remoteAudioContextRef.current.state !== 'closed') {
       return remoteAudioContextRef.current;
     }
-    const AudioContextClass =
-      window.AudioContext ||
-      (window as typeof window & { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
+    const AudioContextClass = resolveAudioContextClass();
     if (!AudioContextClass) {
       return null;
     }
@@ -1260,12 +1263,13 @@ export function ChatPage() {
   }, []);
 
   const ensureRemoteSpeakingContext = useCallback(() => {
+    if (!audioContextsUnlockedRef.current) {
+      return null;
+    }
     if (remoteSpeakingContextRef.current && remoteSpeakingContextRef.current.state !== 'closed') {
       return remoteSpeakingContextRef.current;
     }
-    const AudioContextClass =
-      window.AudioContext ||
-      (window as typeof window & { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
+    const AudioContextClass = resolveAudioContextClass();
     if (!AudioContextClass) {
       return null;
     }
@@ -1305,12 +1309,6 @@ export function ChatPage() {
       if (!context) {
         element.volume = clampMediaElementVolume(gainValue);
         return false;
-      }
-
-      if (context.state === 'suspended') {
-        void context.resume().catch(() => {
-          // Best effort. User interaction will resume later.
-        });
       }
 
       const previousElement = remoteAudioElementByUserRef.current.get(userId);
@@ -1488,12 +1486,10 @@ export function ChatPage() {
 
       let processedStream = rawStream;
       try {
-        const AudioContextClass =
-          window.AudioContext ||
-          (window as typeof window & { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
+        const AudioContextClass = resolveAudioContextClass();
         if (AudioContextClass) {
           const gainContext = new AudioContextClass();
-          if (gainContext.state === 'suspended') {
+          if (audioContextsUnlockedRef.current && gainContext.state === 'suspended') {
             try {
               await gainContext.resume();
             } catch {
@@ -3192,7 +3188,7 @@ export function ChatPage() {
     if (!context) {
       return;
     }
-    if (context.state === 'suspended') {
+    if (audioContextsUnlockedRef.current && context.state === 'suspended') {
       void context.resume().catch(() => {
         // Best effort. A user gesture will resume later if needed.
       });
