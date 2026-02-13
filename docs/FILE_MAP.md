@@ -25,6 +25,7 @@ Scope:
 - `backend/package.json` - backend package scripts and dependencies.
 - `backend/tsconfig.json` - backend TypeScript compiler configuration.
 - `backend/prisma.config.ts` - Prisma config including seed command mapping.
+- `backend/scripts/run-prisma.mjs` - Prisma runner script.
 
 ## Backend Prisma
 
@@ -59,6 +60,8 @@ Scope:
 - `backend/src/routes/channel.routes.ts` - channel, upload, message, reaction, and DM open endpoints.
 - `backend/src/routes/friend.routes.ts` - friend list/request lifecycle endpoints.
 - `backend/src/routes/admin.routes.ts` - admin stats/settings/user management endpoints.
+- `backend/src/routes/user.routes.ts` - user profile and avatar endpoints.
+- `backend/src/routes/guards.ts` - route guard middleware.
 
 ## Backend Schemas
 
@@ -75,6 +78,7 @@ Scope:
 - `backend/src/services/admin.service.ts` - runtime stats aggregation.
 - `backend/src/services/admin-settings.service.ts` - persistent runtime settings and slow-mode timing state.
 - `backend/src/services/admin-user.service.ts` - role-aware user management operations.
+- `backend/src/services/user.service.ts` - user profile and avatar business logic.
 
 ## Backend Types And Utils
 
@@ -90,6 +94,8 @@ Scope:
 - `backend/tests/channel.service.test.ts` - channel deletion and voice bitrate rule tests.
 - `backend/tests/friend.service.test.ts` - friendship workflow tests.
 - `backend/tests/message.service.test.ts` - message and reaction service tests.
+- `backend/tests/user.routes.avatar.test.ts` - user routes avatar tests.
+- `backend/tests/user.service.avatar.test.ts` - user service avatar tests.
 
 ## Web Config And Environment
 
@@ -101,12 +107,15 @@ Scope:
 - `web/tsconfig.app.json` - browser/app TypeScript settings.
 - `web/tsconfig.node.json` - node-side TS settings for Vite config.
 - `web/vite.config.ts` - Vite dev/build configuration.
+- `web/vitest.config.ts` - Vitest test runner configuration.
 - `web/index.html` - Vite HTML entry document.
 - `web/public/_redirects` - static host redirect rule configuration.
 
 ## Web Assets
 
 - `web/ressources/logos/logo.png` - Harmony logo asset.
+- `web/ressources/logos/audio/lobster.wav` - audio asset.
+- `web/ressources/logos/images/maxresdefault.jpg` - image asset.
 
 ## Web Entrypoint And App Shell
 
@@ -123,12 +132,17 @@ Scope:
 - `web/src/store/auth-store.tsx` - auth session context, persistence, hydration.
 - `web/src/hooks/use-chat-socket.ts` - WebSocket lifecycle, subscriptions, and event parsing.
 - `web/src/hooks/use-user-preferences.ts` - preference persistence and body class application.
+- `web/src/hooks/use-recent-emojis.ts` - recent emoji tracking hook.
 
 ## Web Pages
 
 - `web/src/pages/login-page.tsx` - login page flow.
 - `web/src/pages/register-page.tsx` - registration page flow.
 - `web/src/pages/chat-page.tsx` - main application orchestrator (chat, friends, settings, admin, voice).
+- `web/src/pages/chat/hooks/use-message-lifecycle-feature.ts` - message lifecycle feature hook.
+- `web/src/pages/chat/hooks/use-profile-dm-feature.ts` - profile and DM feature hook.
+- `web/src/pages/chat/hooks/use-reactions-feature.ts` - reactions feature hook.
+- `web/src/pages/chat/hooks/use-voice-feature.ts` - voice feature hook.
 
 ## Web Components
 
@@ -150,12 +164,26 @@ Scope:
 - `web/src/types/api.ts` - frontend API contract types.
 - `web/src/types/preferences.ts` - preference type definitions and defaults.
 - `web/src/styles/global.css` - main application styling and responsive layout.
+- `web/src/styles/chat.css` - chat-specific styles.
+- `web/src/styles/settings.css` - settings panel styles.
+- `web/src/styles/voice.css` - voice panel styles.
 - `web/src/styles/user-sidebar.css` - sidebar-specific style overrides.
 - `web/src/utils/error-message.ts` - error normalization helper.
+- `web/src/utils/media-url.ts` - media URL helper.
+- `web/src/utils/safe-storage.ts` - safe localStorage wrapper.
 - `web/src/utils/smooth-scroll.ts` - cancellable smooth-scroll utility.
+- `web/src/utils/telemetry.ts` - telemetry utility.
+
+## Web Tests
+
+- `web/tests/setup.ts` - test setup and bootstrap.
+- `web/tests/auth-avatar-persistence.integration.test.tsx` - auth avatar persistence test.
+- `web/tests/avatar-display.integration.test.tsx` - avatar display test.
+- `web/tests/settings-avatar-upload.integration.test.tsx` - settings avatar upload test.
 
 ## Documentation Files
 
+- `docs/FILE_MAP.md` - tracked-file map for the repository.
 - `docs/README.md` - documentation hub and navigation.
 - `docs/AI_AGENT_GUIDE.md` - AI-agent-focused invariants and safe change workflows.
 - `docs/ARCHITECTURE.md` - end-to-end architecture reference.

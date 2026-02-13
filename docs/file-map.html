@@ -1,0 +1,732 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>File Map — Harmony Docs</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600&family=Outfit:wght@500;700&family=Space+Grotesk:wght@400;500;700&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="./styles.css" />
+    <style>
+      /* ── File Map specific styles ── */
+      .file-row {
+        display: grid;
+        grid-template-columns: 1fr 1.4fr;
+        gap: 16px;
+        padding: 8px 14px;
+        border-bottom: 1px solid var(--border-subtle);
+        font-size: 0.88rem;
+        transition: background 0.15s;
+      }
+
+      .file-row:hover {
+        background: var(--bg-hover);
+      }
+
+      .file-row:last-child {
+        border-bottom: none;
+      }
+
+      .file-path {
+        font-family: var(--font-mono);
+        font-size: 0.82rem;
+        color: var(--accent);
+        word-break: break-all;
+      }
+
+      .file-desc {
+        color: var(--text-muted);
+        font-size: 0.85rem;
+      }
+
+      .file-group {
+        background: var(--bg-surface);
+        border: 1px solid var(--border);
+        border-radius: var(--radius);
+        overflow: hidden;
+        margin-bottom: 12px;
+      }
+
+      .file-group-header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding: 10px 14px;
+        background: var(--bg-raised);
+        border-bottom: 1px solid var(--border-subtle);
+        cursor: pointer;
+        user-select: none;
+        transition: background 0.15s;
+      }
+
+      .file-group-header:hover {
+        background: var(--bg-hover);
+      }
+
+      .file-group-title {
+        font-family: var(--font-display);
+        font-size: 0.88rem;
+        font-weight: 600;
+        color: var(--text-bright);
+        margin: 0;
+      }
+
+      .file-group-count {
+        font-size: 0.72rem;
+        color: var(--text-muted);
+        background: var(--bg-hover);
+        border: 1px solid var(--border-subtle);
+        padding: 2px 8px;
+        border-radius: 999px;
+        font-weight: 600;
+      }
+
+      .file-group-body {
+        display: block;
+      }
+
+      .file-group.collapsed .file-group-body {
+        display: none;
+      }
+
+      .file-group-header .chevron {
+        color: var(--text-muted);
+        font-size: 0.75rem;
+        margin-right: 8px;
+        transition: transform 0.2s;
+      }
+
+      .file-group.collapsed .chevron {
+        transform: rotate(-90deg);
+      }
+
+      .section-divider {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        margin: 32px 0 16px;
+      }
+
+      .section-divider h2 {
+        font-family: var(--font-display);
+        font-size: 1.1rem;
+        font-weight: 700;
+        color: var(--text-bright);
+        margin: 0;
+        white-space: nowrap;
+      }
+
+      .section-divider::after {
+        content: "";
+        flex: 1;
+        height: 1px;
+        background: var(--border-subtle);
+      }
+
+      .stat-bar {
+        display: flex;
+        gap: 16px;
+        flex-wrap: wrap;
+        margin-bottom: 24px;
+      }
+
+      .stat-item {
+        background: var(--bg-surface);
+        border: 1px solid var(--border);
+        border-radius: var(--radius);
+        padding: 12px 18px;
+        flex: 1;
+        min-width: 120px;
+        text-align: center;
+      }
+
+      .stat-number {
+        font-family: var(--font-display);
+        font-size: 1.6rem;
+        font-weight: 700;
+        color: var(--text-bright);
+        display: block;
+      }
+
+      .stat-label {
+        font-size: 0.75rem;
+        color: var(--text-muted);
+        text-transform: uppercase;
+        letter-spacing: 0.06em;
+        margin-top: 2px;
+      }
+
+      .search-highlight {
+        background: rgba(88, 101, 242, 0.3);
+        border-radius: 2px;
+      }
+
+      .no-results {
+        text-align: center;
+        padding: 32px 16px;
+        color: var(--text-muted);
+        font-size: 0.9rem;
+      }
+
+      .back-link {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        margin-bottom: 20px;
+        font-size: 0.85rem;
+        color: var(--text-muted);
+        transition: color 0.15s;
+      }
+
+      .back-link:hover {
+        color: var(--accent);
+      }
+    </style>
+  </head>
+  <body>
+    <div class="layout">
+      <aside class="sidebar">
+        <h1 class="brand">Harmony</h1>
+        <p class="tagline">File Map</p>
+        <input id="file-search" class="search" placeholder="Filter files..." />
+
+        <div class="nav-group">
+          <p class="nav-title">Navigation</p>
+          <a class="nav-link" href="./index.html">← Back to Docs</a>
+        </div>
+
+        <div class="nav-group">
+          <p class="nav-title">Root</p>
+          <a class="nav-link" href="#root">Root Files</a>
+        </div>
+
+        <div class="nav-group">
+          <p class="nav-title">Backend</p>
+          <a class="nav-link" href="#backend-config">Config</a>
+          <a class="nav-link" href="#backend-prisma">Prisma</a>
+          <a class="nav-link" href="#backend-entrypoints">Entrypoints</a>
+          <a class="nav-link" href="#backend-plugins">Plugins</a>
+          <a class="nav-link" href="#backend-repositories">Repositories</a>
+          <a class="nav-link" href="#backend-routes">Routes</a>
+          <a class="nav-link" href="#backend-schemas">Schemas</a>
+          <a class="nav-link" href="#backend-services">Services</a>
+          <a class="nav-link" href="#backend-types">Types &amp; Utils</a>
+          <a class="nav-link" href="#backend-tests">Tests</a>
+        </div>
+
+        <div class="nav-group">
+          <p class="nav-title">Frontend</p>
+          <a class="nav-link" href="#web-config">Config</a>
+          <a class="nav-link" href="#web-assets">Assets</a>
+          <a class="nav-link" href="#web-entrypoint">Entrypoint</a>
+          <a class="nav-link" href="#web-api">API &amp; Transport</a>
+          <a class="nav-link" href="#web-state">State &amp; Hooks</a>
+          <a class="nav-link" href="#web-pages">Pages</a>
+          <a class="nav-link" href="#web-components">Components</a>
+          <a class="nav-link" href="#web-types">Types, Styles, Utils</a>
+          <a class="nav-link" href="#web-tests">Tests</a>
+        </div>
+
+        <div class="nav-group">
+          <p class="nav-title">Other</p>
+          <a class="nav-link" href="#docs">Documentation</a>
+          <a class="nav-link" href="#generated">Generated</a>
+        </div>
+      </aside>
+
+      <main class="main">
+        <a class="back-link" href="./index.html">← Back to Documentation Hub</a>
+
+        <section class="hero">
+          <h1>File Map</h1>
+          <p>
+            Tracked-file map for the Harmony repository. Covers source, config,
+            test, and documentation files. Generated artifacts and vendor paths
+            are excluded.
+          </p>
+        </section>
+
+        <div class="stat-bar">
+          <div class="stat-item">
+            <span class="stat-number" id="stat-total">0</span>
+            <span class="stat-label">Total Files</span>
+          </div>
+          <div class="stat-item">
+            <span class="stat-number" id="stat-backend">0</span>
+            <span class="stat-label">Backend</span>
+          </div>
+          <div class="stat-item">
+            <span class="stat-number" id="stat-web">0</span>
+            <span class="stat-label">Frontend</span>
+          </div>
+          <div class="stat-item">
+            <span class="stat-number" id="stat-docs">0</span>
+            <span class="stat-label">Docs</span>
+          </div>
+        </div>
+
+        <!-- Root -->
+        <div class="section-divider" id="root"><h2>Root Files</h2></div>
+        <div class="file-group" data-section="root">
+          <div class="file-group-header">
+            <div><span class="chevron">▼</span><span class="file-group-title">Root</span></div>
+            <span class="file-group-count"></span>
+          </div>
+          <div class="file-group-body">
+            <div class="file-row"><span class="file-path">.gitignore</span><span class="file-desc">Ignore patterns for dependencies, builds, and local artifacts</span></div>
+            <div class="file-row"><span class="file-path">.prettierrc</span><span class="file-desc">Shared formatting configuration</span></div>
+            <div class="file-row"><span class="file-path">AGENT.md</span><span class="file-desc">Legacy project context file</span></div>
+            <div class="file-row"><span class="file-path">DesignerSkill.md</span><span class="file-desc">Design skill prompt metadata/reference</span></div>
+            <div class="file-row"><span class="file-path">README.md</span><span class="file-desc">Repository landing page and quick-start commands</span></div>
+            <div class="file-row"><span class="file-path">ROADMAP.md</span><span class="file-desc">High-level roadmap notes at repo root</span></div>
+            <div class="file-row"><span class="file-path">package.json</span><span class="file-desc">npm workspace orchestrator scripts</span></div>
+            <div class="file-row"><span class="file-path">package-lock.json</span><span class="file-desc">npm dependency lockfile</span></div>
+          </div>
+        </div>
+
+        <!-- Backend Config -->
+        <div class="section-divider" id="backend-config"><h2>Backend — Config &amp; Environment</h2></div>
+        <div class="file-group" data-section="backend">
+          <div class="file-group-header">
+            <div><span class="chevron">▼</span><span class="file-group-title">Config</span></div>
+            <span class="file-group-count"></span>
+          </div>
+          <div class="file-group-body">
+            <div class="file-row"><span class="file-path">backend/.env.example</span><span class="file-desc">Sample backend environment variables</span></div>
+            <div class="file-row"><span class="file-path">backend/.eslintrc.cjs</span><span class="file-desc">Backend lint configuration</span></div>
+            <div class="file-row"><span class="file-path">backend/package.json</span><span class="file-desc">Backend package scripts and dependencies</span></div>
+            <div class="file-row"><span class="file-path">backend/tsconfig.json</span><span class="file-desc">Backend TypeScript compiler configuration</span></div>
+            <div class="file-row"><span class="file-path">backend/prisma.config.ts</span><span class="file-desc">Prisma config including seed command mapping</span></div>
+            <div class="file-row"><span class="file-path">backend/scripts/run-prisma.mjs</span><span class="file-desc">Prisma runner script</span></div>
+          </div>
+        </div>
+
+        <!-- Backend Prisma -->
+        <div class="section-divider" id="backend-prisma"><h2>Backend — Prisma</h2></div>
+        <div class="file-group" data-section="backend">
+          <div class="file-group-header">
+            <div><span class="chevron">▼</span><span class="file-group-title">Prisma</span></div>
+            <span class="file-group-count"></span>
+          </div>
+          <div class="file-group-body">
+            <div class="file-row"><span class="file-path">backend/prisma/schema.prisma</span><span class="file-desc">Database schema (models, enums, constraints)</span></div>
+            <div class="file-row"><span class="file-path">backend/prisma/seed.ts</span><span class="file-desc">Seed routine for owner user, settings row, and default channel</span></div>
+            <div class="file-row"><span class="file-path">backend/prisma/dev.db</span><span class="file-desc">Legacy local DB artifact</span></div>
+          </div>
+        </div>
+
+        <!-- Backend Entrypoints -->
+        <div class="section-divider" id="backend-entrypoints"><h2>Backend — Entrypoints</h2></div>
+        <div class="file-group" data-section="backend">
+          <div class="file-group-header">
+            <div><span class="chevron">▼</span><span class="file-group-title">Entrypoints</span></div>
+            <span class="file-group-count"></span>
+          </div>
+          <div class="file-group-body">
+            <div class="file-row"><span class="file-path">backend/src/server.ts</span><span class="file-desc">Backend process entrypoint and listener startup</span></div>
+            <div class="file-row"><span class="file-path">backend/src/app.ts</span><span class="file-desc">Fastify app composition, plugin registration, route mounting, error handler</span></div>
+            <div class="file-row"><span class="file-path">backend/src/config/env.ts</span><span class="file-desc">Zod-based environment parsing and typed Env output</span></div>
+          </div>
+        </div>
+
+        <!-- Backend Plugins -->
+        <div class="section-divider" id="backend-plugins"><h2>Backend — Plugins</h2></div>
+        <div class="file-group" data-section="backend">
+          <div class="file-group-header">
+            <div><span class="chevron">▼</span><span class="file-group-title">Plugins</span></div>
+            <span class="file-group-count"></span>
+          </div>
+          <div class="file-group-body">
+            <div class="file-row"><span class="file-path">backend/src/plugins/ws.plugin.ts</span><span class="file-desc">WebSocket protocol, subscriptions, presence, voice state/signaling, gateway broadcasts</span></div>
+          </div>
+        </div>
+
+        <!-- Backend Repositories -->
+        <div class="section-divider" id="backend-repositories"><h2>Backend — Repositories</h2></div>
+        <div class="file-group" data-section="backend">
+          <div class="file-group-header">
+            <div><span class="chevron">▼</span><span class="file-group-title">Repositories</span></div>
+            <span class="file-group-count"></span>
+          </div>
+          <div class="file-group-body">
+            <div class="file-row"><span class="file-path">backend/src/repositories/prisma.ts</span><span class="file-desc">Prisma client singleton lifecycle</span></div>
+            <div class="file-row"><span class="file-path">backend/src/repositories/user.repository.ts</span><span class="file-desc">User lookup/create data access methods</span></div>
+            <div class="file-row"><span class="file-path">backend/src/repositories/channel.repository.ts</span><span class="file-desc">Channel list/find/create/update/delete persistence</span></div>
+            <div class="file-row"><span class="file-path">backend/src/repositories/message.repository.ts</span><span class="file-desc">Message timeline/write/update/delete/reaction persistence</span></div>
+            <div class="file-row"><span class="file-path">backend/src/repositories/friendship.repository.ts</span><span class="file-desc">Friendship and request persistence methods</span></div>
+          </div>
+        </div>
+
+        <!-- Backend Routes -->
+        <div class="section-divider" id="backend-routes"><h2>Backend — Routes</h2></div>
+        <div class="file-group" data-section="backend">
+          <div class="file-group-header">
+            <div><span class="chevron">▼</span><span class="file-group-title">Routes</span></div>
+            <span class="file-group-count"></span>
+          </div>
+          <div class="file-group-body">
+            <div class="file-row"><span class="file-path">backend/src/routes/auth.routes.ts</span><span class="file-desc">Auth and session endpoints</span></div>
+            <div class="file-row"><span class="file-path">backend/src/routes/channel.routes.ts</span><span class="file-desc">Channel, upload, message, reaction, and DM open endpoints</span></div>
+            <div class="file-row"><span class="file-path">backend/src/routes/friend.routes.ts</span><span class="file-desc">Friend list/request lifecycle endpoints</span></div>
+            <div class="file-row"><span class="file-path">backend/src/routes/admin.routes.ts</span><span class="file-desc">Admin stats/settings/user management endpoints</span></div>
+            <div class="file-row"><span class="file-path">backend/src/routes/user.routes.ts</span><span class="file-desc">User profile and avatar endpoints</span></div>
+            <div class="file-row"><span class="file-path">backend/src/routes/guards.ts</span><span class="file-desc">Route guard middleware</span></div>
+          </div>
+        </div>
+
+        <!-- Backend Schemas -->
+        <div class="section-divider" id="backend-schemas"><h2>Backend — Schemas</h2></div>
+        <div class="file-group" data-section="backend">
+          <div class="file-group-header">
+            <div><span class="chevron">▼</span><span class="file-group-title">Schemas</span></div>
+            <span class="file-group-count"></span>
+          </div>
+          <div class="file-group-body">
+            <div class="file-row"><span class="file-path">backend/src/schemas/auth.schema.ts</span><span class="file-desc">Register/login payload validation</span></div>
+            <div class="file-row"><span class="file-path">backend/src/schemas/message.schema.ts</span><span class="file-desc">Channel/message/reaction/voice-setting payload validation</span></div>
+            <div class="file-row"><span class="file-path">backend/src/schemas/friend.schema.ts</span><span class="file-desc">Friend request and id parameter validation</span></div>
+          </div>
+        </div>
+
+        <!-- Backend Services -->
+        <div class="section-divider" id="backend-services"><h2>Backend — Services</h2></div>
+        <div class="file-group" data-section="backend">
+          <div class="file-group-header">
+            <div><span class="chevron">▼</span><span class="file-group-title">Services</span></div>
+            <span class="file-group-count"></span>
+          </div>
+          <div class="file-group-body">
+            <div class="file-row"><span class="file-path">backend/src/services/auth.service.ts</span><span class="file-desc">Register/login/user retrieval business logic</span></div>
+            <div class="file-row"><span class="file-path">backend/src/services/channel.service.ts</span><span class="file-desc">Channel lifecycle and DM access logic</span></div>
+            <div class="file-row"><span class="file-path">backend/src/services/message.service.ts</span><span class="file-desc">Message validation, creation, updates, deletes, reactions</span></div>
+            <div class="file-row"><span class="file-path">backend/src/services/friend.service.ts</span><span class="file-desc">Friend request lifecycle and friendship management</span></div>
+            <div class="file-row"><span class="file-path">backend/src/services/admin.service.ts</span><span class="file-desc">Runtime stats aggregation</span></div>
+            <div class="file-row"><span class="file-path">backend/src/services/admin-settings.service.ts</span><span class="file-desc">Persistent runtime settings and slow-mode timing state</span></div>
+            <div class="file-row"><span class="file-path">backend/src/services/admin-user.service.ts</span><span class="file-desc">Role-aware user management operations</span></div>
+            <div class="file-row"><span class="file-path">backend/src/services/user.service.ts</span><span class="file-desc">User profile and avatar business logic</span></div>
+          </div>
+        </div>
+
+        <!-- Backend Types & Utils -->
+        <div class="section-divider" id="backend-types"><h2>Backend — Types &amp; Utils</h2></div>
+        <div class="file-group" data-section="backend">
+          <div class="file-group-header">
+            <div><span class="chevron">▼</span><span class="file-group-title">Types &amp; Utils</span></div>
+            <span class="file-group-count"></span>
+          </div>
+          <div class="file-group-body">
+            <div class="file-row"><span class="file-path">backend/src/types/api.ts</span><span class="file-desc">Backend API type interfaces</span></div>
+            <div class="file-row"><span class="file-path">backend/src/types/fastify.d.ts</span><span class="file-desc">Fastify module augmentation for JWT payload and websocket gateway</span></div>
+            <div class="file-row"><span class="file-path">backend/src/utils/app-error.ts</span><span class="file-desc">Custom typed application error class</span></div>
+            <div class="file-row"><span class="file-path">backend/src/utils/roles.ts</span><span class="file-desc">Role helper functions</span></div>
+            <div class="file-row"><span class="file-path">backend/src/utils/suspension.ts</span><span class="file-desc">Suspension-status helper</span></div>
+          </div>
+        </div>
+
+        <!-- Backend Tests -->
+        <div class="section-divider" id="backend-tests"><h2>Backend — Tests</h2></div>
+        <div class="file-group" data-section="backend">
+          <div class="file-group-header">
+            <div><span class="chevron">▼</span><span class="file-group-title">Tests</span></div>
+            <span class="file-group-count"></span>
+          </div>
+          <div class="file-group-body">
+            <div class="file-row"><span class="file-path">backend/tests/auth.service.test.ts</span><span class="file-desc">Auth service behavior tests</span></div>
+            <div class="file-row"><span class="file-path">backend/tests/channel.service.test.ts</span><span class="file-desc">Channel deletion and voice bitrate rule tests</span></div>
+            <div class="file-row"><span class="file-path">backend/tests/friend.service.test.ts</span><span class="file-desc">Friendship workflow tests</span></div>
+            <div class="file-row"><span class="file-path">backend/tests/message.service.test.ts</span><span class="file-desc">Message and reaction service tests</span></div>
+            <div class="file-row"><span class="file-path">backend/tests/user.routes.avatar.test.ts</span><span class="file-desc">User routes avatar tests</span></div>
+            <div class="file-row"><span class="file-path">backend/tests/user.service.avatar.test.ts</span><span class="file-desc">User service avatar tests</span></div>
+          </div>
+        </div>
+
+        <!-- Web Config -->
+        <div class="section-divider" id="web-config"><h2>Frontend — Config &amp; Environment</h2></div>
+        <div class="file-group" data-section="web">
+          <div class="file-group-header">
+            <div><span class="chevron">▼</span><span class="file-group-title">Config</span></div>
+            <span class="file-group-count"></span>
+          </div>
+          <div class="file-group-body">
+            <div class="file-row"><span class="file-path">web/.env.example</span><span class="file-desc">Sample frontend API and WebSocket URLs</span></div>
+            <div class="file-row"><span class="file-path">web/.env.production</span><span class="file-desc">Production frontend endpoint values</span></div>
+            <div class="file-row"><span class="file-path">web/.eslintrc.cjs</span><span class="file-desc">Frontend lint configuration</span></div>
+            <div class="file-row"><span class="file-path">web/package.json</span><span class="file-desc">Frontend package scripts and dependencies</span></div>
+            <div class="file-row"><span class="file-path">web/tsconfig.json</span><span class="file-desc">Frontend TS project references</span></div>
+            <div class="file-row"><span class="file-path">web/tsconfig.app.json</span><span class="file-desc">Browser/app TypeScript settings</span></div>
+            <div class="file-row"><span class="file-path">web/tsconfig.node.json</span><span class="file-desc">Node-side TS settings for Vite config</span></div>
+            <div class="file-row"><span class="file-path">web/vite.config.ts</span><span class="file-desc">Vite dev/build configuration</span></div>
+            <div class="file-row"><span class="file-path">web/vitest.config.ts</span><span class="file-desc">Vitest test runner configuration</span></div>
+            <div class="file-row"><span class="file-path">web/index.html</span><span class="file-desc">Vite HTML entry document</span></div>
+            <div class="file-row"><span class="file-path">web/public/_redirects</span><span class="file-desc">Static host redirect rule configuration</span></div>
+          </div>
+        </div>
+
+        <!-- Web Assets -->
+        <div class="section-divider" id="web-assets"><h2>Frontend — Assets</h2></div>
+        <div class="file-group" data-section="web">
+          <div class="file-group-header">
+            <div><span class="chevron">▼</span><span class="file-group-title">Assets</span></div>
+            <span class="file-group-count"></span>
+          </div>
+          <div class="file-group-body">
+            <div class="file-row"><span class="file-path">web/ressources/logos/logo.png</span><span class="file-desc">Harmony logo asset</span></div>
+            <div class="file-row"><span class="file-path">web/ressources/logos/audio/lobster.wav</span><span class="file-desc">Audio asset</span></div>
+            <div class="file-row"><span class="file-path">web/ressources/logos/images/maxresdefault.jpg</span><span class="file-desc">Image asset</span></div>
+          </div>
+        </div>
+
+        <!-- Web Entrypoint -->
+        <div class="section-divider" id="web-entrypoint"><h2>Frontend — Entrypoint &amp; App Shell</h2></div>
+        <div class="file-group" data-section="web">
+          <div class="file-group-header">
+            <div><span class="chevron">▼</span><span class="file-group-title">Entrypoint</span></div>
+            <span class="file-group-count"></span>
+          </div>
+          <div class="file-group-body">
+            <div class="file-row"><span class="file-path">web/src/main.tsx</span><span class="file-desc">App mount, router/provider wiring, favicon generation</span></div>
+            <div class="file-row"><span class="file-path">web/src/App.tsx</span><span class="file-desc">Route definitions and default redirect</span></div>
+          </div>
+        </div>
+
+        <!-- Web API -->
+        <div class="section-divider" id="web-api"><h2>Frontend — API &amp; Transport</h2></div>
+        <div class="file-group" data-section="web">
+          <div class="file-group-header">
+            <div><span class="chevron">▼</span><span class="file-group-title">API</span></div>
+            <span class="file-group-count"></span>
+          </div>
+          <div class="file-group-body">
+            <div class="file-row"><span class="file-path">web/src/api/client.ts</span><span class="file-desc">Generic HTTP request wrapper and error parsing</span></div>
+            <div class="file-row"><span class="file-path">web/src/api/chat-api.ts</span><span class="file-desc">Typed endpoint wrappers for all backend API calls</span></div>
+          </div>
+        </div>
+
+        <!-- Web State & Hooks -->
+        <div class="section-divider" id="web-state"><h2>Frontend — State &amp; Hooks</h2></div>
+        <div class="file-group" data-section="web">
+          <div class="file-group-header">
+            <div><span class="chevron">▼</span><span class="file-group-title">State &amp; Hooks</span></div>
+            <span class="file-group-count"></span>
+          </div>
+          <div class="file-group-body">
+            <div class="file-row"><span class="file-path">web/src/store/auth-store.tsx</span><span class="file-desc">Auth session context, persistence, hydration</span></div>
+            <div class="file-row"><span class="file-path">web/src/hooks/use-chat-socket.ts</span><span class="file-desc">WebSocket lifecycle, subscriptions, and event parsing</span></div>
+            <div class="file-row"><span class="file-path">web/src/hooks/use-user-preferences.ts</span><span class="file-desc">Preference persistence and body class application</span></div>
+            <div class="file-row"><span class="file-path">web/src/hooks/use-recent-emojis.ts</span><span class="file-desc">Recent emoji tracking hook</span></div>
+          </div>
+        </div>
+
+        <!-- Web Pages -->
+        <div class="section-divider" id="web-pages"><h2>Frontend — Pages</h2></div>
+        <div class="file-group" data-section="web">
+          <div class="file-group-header">
+            <div><span class="chevron">▼</span><span class="file-group-title">Pages</span></div>
+            <span class="file-group-count"></span>
+          </div>
+          <div class="file-group-body">
+            <div class="file-row"><span class="file-path">web/src/pages/login-page.tsx</span><span class="file-desc">Login page flow</span></div>
+            <div class="file-row"><span class="file-path">web/src/pages/register-page.tsx</span><span class="file-desc">Registration page flow</span></div>
+            <div class="file-row"><span class="file-path">web/src/pages/chat-page.tsx</span><span class="file-desc">Main application orchestrator (chat, friends, settings, admin, voice)</span></div>
+            <div class="file-row"><span class="file-path">web/src/pages/chat/hooks/use-message-lifecycle-feature.ts</span><span class="file-desc">Message lifecycle feature hook</span></div>
+            <div class="file-row"><span class="file-path">web/src/pages/chat/hooks/use-profile-dm-feature.ts</span><span class="file-desc">Profile and DM feature hook</span></div>
+            <div class="file-row"><span class="file-path">web/src/pages/chat/hooks/use-reactions-feature.ts</span><span class="file-desc">Reactions feature hook</span></div>
+            <div class="file-row"><span class="file-path">web/src/pages/chat/hooks/use-voice-feature.ts</span><span class="file-desc">Voice feature hook</span></div>
+          </div>
+        </div>
+
+        <!-- Web Components -->
+        <div class="section-divider" id="web-components"><h2>Frontend — Components</h2></div>
+        <div class="file-group" data-section="web">
+          <div class="file-group-header">
+            <div><span class="chevron">▼</span><span class="file-group-title">Components</span></div>
+            <span class="file-group-count"></span>
+          </div>
+          <div class="file-group-body">
+            <div class="file-row"><span class="file-path">web/src/components/auth-form.tsx</span><span class="file-desc">Shared login/register form component</span></div>
+            <div class="file-row"><span class="file-path">web/src/components/channel-sidebar.tsx</span><span class="file-desc">Channel list, nav controls, admin channel actions</span></div>
+            <div class="file-row"><span class="file-path">web/src/components/chat-view.tsx</span><span class="file-desc">Message timeline rendering and context actions</span></div>
+            <div class="file-row"><span class="file-path">web/src/components/message-composer.tsx</span><span class="file-desc">Message input, reply UI, attachment sending</span></div>
+            <div class="file-row"><span class="file-path">web/src/components/friends-panel.tsx</span><span class="file-desc">Friend list/request tabs and actions</span></div>
+            <div class="file-row"><span class="file-path">web/src/components/settings-panel.tsx</span><span class="file-desc">User settings and preferences UI</span></div>
+            <div class="file-row"><span class="file-path">web/src/components/admin-settings-panel.tsx</span><span class="file-desc">Admin runtime settings, stats, and user management UI</span></div>
+            <div class="file-row"><span class="file-path">web/src/components/voice-channel-panel.tsx</span><span class="file-desc">Voice participant panel and quality controls</span></div>
+            <div class="file-row"><span class="file-path">web/src/components/user-sidebar.tsx</span><span class="file-desc">Online user list panel</span></div>
+            <div class="file-row"><span class="file-path">web/src/components/user-profile.tsx</span><span class="file-desc">User profile modal and friend actions</span></div>
+            <div class="file-row"><span class="file-path">web/src/components/dropdown-select.tsx</span><span class="file-desc">Custom dropdown UI primitive</span></div>
+            <div class="file-row"><span class="file-path">web/src/components/markdown-message.tsx</span><span class="file-desc">Markdown rendering with mention token handling</span></div>
+          </div>
+        </div>
+
+        <!-- Web Types, Styles, Utils -->
+        <div class="section-divider" id="web-types"><h2>Frontend — Types, Styles, Utils</h2></div>
+        <div class="file-group" data-section="web">
+          <div class="file-group-header">
+            <div><span class="chevron">▼</span><span class="file-group-title">Types, Styles &amp; Utils</span></div>
+            <span class="file-group-count"></span>
+          </div>
+          <div class="file-group-body">
+            <div class="file-row"><span class="file-path">web/src/types/api.ts</span><span class="file-desc">Frontend API contract types</span></div>
+            <div class="file-row"><span class="file-path">web/src/types/preferences.ts</span><span class="file-desc">Preference type definitions and defaults</span></div>
+            <div class="file-row"><span class="file-path">web/src/styles/global.css</span><span class="file-desc">Main application styling and responsive layout</span></div>
+            <div class="file-row"><span class="file-path">web/src/styles/chat.css</span><span class="file-desc">Chat-specific styles</span></div>
+            <div class="file-row"><span class="file-path">web/src/styles/settings.css</span><span class="file-desc">Settings panel styles</span></div>
+            <div class="file-row"><span class="file-path">web/src/styles/voice.css</span><span class="file-desc">Voice panel styles</span></div>
+            <div class="file-row"><span class="file-path">web/src/styles/user-sidebar.css</span><span class="file-desc">Sidebar-specific style overrides</span></div>
+            <div class="file-row"><span class="file-path">web/src/utils/error-message.ts</span><span class="file-desc">Error normalization helper</span></div>
+            <div class="file-row"><span class="file-path">web/src/utils/media-url.ts</span><span class="file-desc">Media URL helper</span></div>
+            <div class="file-row"><span class="file-path">web/src/utils/safe-storage.ts</span><span class="file-desc">Safe localStorage wrapper</span></div>
+            <div class="file-row"><span class="file-path">web/src/utils/smooth-scroll.ts</span><span class="file-desc">Cancellable smooth-scroll utility</span></div>
+            <div class="file-row"><span class="file-path">web/src/utils/telemetry.ts</span><span class="file-desc">Telemetry utility</span></div>
+          </div>
+        </div>
+
+        <!-- Web Tests -->
+        <div class="section-divider" id="web-tests"><h2>Frontend — Tests</h2></div>
+        <div class="file-group" data-section="web">
+          <div class="file-group-header">
+            <div><span class="chevron">▼</span><span class="file-group-title">Tests</span></div>
+            <span class="file-group-count"></span>
+          </div>
+          <div class="file-group-body">
+            <div class="file-row"><span class="file-path">web/tests/setup.ts</span><span class="file-desc">Test setup and bootstrap</span></div>
+            <div class="file-row"><span class="file-path">web/tests/auth-avatar-persistence.integration.test.tsx</span><span class="file-desc">Auth avatar persistence test</span></div>
+            <div class="file-row"><span class="file-path">web/tests/avatar-display.integration.test.tsx</span><span class="file-desc">Avatar display test</span></div>
+            <div class="file-row"><span class="file-path">web/tests/settings-avatar-upload.integration.test.tsx</span><span class="file-desc">Settings avatar upload test</span></div>
+          </div>
+        </div>
+
+        <!-- Docs -->
+        <div class="section-divider" id="docs"><h2>Documentation</h2></div>
+        <div class="file-group" data-section="docs">
+          <div class="file-group-header">
+            <div><span class="chevron">▼</span><span class="file-group-title">Documentation</span></div>
+            <span class="file-group-count"></span>
+          </div>
+          <div class="file-group-body">
+            <div class="file-row"><span class="file-path">docs/FILE_MAP.md</span><span class="file-desc">Tracked-file map for the repository</span></div>
+            <div class="file-row"><span class="file-path">docs/README.md</span><span class="file-desc">Documentation hub and navigation</span></div>
+            <div class="file-row"><span class="file-path">docs/AI_AGENT_GUIDE.md</span><span class="file-desc">AI-focused invariants and safe change workflows</span></div>
+            <div class="file-row"><span class="file-path">docs/ARCHITECTURE.md</span><span class="file-desc">End-to-end architecture reference</span></div>
+            <div class="file-row"><span class="file-path">docs/BACKEND_REFERENCE.md</span><span class="file-desc">Backend contracts and behavior</span></div>
+            <div class="file-row"><span class="file-path">docs/FRONTEND_REFERENCE.md</span><span class="file-desc">Frontend contracts and behavior</span></div>
+            <div class="file-row"><span class="file-path">docs/DATA_MODEL.md</span><span class="file-desc">Schema and data invariant reference</span></div>
+            <div class="file-row"><span class="file-path">docs/OPERATIONS.md</span><span class="file-desc">Setup/run/deploy/troubleshooting guide</span></div>
+            <div class="file-row"><span class="file-path">docs/API.md</span><span class="file-desc">Compact API quick reference</span></div>
+            <div class="file-row"><span class="file-path">docs/SETUP.md</span><span class="file-desc">Compact setup quick reference</span></div>
+            <div class="file-row"><span class="file-path">docs/structure.md</span><span class="file-desc">Concise project structure map</span></div>
+            <div class="file-row"><span class="file-path">docs/ROADMAP.md</span><span class="file-desc">Product and engineering roadmap</span></div>
+            <div class="file-row"><span class="file-path">docs/index.html</span><span class="file-desc">Static docs landing page</span></div>
+            <div class="file-row"><span class="file-path">docs/styles.css</span><span class="file-desc">Static docs page styles</span></div>
+            <div class="file-row"><span class="file-path">docs/app.js</span><span class="file-desc">Static docs page search/nav behavior</span></div>
+          </div>
+        </div>
+
+        <!-- Generated -->
+        <div class="section-divider" id="generated"><h2>Generated &amp; Local-Only</h2></div>
+        <div class="file-group" data-section="other">
+          <div class="file-group-header">
+            <div><span class="chevron">▼</span><span class="file-group-title">Artifacts</span></div>
+            <span class="file-group-count"></span>
+          </div>
+          <div class="file-group-body">
+            <div class="file-row"><span class="file-path">web/dist/*</span><span class="file-desc">Frontend build output (may exist locally)</span></div>
+            <div class="file-row"><span class="file-path">web/tsconfig.*.tsbuildinfo</span><span class="file-desc">TypeScript incremental cache files</span></div>
+            <div class="file-row"><span class="file-path">.env (local)</span><span class="file-desc">Environment-specific, not fully tracked</span></div>
+          </div>
+        </div>
+
+        <p class="footer">
+          Harmony &middot; File Map &middot; Source: <code>docs/FILE_MAP.md</code>
+        </p>
+      </main>
+    </div>
+
+    <script>
+      // ── Collapsible groups ──
+      document.querySelectorAll('.file-group-header').forEach(header => {
+        header.addEventListener('click', () => {
+          header.closest('.file-group').classList.toggle('collapsed');
+        });
+      });
+
+      // ── Count files per group ──
+      document.querySelectorAll('.file-group').forEach(group => {
+        const count = group.querySelectorAll('.file-row').length;
+        const badge = group.querySelector('.file-group-count');
+        if (badge) badge.textContent = count + (count === 1 ? ' file' : ' files');
+      });
+
+      // ── Stats ──
+      const allRows = document.querySelectorAll('.file-row');
+      document.getElementById('stat-total').textContent = allRows.length;
+
+      let backendCount = 0, webCount = 0, docsCount = 0;
+      document.querySelectorAll('.file-group').forEach(group => {
+        const section = group.dataset.section;
+        const count = group.querySelectorAll('.file-row').length;
+        if (section === 'backend') backendCount += count;
+        else if (section === 'web') webCount += count;
+        else if (section === 'docs') docsCount += count;
+      });
+      document.getElementById('stat-backend').textContent = backendCount;
+      document.getElementById('stat-web').textContent = webCount;
+      document.getElementById('stat-docs').textContent = docsCount;
+
+      // ── Search/filter ──
+      const searchInput = document.getElementById('file-search');
+      if (searchInput) {
+        searchInput.addEventListener('input', () => {
+          const query = searchInput.value.trim().toLowerCase();
+          let anyVisible = false;
+
+          document.querySelectorAll('.file-group').forEach(group => {
+            let groupVisible = false;
+            group.querySelectorAll('.file-row').forEach(row => {
+              const text = row.textContent.toLowerCase();
+              const match = !query || text.includes(query);
+              row.style.display = match ? '' : 'none';
+              if (match) groupVisible = true;
+            });
+            group.style.display = groupVisible ? '' : 'none';
+            // Also hide corresponding section divider
+            const divider = group.previousElementSibling;
+            if (divider && divider.classList.contains('section-divider')) {
+              divider.style.display = groupVisible ? '' : 'none';
+            }
+            if (groupVisible) anyVisible = true;
+
+            // Auto-expand when searching
+            if (query && groupVisible) {
+              group.classList.remove('collapsed');
+            }
+          });
+        });
+      }
+
+      // ── Sidebar scroll spy ──
+      const navLinks = Array.from(document.querySelectorAll('.sidebar .nav-link[href^="#"]'));
+      const sections = navLinks
+        .map(link => document.querySelector(link.getAttribute('href')))
+        .filter(Boolean);
+
+      const observer = new IntersectionObserver(entries => {
+        for (const entry of entries) {
+          if (!entry.isIntersecting) continue;
+          const id = entry.target.getAttribute('id');
+          for (const link of navLinks) {
+            link.classList.toggle('active', link.getAttribute('href') === '#' + id);
+          }
+        }
+      }, { rootMargin: '-30% 0px -60% 0px', threshold: 0.01 });
+
+      for (const section of sections) {
+        observer.observe(section);
+      }
+    </script>
+  </body>
+</html>
