@@ -44,6 +44,34 @@ export interface VoiceSignalPayload {
   data: unknown;
 }
 
+export type VoiceSfuRequestAction =
+  | 'get-rtp-capabilities'
+  | 'create-transport'
+  | 'connect-transport'
+  | 'produce'
+  | 'close-producer'
+  | 'list-producers'
+  | 'consume'
+  | 'resume-consumer';
+
+export type VoiceSfuEventPayload =
+  | {
+      channelId: string;
+      event: 'producer-added';
+      producer: {
+        producerId: string;
+        userId: string;
+        kind: 'audio' | 'video';
+        appData?: Record<string, unknown>;
+      };
+    }
+  | {
+      channelId: string;
+      event: 'producer-removed';
+      producerId: string;
+      userId: string;
+    };
+
 export interface MessageReactionEventPayload {
   message: Message;
   emoji: string;
@@ -64,10 +92,21 @@ export function useChatSocket(params: {
   onPresenceUpdate?: (users: PresenceUser[]) => void;
   onVoiceState?: (payload: VoiceStatePayload) => void;
   onVoiceSignal?: (payload: VoiceSignalPayload) => void;
+  onVoiceSfuEvent?: (payload: VoiceSfuEventPayload) => void;
 }) {
   const socketRef = useRef<WebSocket | null>(null);
   const reconnectTimerRef = useRef<number | null>(null);
   const joinedChannelIdsRef = useRef<Set<string>>(new Set());
+  const pendingVoiceSfuRequestsRef = useRef(
+    new Map<
+      string,
+      {
+        resolve: (value: unknown) => void;
+        reject: (reason?: unknown) => void;
+        timeoutId: number;
+      }
+    >(),
+  );
   const subscribedChannelIdsRef = useRef(params.subscribedChannelIds);
   const onMessageNewRef = useRef(params.onMessageNew);
   const onMessageUpdatedRef = useRef(params.onMessageUpdated);
@@ -79,6 +118,7 @@ export function useChatSocket(params: {
   const onPresenceUpdateRef = useRef(params.onPresenceUpdate);
   const onVoiceStateRef = useRef(params.onVoiceState);
   const onVoiceSignalRef = useRef(params.onVoiceSignal);
+  const onVoiceSfuEventRef = useRef(params.onVoiceSfuEvent);
   const [connected, setConnected] = useState(false);
 
   onMessageNewRef.current = params.onMessageNew;
@@ -91,6 +131,7 @@ export function useChatSocket(params: {
   onPresenceUpdateRef.current = params.onPresenceUpdate;
   onVoiceStateRef.current = params.onVoiceState;
   onVoiceSignalRef.current = params.onVoiceSignal;
+  onVoiceSfuEventRef.current = params.onVoiceSfuEvent;
   subscribedChannelIdsRef.current = params.subscribedChannelIds;
 
   const sendEvent = useCallback((type: string, payload: unknown) => {
@@ -208,6 +249,44 @@ export function useChatSocket(params: {
             if (payload?.channelId && payload.fromUserId && payload.data !== undefined) {
               onVoiceSignalRef.current?.(payload);
             }
+            return;
+          }
+
+          if (parsed.type === 'voice:sfu:event') {
+            const payload = parsed.payload as VoiceSfuEventPayload | undefined;
+            if (payload?.channelId && payload.event) {
+              onVoiceSfuEventRef.current?.(payload);
+            }
+            return;
+          }
+
+          if (parsed.type === 'voice:sfu:response') {
+            const payload = parsed.payload as
+              | {
+                  requestId?: string;
+                  ok?: boolean;
+                  data?: unknown;
+                  code?: string;
+                  message?: string;
+                }
+              | undefined;
+            if (!payload?.requestId) {
+              return;
+            }
+            const pending = pendingVoiceSfuRequestsRef.current.get(payload.requestId);
+            if (!pending) {
+              return;
+            }
+            window.clearTimeout(pending.timeoutId);
+            pendingVoiceSfuRequestsRef.current.delete(payload.requestId);
+            if (payload.ok) {
+              pending.resolve(payload.data);
+              return;
+            }
+            pending.reject(
+              new Error(payload.message || payload.code || 'SFU request failed'),
+            );
+            return;
           }
           if (parsed.type === 'pong') {
             const payload = parsed.payload as { start: number };
@@ -225,6 +304,11 @@ export function useChatSocket(params: {
       socket.onclose = () => {
         setConnected(false);
         setPing(null);
+        for (const pending of pendingVoiceSfuRequestsRef.current.values()) {
+          window.clearTimeout(pending.timeoutId);
+          pending.reject(new Error('Socket connection closed'));
+        }
+        pendingVoiceSfuRequestsRef.current.clear();
         socketRef.current = null;
         if (!isClosed) {
           reconnectTimerRef.current = window.setTimeout(connect, 2000);
@@ -241,6 +325,11 @@ export function useChatSocket(params: {
       if (reconnectTimerRef.current) {
         window.clearTimeout(reconnectTimerRef.current);
       }
+      for (const pending of pendingVoiceSfuRequestsRef.current.values()) {
+        window.clearTimeout(pending.timeoutId);
+        pending.reject(new Error('Socket connection closed'));
+      }
+      pendingVoiceSfuRequestsRef.current.clear();
       joinedChannelIds.clear();
       socketRef.current?.close();
       socketRef.current = null;
@@ -311,6 +400,47 @@ export function useChatSocket(params: {
     [sendEvent],
   );
 
+  const requestVoiceSfu = useCallback(
+    <TData = unknown>(
+      channelId: string,
+      action: VoiceSfuRequestAction,
+      data?: unknown,
+      timeoutMs = 10_000,
+    ): Promise<TData> => {
+      const socket = socketRef.current;
+      if (!socket || socket.readyState !== WebSocket.OPEN) {
+        return Promise.reject(new Error('Realtime connection is not active'));
+      }
+      const requestId =
+        typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
+          ? crypto.randomUUID()
+          : `${Date.now()}-${Math.random().toString(16).slice(2)}`;
+      return new Promise<TData>((resolve, reject) => {
+        const timeoutId = window.setTimeout(() => {
+          pendingVoiceSfuRequestsRef.current.delete(requestId);
+          reject(new Error('SFU request timed out'));
+        }, timeoutMs);
+        pendingVoiceSfuRequestsRef.current.set(requestId, {
+          resolve: (value) => resolve(value as TData),
+          reject,
+          timeoutId,
+        });
+        socket.send(
+          JSON.stringify({
+            type: 'voice:sfu:request',
+            payload: {
+              requestId,
+              channelId,
+              action,
+              ...(data !== undefined ? { data } : {}),
+            },
+          }),
+        );
+      });
+    },
+    [],
+  );
+
   const sendPresence = useCallback(
     (state: PresenceState) => {
       return sendEvent('presence:set', { state });
@@ -338,5 +468,15 @@ export function useChatSocket(params: {
 
   const [ping, setPing] = useState<number | null>(null);
 
-  return { connected, sendMessage, joinVoice, leaveVoice, sendVoiceSignal, sendVoiceSelfState, sendPresence, ping };
+  return {
+    connected,
+    sendMessage,
+    joinVoice,
+    leaveVoice,
+    sendVoiceSignal,
+    sendVoiceSelfState,
+    requestVoiceSfu,
+    sendPresence,
+    ping,
+  };
 }
