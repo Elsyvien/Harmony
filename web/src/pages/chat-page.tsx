@@ -1696,12 +1696,35 @@ export function ChatPage() {
           }
           const activeChannelId = activeVoiceChannelIdRef.current;
           if (activeChannelId) {
-            sendVoiceSignalRef.current(activeChannelId, peerUserId, { kind: 'renegotiate' } satisfies VoiceSignalData);
+            try {
+              connection.restartIce?.();
+            } catch {
+              // Best effort; fallback path below still handles recovery.
+            }
+            if (auth.user && shouldInitiateOffer(auth.user.id, peerUserId)) {
+              void createOfferForPeerRef.current(peerUserId, activeChannelId);
+            } else {
+              sendVoiceSignalRef.current(activeChannelId, peerUserId, {
+                kind: 'renegotiate',
+              } satisfies VoiceSignalData);
+            }
           }
-          closePeerConnection(peerUserId);
-          if (activeChannelId) {
-            void createOfferForPeerRef.current(peerUserId, activeChannelId);
+          if (disconnectTimeoutByPeerRef.current.has(peerUserId)) {
+            return;
           }
+          const timeoutId = window.setTimeout(() => {
+            disconnectTimeoutByPeerRef.current.delete(peerUserId);
+            if (connection.connectionState !== 'failed' && connection.connectionState !== 'disconnected') {
+              return;
+            }
+            const fallbackChannelId = activeVoiceChannelIdRef.current;
+            closePeerConnection(peerUserId);
+            if (!fallbackChannelId) {
+              return;
+            }
+            void createOfferForPeerRef.current(peerUserId, fallbackChannelId);
+          }, 2200);
+          disconnectTimeoutByPeerRef.current.set(peerUserId, timeoutId);
           return;
         }
 
@@ -1709,17 +1732,33 @@ export function ChatPage() {
           if (disconnectTimeoutByPeerRef.current.has(peerUserId)) {
             return;
           }
+          const activeChannelId = activeVoiceChannelIdRef.current;
+          if (activeChannelId) {
+            try {
+              connection.restartIce?.();
+            } catch {
+              // Best effort; fallback timeout handles hard recovery.
+            }
+            if (auth.user && shouldInitiateOffer(auth.user.id, peerUserId)) {
+              void createOfferForPeerRef.current(peerUserId, activeChannelId);
+            } else {
+              sendVoiceSignalRef.current(activeChannelId, peerUserId, {
+                kind: 'renegotiate',
+              } satisfies VoiceSignalData);
+            }
+          }
           const timeoutId = window.setTimeout(() => {
             disconnectTimeoutByPeerRef.current.delete(peerUserId);
-            const activeChannelId = activeVoiceChannelIdRef.current;
-            if (!activeChannelId) {
-              closePeerConnection(peerUserId);
+            if (connection.connectionState !== 'failed' && connection.connectionState !== 'disconnected') {
               return;
             }
-            sendVoiceSignalRef.current(activeChannelId, peerUserId, { kind: 'renegotiate' } satisfies VoiceSignalData);
+            const fallbackChannelId = activeVoiceChannelIdRef.current;
             closePeerConnection(peerUserId);
-            void createOfferForPeerRef.current(peerUserId, activeChannelId);
-          }, 3500);
+            if (!fallbackChannelId) {
+              return;
+            }
+            void createOfferForPeerRef.current(peerUserId, fallbackChannelId);
+          }, 4500);
           disconnectTimeoutByPeerRef.current.set(peerUserId, timeoutId);
         }
       };
