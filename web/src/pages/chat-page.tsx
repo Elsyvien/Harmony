@@ -2381,7 +2381,6 @@ export function ChatPage() {
 
       if (signal.kind === 'offer') {
         if (shouldInitiateOffer(localUserId, payload.fromUserId)) {
-          // Deterministic initiator should not receive offers in steady state.
           return;
         }
 
@@ -2392,34 +2391,25 @@ export function ChatPage() {
             pendingVideoRenegotiationByPeerRef.current.add(payload.fromUserId);
             return;
           }
-        } else if (connection.signalingState !== 'stable') {
+        }
+
+        if (connection.signalingState !== 'stable' && connection.signalingState !== 'have-local-offer') {
           return;
         }
 
         try {
+          if (connection.connectionState === 'closed') return;
           await connection.setRemoteDescription(signal.sdp);
-        } catch (err) {
-          trackTelemetryError('voice_signal_offer_remote_description_failed', err, {
-            peerUserId: payload.fromUserId,
-            channelId: payload.channelId,
-            signalingState: connection.signalingState,
-          });
-          closePeerConnection(payload.fromUserId);
-          try {
-            await ensurePeerConnection(payload.fromUserId, payload.channelId);
-            await createOfferForPeerRef.current(payload.fromUserId, payload.channelId);
-          } catch {
-            // Best effort. Next voice sync can recover.
+          
+          applyConnectionReceiverBuffering(connection);
+          await flushPendingIceCandidates(payload.fromUserId, connection);
+          
+          if (connection.signalingState !== 'have-remote-offer') {
+             return;
           }
-          return;
-        }
-        applyConnectionReceiverBuffering(connection);
-        await flushPendingIceCandidates(payload.fromUserId, connection);
-        
-        try {
+
           const answer = await connection.createAnswer();
           if (connection.signalingState !== 'have-remote-offer') {
-             // State changed while creating answer
              return;
           }
           await connection.setLocalDescription(answer);
@@ -2428,10 +2418,12 @@ export function ChatPage() {
             sdp: answer,
           } satisfies VoiceSignalData);
         } catch (err) {
-          trackTelemetryError('voice_signal_answer_creation_failed', err, {
+          trackTelemetryError('voice_signal_offer_processing_failed', err, {
             peerUserId: payload.fromUserId,
             channelId: payload.channelId,
+            signalingState: connection.signalingState,
           });
+          // Avoid loop: don't always reset here, let sync transport handle it
         }
         return;
       }
@@ -2449,7 +2441,10 @@ export function ChatPage() {
       }
 
       try {
+        if (connection.connectionState === 'closed') return;
         await connection.setRemoteDescription(signal.sdp);
+        applyConnectionReceiverBuffering(connection);
+        await flushPendingIceCandidates(payload.fromUserId, connection);
       } catch (err) {
         trackTelemetryError('voice_signal_answer_remote_description_failed', err, {
           peerUserId: payload.fromUserId,
@@ -3239,7 +3234,7 @@ export function ChatPage() {
         );
       };
       void syncVoiceTransport();
-    }, 200);
+    }, 300);
 
     return () => {
       cancelled = true;
