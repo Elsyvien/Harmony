@@ -70,6 +70,8 @@ const REMOTE_VIDEO_PLAYOUT_DELAY_HINT_SECONDS = 0.35;
 const REMOTE_VIDEO_JITTER_BUFFER_TARGET_MS = 300;
 const REMOTE_AUDIO_PLAYOUT_DELAY_HINT_SECONDS = 0.2;
 const REMOTE_AUDIO_JITTER_BUFFER_TARGET_MS = 180;
+const REMOTE_SPEAKING_HOLD_MS = 420;
+const REMOTE_SPEAKING_THRESHOLD_FLOOR = 0.006;
 
 const CAMERA_FALLBACK_QUALITY_LABELS = [
   '1080p 30fps',
@@ -102,6 +104,15 @@ function clampMediaElementVolume(value: number) {
   return Math.min(1, Math.max(0, value));
 }
 
+function computeTimeDomainRms(data: ArrayLike<number>) {
+  let sum = 0;
+  for (let i = 0; i < data.length; i += 1) {
+    const normalized = (data[i] - 128) / 128;
+    sum += normalized * normalized;
+  }
+  return Math.sqrt(sum / data.length);
+}
+
 function clampCameraPreset(preset: StreamQualityPreset): StreamQualityPreset {
   return {
     width: Math.min(preset.width, CAMERA_MAX_CAPTURE_CONSTRAINTS.width),
@@ -113,32 +124,6 @@ function clampCameraPreset(preset: StreamQualityPreset): StreamQualityPreset {
 function getCameraCapturePresetLabels(preferredLabel: string): string[] {
   const labels = [preferredLabel, ...CAMERA_FALLBACK_QUALITY_LABELS, DEFAULT_STREAM_QUALITY];
   return [...new Set(labels.filter((label) => Boolean(STREAM_QUALITY_CONSTRAINTS[label])))];
-}
-
-function computeAdaptiveVoiceBitrateKbps(baseBitrateKbps: number, participantCount: number) {
-  if (participantCount >= 9) {
-    return Math.min(baseBitrateKbps, 64);
-  }
-  if (participantCount >= 5) {
-    return Math.min(baseBitrateKbps, 96);
-  }
-  return baseBitrateKbps;
-}
-
-function computeAdaptiveStreamBitrateKbps(baseBitrateKbps: number, participantCount: number) {
-  if (participantCount >= 6) {
-    return Math.min(baseBitrateKbps, 1000);
-  }
-  if (participantCount >= 5) {
-    return Math.min(baseBitrateKbps, 1400);
-  }
-  if (participantCount >= 4) {
-    return Math.min(baseBitrateKbps, 1800);
-  }
-  if (participantCount >= 3) {
-    return Math.min(baseBitrateKbps, 2500);
-  }
-  return baseBitrateKbps;
 }
 
 type VoiceSignalData =
@@ -393,6 +378,11 @@ export function ChatPage() {
   const remoteAudioSourceByUserRef = useRef<Map<string, MediaElementAudioSourceNode>>(new Map());
   const remoteAudioGainByUserRef = useRef<Map<string, GainNode>>(new Map());
   const remoteAudioElementByUserRef = useRef<Map<string, HTMLAudioElement>>(new Map());
+  const remoteSpeakingContextRef = useRef<AudioContext | null>(null);
+  const remoteSpeakingSourceByUserRef = useRef<Map<string, MediaStreamAudioSourceNode>>(new Map());
+  const remoteSpeakingAnalyserByUserRef = useRef<Map<string, AnalyserNode>>(new Map());
+  const remoteSpeakingDataByUserRef = useRef<Map<string, Uint8Array>>(new Map());
+  const remoteSpeakingLastSpokeAtByUserRef = useRef<Map<string, number>>(new Map());
   const localVoiceInputDeviceIdRef = useRef<string | null>(null);
   const peerConnectionsRef = useRef<Map<string, RTCPeerConnection>>(new Map());
   const videoSenderByPeerRef = useRef<Map<string, RTCRtpSender>>(new Map());
@@ -494,16 +484,6 @@ export function ChatPage() {
     authUserId: auth.user?.id,
     authUserRole: auth.user?.role,
   });
-
-  const voiceTransportParticipantCount = Math.max(1, joinedVoiceParticipants.length);
-  const effectiveVoiceBitrateKbps = useMemo(
-    () => computeAdaptiveVoiceBitrateKbps(activeVoiceBitrateKbps, voiceTransportParticipantCount),
-    [activeVoiceBitrateKbps, voiceTransportParticipantCount],
-  );
-  const effectiveStreamBitrateKbps = useMemo(
-    () => computeAdaptiveStreamBitrateKbps(activeStreamBitrateKbps, voiceTransportParticipantCount),
-    [activeStreamBitrateKbps, voiceTransportParticipantCount],
-  );
 
   const subscribedChannelIds = useMemo(() => channels.map((channel) => channel.id), [channels]);
 
@@ -970,6 +950,14 @@ export function ChatPage() {
       remoteAudioGainByUserRef.current.delete(peerUserId);
     }
     remoteAudioElementByUserRef.current.delete(peerUserId);
+    const remoteSpeakingSource = remoteSpeakingSourceByUserRef.current.get(peerUserId);
+    if (remoteSpeakingSource) {
+      remoteSpeakingSource.disconnect();
+      remoteSpeakingSourceByUserRef.current.delete(peerUserId);
+    }
+    remoteSpeakingAnalyserByUserRef.current.delete(peerUserId);
+    remoteSpeakingDataByUserRef.current.delete(peerUserId);
+    remoteSpeakingLastSpokeAtByUserRef.current.delete(peerUserId);
     setRemoteAudioStreams((prev) => {
       if (!prev[peerUserId]) {
         return prev;
@@ -1056,6 +1044,17 @@ export function ChatPage() {
       void remoteAudioContextRef.current.close();
       remoteAudioContextRef.current = null;
     }
+    for (const source of remoteSpeakingSourceByUserRef.current.values()) {
+      source.disconnect();
+    }
+    remoteSpeakingSourceByUserRef.current.clear();
+    remoteSpeakingAnalyserByUserRef.current.clear();
+    remoteSpeakingDataByUserRef.current.clear();
+    remoteSpeakingLastSpokeAtByUserRef.current.clear();
+    if (remoteSpeakingContextRef.current) {
+      void remoteSpeakingContextRef.current.close();
+      remoteSpeakingContextRef.current = null;
+    }
   }, [closePeerConnection]);
 
   const resetLocalAnalyser = useCallback(() => {
@@ -1085,6 +1084,21 @@ export function ChatPage() {
     return context;
   }, []);
 
+  const ensureRemoteSpeakingContext = useCallback(() => {
+    if (remoteSpeakingContextRef.current && remoteSpeakingContextRef.current.state !== 'closed') {
+      return remoteSpeakingContextRef.current;
+    }
+    const AudioContextClass =
+      window.AudioContext ||
+      (window as typeof window & { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
+    if (!AudioContextClass) {
+      return null;
+    }
+    const context = new AudioContextClass();
+    remoteSpeakingContextRef.current = context;
+    return context;
+  }, []);
+
   const disconnectRemoteAudioForUser = useCallback((userId: string) => {
     const source = remoteAudioSourceByUserRef.current.get(userId);
     if (source) {
@@ -1097,6 +1111,17 @@ export function ChatPage() {
       remoteAudioGainByUserRef.current.delete(userId);
     }
     remoteAudioElementByUserRef.current.delete(userId);
+  }, []);
+
+  const disconnectRemoteSpeakingForUser = useCallback((userId: string) => {
+    const source = remoteSpeakingSourceByUserRef.current.get(userId);
+    if (source) {
+      source.disconnect();
+      remoteSpeakingSourceByUserRef.current.delete(userId);
+    }
+    remoteSpeakingAnalyserByUserRef.current.delete(userId);
+    remoteSpeakingDataByUserRef.current.delete(userId);
+    remoteSpeakingLastSpokeAtByUserRef.current.delete(userId);
   }, []);
 
   const applyRemoteAudioGain = useCallback(
@@ -1141,7 +1166,13 @@ export function ChatPage() {
       }
       disconnectRemoteAudioForUser(userId);
     }
-  }, [activeRemoteAudioUsers, disconnectRemoteAudioForUser]);
+    for (const userId of Array.from(remoteSpeakingSourceByUserRef.current.keys())) {
+      if (activeUserIds.has(userId)) {
+        continue;
+      }
+      disconnectRemoteSpeakingForUser(userId);
+    }
+  }, [activeRemoteAudioUsers, disconnectRemoteAudioForUser, disconnectRemoteSpeakingForUser]);
 
   const pruneStaleRemoteScreenShares = useCallback(() => {
     const staleUserIds: string[] = [];
@@ -1521,8 +1552,8 @@ export function ChatPage() {
           // Keep empty sender and continue. Next renegotiation can recover.
         }
       }
-      await applyAudioBitrateToConnection(connection, effectiveVoiceBitrateKbps);
-      await applyVideoBitrateToConnection(connection, effectiveStreamBitrateKbps);
+      await applyAudioBitrateToConnection(connection, activeVoiceBitrateKbps);
+      await applyVideoBitrateToConnection(connection, activeStreamBitrateKbps);
 
       connection.onicecandidate = (event) => {
         if (!event.candidate) {
@@ -1657,8 +1688,8 @@ export function ChatPage() {
       applyVideoBitrateToConnection,
       closePeerConnection,
       getLocalVoiceStream,
-      effectiveVoiceBitrateKbps,
-      effectiveStreamBitrateKbps,
+      activeVoiceBitrateKbps,
+      activeStreamBitrateKbps,
       applyConnectionReceiverBuffering,
       applyReceiverBuffering,
       getOrCreateVideoSender,
@@ -2510,9 +2541,9 @@ export function ChatPage() {
       return;
     }
     for (const connection of connections) {
-      void applyAudioBitrateToConnection(connection, effectiveVoiceBitrateKbps);
+      void applyAudioBitrateToConnection(connection, activeVoiceBitrateKbps);
     }
-  }, [applyAudioBitrateToConnection, effectiveVoiceBitrateKbps]);
+  }, [applyAudioBitrateToConnection, activeVoiceBitrateKbps]);
 
   useEffect(() => {
     const connections = Array.from(peerConnectionsRef.current.values());
@@ -2520,9 +2551,9 @@ export function ChatPage() {
       return;
     }
     for (const connection of connections) {
-      void applyVideoBitrateToConnection(connection, effectiveStreamBitrateKbps);
+      void applyVideoBitrateToConnection(connection, activeStreamBitrateKbps);
     }
-  }, [applyVideoBitrateToConnection, effectiveStreamBitrateKbps]);
+  }, [applyVideoBitrateToConnection, activeStreamBitrateKbps]);
 
   useEffect(() => {
     applyLocalVoiceTrackState(localVoiceStreamRef.current);
@@ -2600,24 +2631,104 @@ export function ChatPage() {
 
   // Speaking detection – remote audio
   useEffect(() => {
-    if (!preferences.showVoiceActivity) {
+    if (!preferences.showVoiceActivity || !auth.user) {
+      for (const userId of Array.from(remoteSpeakingSourceByUserRef.current.keys())) {
+        disconnectRemoteSpeakingForUser(userId);
+      }
       setSpeakingUserIds((prev) => prev.filter((id) => id === auth.user?.id));
       return;
     }
 
-    const nextRemoteSpeaking = viewedRemoteAudioUsers
-      .filter(({ stream }) => stream.active)
-      .map(({ userId }) => userId);
+    const context = ensureRemoteSpeakingContext();
+    if (!context) {
+      return;
+    }
+    if (context.state === 'suspended') {
+      void context.resume().catch(() => {
+        // Best effort. A user gesture will resume later if needed.
+      });
+    }
 
-    setSpeakingUserIds((prev) => {
-      const localSelf = prev.filter((id) => id === auth.user?.id);
-      const merged = [...new Set([...localSelf, ...nextRemoteSpeaking])];
-      if (merged.length === prev.length && merged.every((id, index) => id === prev[index])) {
-        return prev;
+    const activeRemoteUserIds = new Set(viewedRemoteAudioUsers.map((user) => user.userId));
+    for (const { userId, stream } of viewedRemoteAudioUsers) {
+      const existingSource = remoteSpeakingSourceByUserRef.current.get(userId);
+      if (existingSource && existingSource.mediaStream === stream) {
+        continue;
       }
-      return merged;
-    });
-  }, [preferences.showVoiceActivity, viewedRemoteAudioUsers, auth.user?.id]);
+      disconnectRemoteSpeakingForUser(userId);
+      try {
+        const source = context.createMediaStreamSource(stream);
+        const analyser = context.createAnalyser();
+        analyser.fftSize = 512;
+        analyser.smoothingTimeConstant = 0.6;
+        source.connect(analyser);
+        remoteSpeakingSourceByUserRef.current.set(userId, source);
+        remoteSpeakingAnalyserByUserRef.current.set(userId, analyser);
+        remoteSpeakingDataByUserRef.current.set(userId, new Uint8Array(analyser.fftSize));
+      } catch {
+        // Some browsers can reject source creation for transient tracks; retry next cycle.
+      }
+    }
+    for (const userId of Array.from(remoteSpeakingSourceByUserRef.current.keys())) {
+      if (activeRemoteUserIds.has(userId)) {
+        continue;
+      }
+      disconnectRemoteSpeakingForUser(userId);
+    }
+
+    const speakingThreshold = Math.max(
+      REMOTE_SPEAKING_THRESHOLD_FLOOR,
+      preferences.voiceInputSensitivity * 0.75,
+    );
+    const remoteOrder = viewedRemoteAudioUsers.map((user) => user.userId);
+    let frame = 0;
+    const tick = () => {
+      const now = performance.now();
+      const remoteSpeakingSet = new Set<string>();
+
+      for (const userId of remoteOrder) {
+        const analyser = remoteSpeakingAnalyserByUserRef.current.get(userId);
+        const data = remoteSpeakingDataByUserRef.current.get(userId);
+        if (!analyser || !data) {
+          continue;
+        }
+        analyser.getByteTimeDomainData(data as Uint8Array<ArrayBuffer>);
+        const rms = computeTimeDomainRms(data);
+        if (rms >= speakingThreshold) {
+          remoteSpeakingLastSpokeAtByUserRef.current.set(userId, now);
+          remoteSpeakingSet.add(userId);
+          continue;
+        }
+        const lastSpokeAt = remoteSpeakingLastSpokeAtByUserRef.current.get(userId) ?? 0;
+        if (now - lastSpokeAt <= REMOTE_SPEAKING_HOLD_MS) {
+          remoteSpeakingSet.add(userId);
+        }
+      }
+
+      setSpeakingUserIds((prev) => {
+        const selfList = prev.filter((id) => id === auth.user?.id);
+        const next = [...selfList, ...remoteOrder.filter((userId) => remoteSpeakingSet.has(userId))];
+        if (next.length === prev.length && next.every((id, index) => id === prev[index])) {
+          return prev;
+        }
+        return next;
+      });
+
+      frame = window.requestAnimationFrame(tick);
+    };
+
+    frame = window.requestAnimationFrame(tick);
+    return () => {
+      window.cancelAnimationFrame(frame);
+    };
+  }, [
+    preferences.showVoiceActivity,
+    preferences.voiceInputSensitivity,
+    viewedRemoteAudioUsers,
+    auth.user,
+    ensureRemoteSpeakingContext,
+    disconnectRemoteSpeakingForUser,
+  ]);
 
   const applyStreamQualityToStream = useCallback((
     stream: MediaStream,
