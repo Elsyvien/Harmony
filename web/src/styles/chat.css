@@ -351,6 +351,79 @@ input,
   color: #ffd3d4;
 }
 
+.channel-stream-preview-list {
+  display: grid;
+  gap: 8px;
+  margin: 4px 8px 10px 30px;
+}
+
+.channel-stream-preview {
+  position: relative;
+  border-radius: 10px;
+  overflow: hidden;
+  aspect-ratio: 16 / 9;
+  background: #000;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  cursor: pointer;
+}
+
+.channel-stream-preview video {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+.channel-stream-preview-overlay {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  align-content: end;
+  gap: 6px;
+  padding: 10px;
+  background: linear-gradient(to top, rgba(0, 0, 0, 0.82), rgba(0, 0, 0, 0.15));
+}
+
+.channel-stream-preview-live {
+  justify-self: start;
+  display: inline-flex;
+  align-items: center;
+  height: 16px;
+  border-radius: 999px;
+  padding: 0 6px;
+  background-color: #ed4245;
+  color: #fff;
+  font-size: 9px;
+  font-weight: 800;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+}
+
+.channel-stream-preview-overlay strong {
+  color: #fff;
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1.2;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.45);
+}
+
+.channel-stream-preview-btn {
+  justify-self: start;
+  border-radius: 8px;
+  border: 1px solid rgba(255, 255, 255, 0.24);
+  background-color: rgba(18, 20, 24, 0.82);
+  color: #fff;
+  font-size: 11px;
+  font-weight: 700;
+  padding: 5px 9px;
+  cursor: pointer;
+}
+
+.channel-stream-preview-btn:hover {
+  background-color: rgba(88, 101, 242, 0.32);
+  border-color: rgba(165, 174, 255, 0.85);
+}
+
 /* User Area Footer */
 
 .channel-sidebar footer {

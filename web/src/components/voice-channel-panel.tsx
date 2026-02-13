@@ -261,6 +261,9 @@ export function VoiceChannelPanel(props: VoiceChannelPanelProps) {
   const hasScreenShares =
     (props.localStreamSource !== null && props.localScreenShareStream !== null) ||
     Object.keys(props.remoteScreenShares).length > 0;
+  const remoteStreamCount = Object.keys(props.remoteScreenShares).length;
+  const totalStreamCount = remoteStreamCount + (props.localScreenShareStream ? 1 : 0);
+  const connectedParticipantCount = props.participants.length;
   const canEditBitrates = props.canEditChannelBitrate && !props.qualityBusy;
   const localShareTitle =
     props.localStreamSource === 'camera' ? 'You are sharing your camera' : 'You are sharing your screen';
@@ -330,6 +333,20 @@ export function VoiceChannelPanel(props: VoiceChannelPanelProps) {
             : 'Joining voice... requesting microphone access.'
           : 'Join the channel to establish WebRTC voice transport.'}
       </p>
+
+      <div className="voice-overview-chips" aria-live="polite">
+        <span className={`voice-overview-chip ${props.wsConnected ? 'ok' : 'warn'}`}>
+          {props.wsConnected ? 'Realtime connected' : 'Realtime disconnected'}
+        </span>
+        <span className={`voice-overview-chip ${props.joined ? 'ok' : ''}`}>
+          {props.joined ? 'In voice channel' : 'Not in voice'}
+        </span>
+        <span className={`voice-overview-chip ${props.isMuted ? 'warn' : 'ok'}`}>
+          {props.isMuted ? 'Mic muted' : 'Mic live'}
+        </span>
+        <span className="voice-overview-chip">Participants: {connectedParticipantCount}</span>
+        <span className="voice-overview-chip">Live streams: {totalStreamCount}</span>
+      </div>
 
       {/* Quality Controls Section */}
       {props.joined && (
@@ -413,6 +430,29 @@ export function VoiceChannelPanel(props: VoiceChannelPanelProps) {
           })}
         </div>
       )}
+
+      {props.joined && !hasScreenShares ? (
+        <div className="voice-stream-empty-state">
+          <strong>No live stream yet</strong>
+          <p>Start sharing your screen or camera so others can watch a preview.</p>
+          <div className="voice-stream-empty-actions">
+            <button
+              className="ghost-btn small"
+              onClick={() => props.onToggleVideoShare('screen')}
+              disabled={props.busy || !props.wsConnected}
+            >
+              Share Screen
+            </button>
+            <button
+              className="ghost-btn small"
+              onClick={() => props.onToggleVideoShare('camera')}
+              disabled={props.busy || !props.wsConnected}
+            >
+              Share Camera
+            </button>
+          </div>
+        </div>
+      ) : null}
 
       {props.showDetailedStats ? (
         <section className="voice-detailed-stats">

@@ -3195,6 +3195,9 @@ export function ChatPage() {
         voiceParticipantCounts={voiceParticipantCounts}
         voiceParticipantsByChannel={voiceParticipantsByChannel}
         voiceStreamingUserIdsByChannel={voiceStreamingUserIdsByChannel}
+        remoteScreenShares={remoteScreenShares}
+        localScreenShareStream={localScreenShareStream}
+        localStreamSource={localStreamSource}
         speakingUserIds={speakingUserIds}
         onJoinVoice={joinVoiceChannel}
         onLeaveVoice={leaveVoiceChannel}

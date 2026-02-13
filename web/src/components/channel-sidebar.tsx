@@ -1,5 +1,5 @@
 import type { Channel } from '../types/api';
-import { useState } from 'react';
+import { memo, useEffect, useRef, useState } from 'react';
 import harmonyLogo from '../../ressources/logos/logo.png';
 import { resolveMediaUrl } from '../utils/media-url';
 import type { VoiceParticipant } from '../hooks/use-chat-socket';
@@ -22,6 +22,9 @@ interface ChannelSidebarProps {
   voiceParticipantCounts: Record<string, number>;
   voiceParticipantsByChannel: Record<string, VoiceParticipant[]>;
   voiceStreamingUserIdsByChannel: Record<string, string[]>;
+  remoteScreenShares: Record<string, MediaStream>;
+  localScreenShareStream: MediaStream | null;
+  localStreamSource: 'screen' | 'camera' | null;
   speakingUserIds: string[];
   onJoinVoice: (channelId: string) => Promise<void> | void;
   onLeaveVoice: () => Promise<void> | void;
@@ -35,6 +38,50 @@ interface ChannelSidebarProps {
   ping: number | null;
   state: string; // Add this
 }
+
+const StreamPreviewCard = memo(function StreamPreviewCard({
+  title,
+  stream,
+  onWatch,
+}: {
+  title: string;
+  stream: MediaStream;
+  onWatch: () => void;
+}) {
+  const videoRef = useRef<HTMLVideoElement | null>(null);
+
+  useEffect(() => {
+    const video = videoRef.current;
+    if (!video) {
+      return;
+    }
+    if (video.srcObject !== stream) {
+      video.srcObject = stream;
+    }
+    void video.play().catch(() => {
+      // Best effort; some browsers require gesture first.
+    });
+  }, [stream]);
+
+  return (
+    <article className="channel-stream-preview" onClick={onWatch}>
+      <video ref={videoRef} autoPlay playsInline muted />
+      <div className="channel-stream-preview-overlay">
+        <div className="channel-stream-preview-live">LIVE</div>
+        <strong>{title}</strong>
+        <button
+          className="channel-stream-preview-btn"
+          onClick={(event) => {
+            event.stopPropagation();
+            onWatch();
+          }}
+        >
+          Stream anschauen
+        </button>
+      </div>
+    </article>
+  );
+});
 
 function stringToColor(str: string) {
   let hash = 0;
@@ -228,6 +275,32 @@ export function ChannelSidebar(props: ChannelSidebarProps) {
           const isJoined = props.activeVoiceChannelId === channel.id;
           const channelParticipants = props.voiceParticipantsByChannel[channel.id] ?? [];
           const streamingSet = new Set(props.voiceStreamingUserIdsByChannel[channel.id] ?? []);
+          const streamPreviewItems: Array<{ key: string; title: string; stream: MediaStream }> = [];
+          if (
+            isJoined &&
+            props.localScreenShareStream &&
+            props.localStreamSource !== null &&
+            props.userId
+          ) {
+            streamPreviewItems.push({
+              key: `local-${props.userId}`,
+              title: props.localStreamSource === 'camera' ? `${props.username} (Kamera)` : `${props.username} (Bildschirm)`,
+              stream: props.localScreenShareStream,
+            });
+          }
+          if (isJoined) {
+            for (const participant of channelParticipants) {
+              const stream = props.remoteScreenShares[participant.userId];
+              if (!stream) {
+                continue;
+              }
+              streamPreviewItems.push({
+                key: `remote-${participant.userId}`,
+                title: participant.username,
+                stream,
+              });
+            }
+          }
           const participants = props.voiceParticipantCounts[channel.id] ?? 0;
           const isTransitioning = props.joiningVoiceChannelId === channel.id;
           const isOtherTransition =
@@ -327,6 +400,18 @@ export function ChannelSidebar(props: ChannelSidebarProps) {
                       </div>
                     );
                   })}
+                </div>
+              ) : null}
+              {streamPreviewItems.length > 0 ? (
+                <div className="channel-stream-preview-list">
+                  {streamPreviewItems.map((item) => (
+                    <StreamPreviewCard
+                      key={item.key}
+                      title={item.title}
+                      stream={item.stream}
+                      onWatch={() => props.onSelect(channel.id)}
+                    />
+                  ))}
                 </div>
               ) : null}
             </div>
