@@ -3,6 +3,7 @@ import fp from 'fastify-plugin';
 import type { FastifyPluginAsync } from 'fastify';
 import type { ChannelService } from '../services/channel.service.js';
 import type { MessageService } from '../services/message.service.js';
+import type { VoiceSfuService } from '../services/voice-sfu.service.js';
 import { prisma } from '../repositories/prisma.js';
 import { AppError } from '../utils/app-error.js';
 import { isAdminRole } from '../utils/roles.js';
@@ -11,6 +12,7 @@ import { isSuspensionActive } from '../utils/suspension.js';
 interface WsPluginOptions {
   channelService: ChannelService;
   messageService: MessageService;
+  voiceSfuService: VoiceSfuService;
 }
 
 interface VoiceParticipantState {
