@@ -1,0 +1,582 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>AI Agent Guide — Harmony Docs</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600&family=Outfit:wght@500;700&family=Space+Grotesk:wght@400;500;700&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="./styles.css" />
+    <style>
+      .back-link {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        margin-bottom: 20px;
+        font-size: 0.85rem;
+        color: var(--text-muted);
+      }
+
+      .back-link:hover {
+        color: var(--accent);
+      }
+
+      .meta-strip {
+        display: grid;
+        grid-template-columns: repeat(3, minmax(120px, 1fr));
+        gap: 10px;
+        margin-top: 16px;
+      }
+
+      .meta-card {
+        background: var(--bg-hover);
+        border: 1px solid var(--border);
+        border-radius: var(--radius);
+        padding: 10px 12px;
+      }
+
+      .meta-k {
+        margin: 0;
+        font-size: 0.7rem;
+        text-transform: uppercase;
+        letter-spacing: 0.08em;
+        color: var(--text-muted);
+      }
+
+      .meta-v {
+        margin: 4px 0 0;
+        color: var(--text-bright);
+        font-size: 0.85rem;
+        font-weight: 600;
+      }
+
+      .section-card {
+        background: var(--bg-surface);
+        border: 1px solid var(--border);
+        border-radius: var(--radius);
+        padding: 16px;
+        margin-top: 12px;
+      }
+
+      .section-card h3 {
+        margin: 0 0 8px;
+        color: var(--text-bright);
+        font-family: var(--font-display);
+        font-size: 1rem;
+      }
+
+      .section-card p,
+      .section-card li {
+        color: var(--text-muted);
+        font-size: 0.9rem;
+      }
+
+      .inline-code {
+        font-family: var(--font-mono);
+        font-size: 0.8rem;
+        background: var(--bg-hover);
+        border: 1px solid var(--border-subtle);
+        color: var(--text);
+        border-radius: 6px;
+        padding: 1px 6px;
+      }
+
+      .rank-list {
+        display: grid;
+        gap: 8px;
+        margin: 0;
+        padding: 0;
+        list-style: none;
+      }
+
+      .rank-item {
+        display: grid;
+        grid-template-columns: 32px 1fr;
+        gap: 10px;
+        align-items: start;
+        padding: 10px 12px;
+        border: 1px solid var(--border);
+        border-radius: var(--radius);
+        background: var(--bg-surface);
+      }
+
+      .rank-num {
+        display: inline-flex;
+        width: 32px;
+        height: 32px;
+        align-items: center;
+        justify-content: center;
+        border-radius: 999px;
+        background: var(--accent-glow);
+        color: var(--text-bright);
+        font-weight: 700;
+        font-size: 0.82rem;
+      }
+
+      .inv-list {
+        display: grid;
+        gap: 10px;
+      }
+
+      .inv-item {
+        border: 1px solid var(--border);
+        border-radius: var(--radius);
+        background: var(--bg-surface);
+        padding: 12px 14px;
+      }
+
+      .inv-title {
+        margin: 0 0 6px;
+        color: var(--text-bright);
+        font-weight: 600;
+        font-size: 0.92rem;
+      }
+
+      .inv-files {
+        margin-top: 6px;
+        color: var(--text-muted);
+        font-size: 0.82rem;
+      }
+
+      .playbook {
+        border: 1px solid var(--border);
+        border-radius: var(--radius);
+        background: var(--bg-surface);
+        padding: 14px;
+        margin-top: 10px;
+      }
+
+      .playbook h3 {
+        margin: 0 0 8px;
+        font-size: 0.98rem;
+      }
+
+      .playbook ol {
+        margin: 0;
+        padding-left: 18px;
+      }
+
+      .checklist {
+        list-style: none;
+        padding: 0;
+        margin: 0;
+        display: grid;
+        gap: 8px;
+      }
+
+      .checklist li {
+        display: flex;
+        gap: 8px;
+        align-items: start;
+        border: 1px solid var(--border);
+        border-radius: var(--radius);
+        background: var(--bg-surface);
+        padding: 10px 12px;
+      }
+
+      .checklist li::before {
+        content: "✓";
+        color: var(--positive);
+        font-weight: 700;
+        line-height: 1;
+        margin-top: 1px;
+        width: 18px;
+        min-width: 18px;
+        flex: 0 0 18px;
+        text-align: center;
+      }
+
+      .warn-list li::before {
+        content: "!";
+        color: #1a1a1a;
+        background: var(--warning);
+        border-radius: 999px;
+        width: 18px;
+        height: 18px;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 0.72rem;
+        font-weight: 800;
+        margin-top: 0;
+      }
+
+      .warn-list li {
+        border-color: var(--warning);
+        background: var(--bg-surface);
+      }
+
+      table.tight td,
+      table.tight th {
+        padding: 10px 12px;
+        font-size: 0.86rem;
+      }
+
+      .section[hidden] {
+        display: none;
+      }
+
+      @media (max-width: 900px) {
+        .meta-strip {
+          grid-template-columns: 1fr;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <div class="layout">
+      <aside class="sidebar">
+        <h1 class="brand">Harmony</h1>
+        <p class="tagline">AI Agent Guide</p>
+        <input id="section-search" class="search" placeholder="Filter sections..." aria-label="Filter sections" />
+
+        <div class="nav-group">
+          <p class="nav-title">Navigation</p>
+          <a class="nav-link" href="./index.html">← Back to Docs</a>
+        </div>
+
+        <div class="nav-group">
+          <p class="nav-title">Core</p>
+          <a class="nav-link" href="#what-is-harmony">What Harmony Is</a>
+          <a class="nav-link" href="#ground-truth-order">Ground Truth Order</a>
+          <a class="nav-link" href="#runtime-invariants">Runtime Invariants</a>
+          <a class="nav-link" href="#high-risk-files">High-Risk Files</a>
+        </div>
+
+        <div class="nav-group">
+          <p class="nav-title">Playbooks</p>
+          <a class="nav-link" href="#safe-playbooks">Safe Change Playbooks</a>
+          <a class="nav-link" href="#backend-checks">Backend Checks</a>
+          <a class="nav-link" href="#frontend-checks">Frontend Checks</a>
+          <a class="nav-link" href="#testing">Testing Expectations</a>
+        </div>
+
+        <div class="nav-group">
+          <p class="nav-title">Ops Notes</p>
+          <a class="nav-link" href="#pitfalls">Known Gaps &amp; Pitfalls</a>
+          <a class="nav-link" href="#orientation-map">Quick Orientation Map</a>
+          <a class="nav-link" href="#docs-update-rule">Minimum Docs Update Rule</a>
+        </div>
+      </aside>
+
+      <main class="main">
+        <a class="back-link" href="./index.html">← Back to Documentation Hub</a>
+
+        <section class="hero" id="hero">
+          <h1>AI Agent Guide</h1>
+          <p>
+            This guide is optimized for autonomous and semi-autonomous contributors.
+            Use it before editing Harmony to preserve core runtime and data invariants.
+          </p>
+          <div class="quick-links">
+            <a class="chip" href="./BACKEND_REFERENCE.md">Backend Reference</a>
+            <a class="chip" href="./FRONTEND_REFERENCE.md">Frontend Reference</a>
+            <a class="chip" href="./DATA_MODEL.md">Data Model</a>
+            <a class="chip" href="./file-map.html">File Map</a>
+          </div>
+          <div class="meta-strip">
+            <article class="meta-card">
+              <p class="meta-k">Audience</p>
+              <p class="meta-v">AI / autonomous contributors</p>
+            </article>
+            <article class="meta-card">
+              <p class="meta-k">Priority</p>
+              <p class="meta-v">Protect invariants first</p>
+            </article>
+            <article class="meta-card">
+              <p class="meta-k">Source</p>
+              <p class="meta-v">docs/AI_AGENT_GUIDE.md</p>
+            </article>
+          </div>
+        </section>
+
+        <section id="what-is-harmony" class="section">
+          <h2>What Harmony Is</h2>
+          <div class="section-card">
+            <ul>
+              <li>JWT authentication.</li>
+              <li>Public channels, voice channels, and friend-gated direct message channels.</li>
+              <li>Realtime message/friend/presence/voice events over WebSocket.</li>
+              <li>REST fallback flows for reliability.</li>
+              <li>Admin runtime controls (registration lock, read-only mode, slow mode).</li>
+            </ul>
+          </div>
+        </section>
+
+        <section id="ground-truth-order" class="section">
+          <h2>Ground Truth Order</h2>
+          <ol class="rank-list">
+            <li class="rank-item">
+              <span class="rank-num">1</span>
+              <div><strong>Source code</strong><br /><span class="section-card-text"><span class="inline-code">backend/src</span> and <span class="inline-code">web/src</span> are authoritative.</span></div>
+            </li>
+            <li class="rank-item">
+              <span class="rank-num">2</span>
+              <div><strong>Schema</strong><br /><span class="inline-code">backend/prisma/schema.prisma</span>.</div>
+            </li>
+            <li class="rank-item">
+              <span class="rank-num">3</span>
+              <div><strong>Docs folder</strong><br /><span class="inline-code">docs/</span> reference documents.</div>
+            </li>
+            <li class="rank-item">
+              <span class="rank-num">4</span>
+              <div><strong>Root context docs</strong><br />Repository marketing/context files.</div>
+            </li>
+          </ol>
+        </section>
+
+        <section id="runtime-invariants" class="section">
+          <h2>Core Runtime Invariants</h2>
+          <div class="inv-list">
+            <article class="inv-item">
+              <p class="inv-title">1) Owner bootstrap for username max/Max is enforced on startup and seed.</p>
+              <p class="inv-files">Files: <span class="inline-code">backend/src/app.ts</span>, <span class="inline-code">backend/prisma/seed.ts</span></p>
+            </article>
+            <article class="inv-item">
+              <p class="inv-title">2) Admin ability is role-derived only (OWNER and ADMIN).</p>
+              <p class="inv-files">File: <span class="inline-code">backend/src/utils/roles.ts</span></p>
+            </article>
+            <article class="inv-item">
+              <p class="inv-title">3) Global channel must exist and cannot be deleted.</p>
+              <p class="inv-files">Files: <span class="inline-code">backend/src/services/channel.service.ts</span>, <span class="inline-code">backend/src/repositories/channel.repository.ts</span></p>
+            </article>
+            <article class="inv-item">
+              <p class="inv-title">4) DM channel creation requires accepted friendship.</p>
+              <p class="inv-files">File: <span class="inline-code">backend/src/services/channel.service.ts</span></p>
+            </article>
+            <article class="inv-item">
+              <p class="inv-title">5) WebSocket actions except auth require authenticated socket context.</p>
+              <p class="inv-files">File: <span class="inline-code">backend/src/plugins/ws.plugin.ts</span></p>
+            </article>
+            <article class="inv-item">
+              <p class="inv-title">6) Non-admin write controls depend on runtime settings (read-only and slow mode).</p>
+              <p class="inv-files">File: <span class="inline-code">backend/src/services/message.service.ts</span></p>
+            </article>
+            <article class="inv-item">
+              <p class="inv-title">7) Message deletion is soft-delete (content/attachment cleared, deletedAt set).</p>
+              <p class="inv-files">File: <span class="inline-code">backend/src/repositories/message.repository.ts</span></p>
+            </article>
+            <article class="inv-item">
+              <p class="inv-title">8) Attachment uploads: one file max, 8 MB max, served from static uploads route.</p>
+              <p class="inv-files">Files: <span class="inline-code">backend/src/app.ts</span>, <span class="inline-code">backend/src/routes/channel.routes.ts</span></p>
+            </article>
+            <article class="inv-item">
+              <p class="inv-title">9) Slow mode timestamps are process-memory only and reset on restart.</p>
+              <p class="inv-files">File: <span class="inline-code">backend/src/services/admin-settings.service.ts</span></p>
+            </article>
+            <article class="inv-item">
+              <p class="inv-title">10) Frontend messaging must work without WebSocket via polling fallback.</p>
+              <p class="inv-files">File: <span class="inline-code">web/src/pages/chat-page.tsx</span></p>
+            </article>
+          </div>
+        </section>
+
+        <section id="high-risk-files" class="section">
+          <h2>High-Risk Files</h2>
+          <div class="grid cols-2">
+            <article class="card">
+              <h3>web/src/pages/chat-page.tsx</h3>
+              <p>Central orchestration for channels, messaging, DMs, admin views, friends, voice transport/signaling, unread counts, and fallback behavior.</p>
+            </article>
+            <article class="card">
+              <h3>backend/src/plugins/ws.plugin.ts</h3>
+              <p>WebSocket auth/session, subscriptions, presence fanout, voice participant state, and signaling relay.</p>
+            </article>
+            <article class="card">
+              <h3>backend/src/services/message.service.ts</h3>
+              <p>Read-only mode, slow mode, validation, edit/delete/reaction authorization rules.</p>
+            </article>
+            <article class="card">
+              <h3>backend/src/services/channel.service.ts</h3>
+              <p>Channel constraints, deletion safety, voice bitrate updates, DM friendship gate.</p>
+            </article>
+          </div>
+          <div class="section-card">
+            <h3>Schema Risk</h3>
+            <p><span class="inline-code">backend/prisma/schema.prisma</span> changes cascade into repositories, services, routes, frontend types, and docs.</p>
+          </div>
+        </section>
+
+        <section id="safe-playbooks" class="section">
+          <h2>Safe Change Playbooks</h2>
+
+          <article class="playbook">
+            <h3>Add a REST endpoint</h3>
+            <ol>
+              <li>Add/extend schema in <span class="inline-code">backend/src/schemas</span>.</li>
+              <li>Implement behavior in service (<span class="inline-code">backend/src/services</span>).</li>
+              <li>Add persistence methods in repositories if needed.</li>
+              <li>Wire route in <span class="inline-code">backend/src/routes/*.routes.ts</span>.</li>
+              <li>Update client in <span class="inline-code">web/src/api/chat-api.ts</span>.</li>
+              <li>Update frontend types in <span class="inline-code">web/src/types/api.ts</span>.</li>
+              <li>Update docs (<span class="inline-code">BACKEND_REFERENCE.md</span>, <span class="inline-code">API.md</span>, etc.).</li>
+            </ol>
+          </article>
+
+          <article class="playbook">
+            <h3>Add or change WebSocket event</h3>
+            <ol>
+              <li>Define handling and broadcast in <span class="inline-code">backend/src/plugins/ws.plugin.ts</span>.</li>
+              <li>Update Fastify decoration typing in <span class="inline-code">backend/src/types/fastify.d.ts</span> if needed.</li>
+              <li>Extend frontend socket parsing in <span class="inline-code">web/src/hooks/use-chat-socket.ts</span>.</li>
+              <li>Wire state updates in <span class="inline-code">web/src/pages/chat-page.tsx</span>.</li>
+              <li>Update docs (<span class="inline-code">BACKEND_REFERENCE.md</span>, <span class="inline-code">FRONTEND_REFERENCE.md</span>, <span class="inline-code">API.md</span>).</li>
+            </ol>
+          </article>
+
+          <article class="playbook">
+            <h3>Add user preference</h3>
+            <ol>
+              <li>Extend <span class="inline-code">UserPreferences</span> in <span class="inline-code">web/src/types/preferences.ts</span>.</li>
+              <li>Add normalize support in <span class="inline-code">web/src/hooks/use-user-preferences.ts</span>.</li>
+              <li>Add controls in <span class="inline-code">web/src/components/settings-panel.tsx</span>.</li>
+              <li>Apply behavior in consuming modules.</li>
+              <li>Update <span class="inline-code">docs/FRONTEND_REFERENCE.md</span>.</li>
+            </ol>
+          </article>
+
+          <article class="playbook">
+            <h3>Add schema field</h3>
+            <ol>
+              <li>Edit <span class="inline-code">backend/prisma/schema.prisma</span>.</li>
+              <li>Regenerate/apply DB changes.</li>
+              <li>Update repository selects/returns.</li>
+              <li>Update service logic and route outputs.</li>
+              <li>Update frontend types/UI if exposed.</li>
+              <li>Update <span class="inline-code">docs/DATA_MODEL.md</span> and affected references.</li>
+            </ol>
+          </article>
+
+          <article class="playbook">
+            <h3>Change role/permission logic</h3>
+            <ol>
+              <li>Update role helper functions in <span class="inline-code">backend/src/utils/roles.ts</span>.</li>
+              <li>Review all <span class="inline-code">isAdminRole(...)</span> checks in routes/services.</li>
+              <li>Review admin constraints in <span class="inline-code">backend/src/services/admin-user.service.ts</span>.</li>
+              <li>Update docs and tests.</li>
+            </ol>
+          </article>
+        </section>
+
+        <section id="backend-checks" class="section">
+          <h2>Backend Consistency Checks Before Finishing</h2>
+          <ul class="checklist">
+            <li>Route input schemas still match service expectations.</li>
+            <li>Error codes remain stable and documented.</li>
+            <li>Role checks protect all privileged paths.</li>
+            <li>WebSocket events have deterministic payloads.</li>
+            <li>Attachment limits and message constraints are preserved.</li>
+          </ul>
+        </section>
+
+        <section id="frontend-checks" class="section">
+          <h2>Frontend Consistency Checks Before Finishing</h2>
+          <ul class="checklist">
+            <li><span class="inline-code">web/src/types/api.ts</span> still matches backend payloads.</li>
+            <li><span class="inline-code">chatApi</span> methods match current routes.</li>
+            <li>Socket event handlers update only relevant context.</li>
+            <li>Polling fallback works when socket is disconnected.</li>
+            <li>Preferences remain backward-compatible with old localStorage payloads.</li>
+          </ul>
+        </section>
+
+        <section id="testing" class="section">
+          <h2>Testing Expectations</h2>
+          <div class="section-card">
+            <p>Current automated tests focus on backend service logic:</p>
+            <ul>
+              <li><span class="inline-code">backend/tests/auth.service.test.ts</span></li>
+              <li><span class="inline-code">backend/tests/channel.service.test.ts</span></li>
+              <li><span class="inline-code">backend/tests/friend.service.test.ts</span></li>
+              <li><span class="inline-code">backend/tests/message.service.test.ts</span></li>
+            </ul>
+            <p>Before merging behavior changes, run:</p>
+            <ol>
+              <li><span class="inline-code">npm test</span></li>
+              <li><span class="inline-code">npm run lint</span></li>
+              <li><span class="inline-code">npm run build</span></li>
+              <li>Smoke test login, chat, and voice flows in browser if runtime behavior changed.</li>
+            </ol>
+          </div>
+        </section>
+
+        <section id="pitfalls" class="section">
+          <h2>Known Gaps and Pitfalls</h2>
+          <ul class="checklist warn-list">
+            <li><span class="inline-code">schema.prisma</span> uses PostgreSQL provider, but <span class="inline-code">backend/.env.example</span> still has SQLite-style URL.</li>
+            <li><span class="inline-code">backend/prisma/dev.db</span> exists as a legacy artifact and does not match PostgreSQL semantics.</li>
+            <li>Root <span class="inline-code">AGENT.md</span> includes stale statements; prefer docs folder references.</li>
+            <li><span class="inline-code">web/src/pages/chat-page.tsx</span> is large and coupled; make isolated changes with careful review.</li>
+          </ul>
+        </section>
+
+        <section id="orientation-map" class="section">
+          <h2>Quick Orientation Map</h2>
+          <table class="tight">
+            <thead>
+              <tr>
+                <th>Area</th>
+                <th>File</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr><td>Backend entrypoint</td><td><span class="inline-code">backend/src/server.ts</span></td></tr>
+              <tr><td>Backend app composition</td><td><span class="inline-code">backend/src/app.ts</span></td></tr>
+              <tr><td>WebSocket protocol</td><td><span class="inline-code">backend/src/plugins/ws.plugin.ts</span></td></tr>
+              <tr><td>Primary frontend orchestration</td><td><span class="inline-code">web/src/pages/chat-page.tsx</span></td></tr>
+              <tr><td>API client surface</td><td><span class="inline-code">web/src/api/chat-api.ts</span></td></tr>
+              <tr><td>Socket transport hook</td><td><span class="inline-code">web/src/hooks/use-chat-socket.ts</span></td></tr>
+              <tr><td>Auth/session store</td><td><span class="inline-code">web/src/store/auth-store.tsx</span></td></tr>
+            </tbody>
+          </table>
+        </section>
+
+        <section id="docs-update-rule" class="section">
+          <h2>Minimum Docs Update Rule</h2>
+          <div class="callout">
+            If behavior changes, update at least one of: <span class="inline-code">docs/BACKEND_REFERENCE.md</span>,
+            <span class="inline-code">docs/FRONTEND_REFERENCE.md</span>, <span class="inline-code">docs/DATA_MODEL.md</span>,
+            <span class="inline-code">docs/OPERATIONS.md</span>, or <span class="inline-code">docs/API.md</span>.
+            Do not leave behavior changes undocumented.
+          </div>
+        </section>
+
+        <p class="footer">Harmony · AI Agent Guide · Source: <code>docs/AI_AGENT_GUIDE.md</code></p>
+      </main>
+    </div>
+
+    <script>
+      const navLinks = Array.from(document.querySelectorAll('.sidebar .nav-link[href^="#"]'));
+      const sections = navLinks
+        .map(link => document.querySelector(link.getAttribute('href')))
+        .filter(Boolean);
+
+      const observer = new IntersectionObserver(entries => {
+        for (const entry of entries) {
+          if (!entry.isIntersecting) continue;
+          const id = entry.target.getAttribute('id');
+          for (const link of navLinks) {
+            link.classList.toggle('active', link.getAttribute('href') === '#' + id);
+          }
+        }
+      }, { rootMargin: '-35% 0px -55% 0px', threshold: 0.01 });
+
+      for (const section of sections) observer.observe(section);
+
+      const searchInput = document.getElementById('section-search');
+      if (searchInput) {
+        searchInput.addEventListener('input', () => {
+          const query = searchInput.value.trim().toLowerCase();
+          document.querySelectorAll('main .section').forEach(section => {
+            const text = section.textContent.toLowerCase();
+            section.hidden = !!query && !text.includes(query);
+          });
+        });
+      }
+    </script>
+  </body>
+</html>
