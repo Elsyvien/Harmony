@@ -1110,12 +1110,11 @@ export function ChatPage() {
   const pruneStaleRemoteScreenShares = useCallback(() => {
     const staleUserIds: string[] = [];
     for (const [userId, stream] of Object.entries(remoteScreenShares)) {
-      const source = remoteVideoSourceByPeerRef.current.get(userId) ?? null;
       const peerConnection = peerConnectionsRef.current.get(userId);
       const videoTracks = stream.getVideoTracks();
       const hasLiveVideoTrack = videoTracks.some((track) => track.readyState === 'live');
       const isPeerClosed = !peerConnection || peerConnection.connectionState === 'closed';
-      if (source === null || !hasLiveVideoTrack || isPeerClosed) {
+      if (!hasLiveVideoTrack || isPeerClosed) {
         staleUserIds.push(userId);
       }
     }
@@ -1514,10 +1513,6 @@ export function ChatPage() {
         } else if (event.track.kind === 'video') {
           remoteVideoStreamByPeerRef.current.set(peerUserId, streamFromTrack);
           const setRemoteVideoVisible = () => {
-            const currentSource = remoteVideoSourceByPeerRef.current.get(peerUserId) ?? null;
-            if (currentSource === null) {
-              return;
-            }
             setRemoteScreenShares((prev) => ({
               ...prev,
               [peerUserId]: streamFromTrack,
@@ -1724,7 +1719,11 @@ export function ChatPage() {
           }
         } else {
           setRemoteScreenShares((prev) => {
-            if (!prev[payload.fromUserId]) {
+            const currentStream = remoteVideoStreamByPeerRef.current.get(payload.fromUserId);
+            const hasLiveVideoTrack = Boolean(
+              currentStream?.getVideoTracks().some((track) => track.readyState === 'live'),
+            );
+            if (!prev[payload.fromUserId] || hasLiveVideoTrack) {
               return prev;
             }
             const next = { ...prev };
@@ -1907,7 +1906,18 @@ export function ChatPage() {
           queueSize: queue.length,
         });
         if (queue.length > 300) {
-          queue.splice(0, queue.length - 300);
+          let overflow = queue.length - 300;
+          for (let index = 0; index < queue.length && overflow > 0;) {
+            if (queue[index].data.kind === 'ice') {
+              queue.splice(index, 1);
+              overflow -= 1;
+              continue;
+            }
+            index += 1;
+          }
+          if (overflow > 0) {
+            queue.splice(0, overflow);
+          }
         }
         return;
       }

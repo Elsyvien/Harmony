@@ -43,6 +43,12 @@ Important variables:
 - `MESSAGE_MAX_LENGTH`
 - `RATE_LIMIT_MAX`
 - `RATE_LIMIT_WINDOW_MS`
+- `RTC_STUN_URL`
+- `TURN_URLS`
+- `TURN_SHARED_SECRET` (recommended for self-hosted coturn REST auth)
+- `TURN_CREDENTIAL_TTL_SECONDS`
+- `RTC_FORCE_RELAY`
+- `RTC_ENABLE_PUBLIC_FALLBACK_TURN`
 
 Important note:
 
@@ -223,12 +229,14 @@ Cause:
 - browser mic permissions denied.
 - insecure context for permission requests.
 - no active WS connection.
+- no working TURN relay for restrictive/mobile NAT.
 
 Fix:
 
 - allow mic permissions.
 - use localhost or HTTPS.
 - verify websocket connection is active.
+- for production group calls: configure `TURN_URLS` and `TURN_SHARED_SECRET` (coturn REST auth), then set `RTC_FORCE_RELAY=true`.
 
 ## Maintenance Checklist For Behavior Changes
 

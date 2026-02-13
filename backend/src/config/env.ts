@@ -15,6 +15,8 @@ const envSchema = z.object({
   TURN_URLS: z.string().default(''),
   TURN_USERNAME: z.string().default(''),
   TURN_CREDENTIAL: z.string().default(''),
+  TURN_SHARED_SECRET: z.string().default(''),
+  TURN_CREDENTIAL_TTL_SECONDS: z.coerce.number().int().min(60).max(86_400).default(3600),
   RTC_FORCE_RELAY: z.coerce.boolean().default(false),
   RTC_ENABLE_PUBLIC_FALLBACK_TURN: z.coerce.boolean().default(true),
 });

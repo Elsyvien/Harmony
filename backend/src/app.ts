@@ -5,6 +5,7 @@ import rateLimit from '@fastify/rate-limit';
 import fastifyStatic from '@fastify/static';
 import { Prisma } from '@prisma/client';
 import Fastify from 'fastify';
+import { createHmac, randomUUID } from 'node:crypto';
 import { mkdir } from 'node:fs/promises';
 import path from 'node:path';
 import { ZodError } from 'zod';
@@ -111,23 +112,54 @@ export async function buildApp() {
   await app.register(userRoutes, { userService });
   await app.register(adminRoutes, { adminService, adminSettingsService, adminUserService });
 
-  app.get('/rtc/config', async () => {
-    const turnUrls = env.TURN_URLS.split(',')
+  const parseTurnUrls = (value: string) =>
+    value
+      .split(',')
       .map((entry) => entry.trim())
       .filter((entry) => entry.startsWith('turn:') || entry.startsWith('turns:'))
-      .slice(0, 1);
+      .slice(0, 6);
+
+  const createTurnRestCredentials = (sharedSecret: string, ttlSeconds: number, principal: string) => {
+    const expiryUnixSeconds = Math.floor(Date.now() / 1000) + ttlSeconds;
+    const username = `${expiryUnixSeconds}:${principal}`;
+    const credential = createHmac('sha1', sharedSecret).update(username).digest('base64');
+    return { username, credential };
+  };
+
+  app.get('/rtc/config', async () => {
+    const turnUrls = parseTurnUrls(env.TURN_URLS);
+    const hasConfiguredTurn = turnUrls.length > 0;
+    const hasStaticTurnCredentials = Boolean(env.TURN_USERNAME && env.TURN_CREDENTIAL);
+    const hasEphemeralTurnSecret = Boolean(env.TURN_SHARED_SECRET);
 
     const iceServers: Array<{ urls: string | string[]; username?: string; credential?: string }> = [
       { urls: [env.RTC_STUN_URL] },
     ];
 
-    if (turnUrls.length > 0 && env.TURN_USERNAME && env.TURN_CREDENTIAL) {
+    if (hasConfiguredTurn && hasEphemeralTurnSecret) {
+      const restCredentials = createTurnRestCredentials(
+        env.TURN_SHARED_SECRET,
+        env.TURN_CREDENTIAL_TTL_SECONDS,
+        randomUUID(),
+      );
+      iceServers.push({
+        urls: turnUrls,
+        username: restCredentials.username,
+        credential: restCredentials.credential,
+      });
+    } else if (hasConfiguredTurn && hasStaticTurnCredentials) {
       iceServers.push({
         urls: turnUrls,
         username: env.TURN_USERNAME,
         credential: env.TURN_CREDENTIAL,
       });
-    } else if (env.RTC_ENABLE_PUBLIC_FALLBACK_TURN) {
+    }
+
+    const allowPublicFallbackTurn =
+      env.RTC_ENABLE_PUBLIC_FALLBACK_TURN &&
+      env.NODE_ENV !== 'production' &&
+      iceServers.length === 1;
+    if (allowPublicFallbackTurn) {
       iceServers.push({
         urls: ['turn:openrelay.metered.ca:80'],
         username: 'openrelayproject',

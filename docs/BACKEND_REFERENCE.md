@@ -34,6 +34,14 @@ Validated in `backend/src/config/env.ts`.
 | `MESSAGE_MAX_LENGTH` | int | `1..4000`, default `2000` |
 | `RATE_LIMIT_MAX` | int | min `10`, default `120` |
 | `RATE_LIMIT_WINDOW_MS` | int | min `1000`, default `60000` |
+| `RTC_STUN_URL` | string | default `stun:stun.l.google.com:19302` |
+| `TURN_URLS` | string | comma-separated `turn:`/`turns:` URLs, default empty |
+| `TURN_USERNAME` | string | static TURN username, default empty |
+| `TURN_CREDENTIAL` | string | static TURN password, default empty |
+| `TURN_SHARED_SECRET` | string | coturn REST shared secret for short-lived credentials, default empty |
+| `TURN_CREDENTIAL_TTL_SECONDS` | int | `60..86400`, default `3600` |
+| `RTC_FORCE_RELAY` | boolean | default `false` |
+| `RTC_ENABLE_PUBLIC_FALLBACK_TURN` | boolean | default `true`; ignored in production when no TURN configured |
 
 ## Boot Sequence (`buildApp`)
 
