@@ -42,6 +42,9 @@ export class VoiceSfuClient {
   private readonly producerOwnerById = new Map<string, string>();
   private readonly remoteStreamByUserId = new Map<string, MediaStream>();
 
+  private static readonly REQUEST_TIMEOUT_MS = 15_000;
+  private static readonly RETRYABLE_ERROR_PATTERNS = ['timed out', 'connection is not active'];
+
   constructor(params: {
     selfUserId: string;
     request: VoiceSfuRequest;
@@ -54,7 +57,7 @@ export class VoiceSfuClient {
 
   async start(localAudioTrack: MediaStreamTrack | null): Promise<void> {
     this.closed = false;
-    const capabilitiesResponse = await this.request<{
+    const capabilitiesResponse = await this.requestWithRetry<{
       rtpCapabilities?: mediasoupTypes.RtpCapabilities;
     }>('get-rtp-capabilities');
     if (!capabilitiesResponse?.rtpCapabilities) {
@@ -111,7 +114,7 @@ export class VoiceSfuClient {
     if (this.closed) {
       return;
     }
-    const response = await this.request<{
+    const response = await this.requestWithRetry<{
       producers?: VoiceSfuProducerInfo[];
     }>('list-producers');
     const producers = response?.producers ?? [];
@@ -123,7 +126,11 @@ export class VoiceSfuClient {
       }
       activeProducerIds.add(producer.producerId);
       this.producerOwnerById.set(producer.producerId, producer.userId);
-      await this.consumeProducer(producer.producerId, producer.userId);
+      try {
+        await this.consumeProducer(producer.producerId, producer.userId);
+      } catch {
+        // Continue consuming other producers; a transient failure should not block all remote audio.
+      }
     }
 
     for (const producerId of Array.from(this.consumerByProducerId.keys())) {
@@ -172,7 +179,7 @@ export class VoiceSfuClient {
   private async createTransport(
     direction: 'send' | 'recv',
   ): Promise<mediasoupTypes.Transport> {
-    const response = await this.request<{
+    const response = await this.requestWithRetry<{
       transport?: mediasoupTypes.TransportOptions;
     }>('create-transport', { direction });
     if (!response?.transport || !this.device) {
@@ -185,7 +192,7 @@ export class VoiceSfuClient {
         : this.device.createRecvTransport(response.transport);
 
     transport.on('connect', ({ dtlsParameters }, callback, errback) => {
-      void this.request('connect-transport', {
+      void this.requestWithRetry('connect-transport', {
         transportId: transport.id,
         dtlsParameters,
       })
@@ -198,7 +205,7 @@ export class VoiceSfuClient {
     });
 
     transport.on('produce', ({ kind, rtpParameters, appData }, callback, errback) => {
-      void this.request<{ producer?: VoiceSfuProducerInfo }>('produce', {
+      void this.requestWithRetry<{ producer?: VoiceSfuProducerInfo }>('produce', {
         transportId: transport.id,
         kind,
         rtpParameters,
@@ -225,7 +232,7 @@ export class VoiceSfuClient {
       return;
     }
 
-    const response = await this.request<{
+    const response = await this.requestWithRetry<{
       consumer?: VoiceSfuConsumerInfo;
     }>('consume', {
       transportId: this.recvTransport.id,
@@ -258,7 +265,7 @@ export class VoiceSfuClient {
       this.removeConsumerByProducerId(producerId);
     });
 
-    await this.request('resume-consumer', {
+    await this.requestWithRetry('resume-consumer', {
       consumerId: consumer.id,
     });
 
@@ -288,5 +295,24 @@ export class VoiceSfuClient {
 
     this.remoteStreamByUserId.delete(ownerUserId);
     this.callbacks.onRemoteAudioRemoved(ownerUserId);
+  }
+
+  private async requestWithRetry<TData = unknown>(
+    action: VoiceSfuRequestAction,
+    data?: unknown,
+    timeoutMs = VoiceSfuClient.REQUEST_TIMEOUT_MS,
+  ): Promise<TData> {
+    try {
+      return await this.request<TData>(action, data, timeoutMs);
+    } catch (error) {
+      const message = error instanceof Error ? error.message.toLowerCase() : String(error).toLowerCase();
+      const isRetryable = VoiceSfuClient.RETRYABLE_ERROR_PATTERNS.some((pattern) =>
+        message.includes(pattern),
+      );
+      if (!isRetryable || this.closed) {
+        throw error;
+      }
+      return this.request<TData>(action, data, timeoutMs);
+    }
   }
 }
