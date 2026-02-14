@@ -52,7 +52,9 @@ export type VoiceSfuRequestAction =
   | 'close-producer'
   | 'list-producers'
   | 'consume'
-  | 'resume-consumer';
+  | 'resume-consumer'
+  | 'restart-ice'
+  | 'get-transport-stats';
 
 export type VoiceSfuEventPayload =
   | {

@@ -21,10 +21,19 @@ type VoiceSfuConsumerInfo = {
   rtpParameters: mediasoupTypes.RtpParameters;
 };
 
+type VoiceSfuTransportStats = {
+  transportId: string;
+  direction: string;
+  iceState: string;
+  dtlsState: string;
+};
+
 type VoiceSfuCallbacks = {
   onRemoteAudio: (userId: string, stream: MediaStream) => void;
   onRemoteAudioRemoved: (userId: string) => void;
   onStateChange?: (state: mediasoupTypes.ConnectionState) => void;
+  onReconnecting?: () => void;
+  onReconnected?: () => void;
 };
 
 export class VoiceSfuClient {
@@ -42,8 +51,19 @@ export class VoiceSfuClient {
   private readonly producerOwnerById = new Map<string, string>();
   private readonly remoteStreamByUserId = new Map<string, MediaStream>();
 
+  /** Pending local audio track while reconnecting */
+  private pendingLocalAudioTrack: MediaStreamTrack | null = null;
+  private reconnecting = false;
+  private reconnectAttempts = 0;
+  private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+  private keepaliveTimer: ReturnType<typeof setInterval> | null = null;
+  /** Track whether ICE restart is already in progress for a transport */
+  private iceRestartInProgress = new Set<string>();
+
   private static readonly REQUEST_TIMEOUT_MS = 15_000;
   private static readonly RETRYABLE_ERROR_PATTERNS = ['timed out', 'connection is not active'];
+  private static readonly MAX_RECONNECT_ATTEMPTS = 8;
+  private static readonly KEEPALIVE_INTERVAL_MS = 10_000;
 
   constructor(params: {
     selfUserId: string;
@@ -57,6 +77,11 @@ export class VoiceSfuClient {
 
   async start(localAudioTrack: MediaStreamTrack | null): Promise<void> {
     this.closed = false;
+    this.reconnecting = false;
+    this.reconnectAttempts = 0;
+    this.clearReconnectTimer();
+    this.clearKeepaliveTimer();
+
     const capabilitiesResponse = await this.requestWithRetry<{
       rtpCapabilities?: mediasoupTypes.RtpCapabilities;
     }>('get-rtp-capabilities');
@@ -82,9 +107,15 @@ export class VoiceSfuClient {
     }
 
     await this.syncProducers();
+    this.startKeepalive();
   }
 
   async replaceLocalAudioTrack(track: MediaStreamTrack | null): Promise<void> {
+    // If reconnecting, store the track for later use
+    if (this.reconnecting) {
+      this.pendingLocalAudioTrack = track;
+      return;
+    }
     if (this.closed || !this.sendTransport || !this.device) {
       return;
     }
@@ -111,7 +142,7 @@ export class VoiceSfuClient {
   }
 
   async syncProducers(): Promise<void> {
-    if (this.closed) {
+    if (this.closed || this.reconnecting) {
       return;
     }
     const response = await this.requestWithRetry<{
@@ -142,7 +173,7 @@ export class VoiceSfuClient {
   }
 
   async handleSfuEvent(payload: VoiceSfuEventPayload): Promise<void> {
-    if (this.closed) {
+    if (this.closed || this.reconnecting) {
       return;
     }
     if (payload.event === 'producer-added') {
@@ -156,8 +187,56 @@ export class VoiceSfuClient {
     this.removeConsumerByProducerId(payload.producerId);
   }
 
+  /**
+   * Get the underlying RTCPeerConnection objects for stats collection.
+   */
+  getTransportPeerConnections(): Array<{
+    direction: 'send' | 'recv';
+    pc: RTCPeerConnection | null;
+  }> {
+    const results: Array<{ direction: 'send' | 'recv'; pc: RTCPeerConnection | null }> = [];
+    const extractPc = (transport: mediasoupTypes.Transport | null): RTCPeerConnection | null => {
+      if (!transport) return null;
+      try {
+        // mediasoup-client exposes _handler._pc (unofficial but stable across versions)
+        const handler = (transport as unknown as { _handler?: { _pc?: RTCPeerConnection } })._handler;
+        return handler?._pc ?? null;
+      } catch {
+        return null;
+      }
+    };
+    results.push({ direction: 'send', pc: extractPc(this.sendTransport) });
+    results.push({ direction: 'recv', pc: extractPc(this.recvTransport) });
+    return results;
+  }
+
+  /**
+   * Get server-side transport stats for diagnostics.
+   */
+  async getServerTransportStats(): Promise<VoiceSfuTransportStats[]> {
+    if (this.closed) return [];
+    try {
+      const response = await this.request<{ transports?: VoiceSfuTransportStats[] }>(
+        'get-transport-stats',
+        undefined,
+        5000,
+      );
+      return response?.transports ?? [];
+    } catch {
+      return [];
+    }
+  }
+
+  get isReconnecting(): boolean {
+    return this.reconnecting;
+  }
+
   stop() {
     this.closed = true;
+    this.reconnecting = false;
+    this.clearReconnectTimer();
+    this.clearKeepaliveTimer();
+    this.iceRestartInProgress.clear();
     if (this.audioProducer) {
       const producerId = this.audioProducer.id;
       this.audioProducer.close();
@@ -174,6 +253,7 @@ export class VoiceSfuClient {
     this.sendTransport = null;
     this.recvTransport = null;
     this.device = null;
+    this.pendingLocalAudioTrack = null;
   }
 
   private async createTransport(
@@ -202,6 +282,18 @@ export class VoiceSfuClient {
 
     transport.on('connectionstatechange', (state) => {
       this.callbacks.onStateChange?.(state);
+
+      if (state === 'disconnected') {
+        // Attempt ICE restart before giving up
+        void this.attemptIceRestart(transport);
+      } else if (state === 'failed') {
+        // Full reconnection needed
+        this.scheduleReconnect();
+      } else if (state === 'connected') {
+        // Reset reconnect attempts on successful connection
+        this.reconnectAttempts = 0;
+        this.iceRestartInProgress.delete(transport.id);
+      }
     });
 
     transport.on('produce', ({ kind, rtpParameters, appData }, callback, errback) => {
@@ -224,8 +316,140 @@ export class VoiceSfuClient {
     return transport;
   }
 
+  private async attemptIceRestart(transport: mediasoupTypes.Transport): Promise<void> {
+    if (this.closed || this.reconnecting) return;
+    if (this.iceRestartInProgress.has(transport.id)) return;
+    this.iceRestartInProgress.add(transport.id);
+
+    try {
+      const response = await this.request<{ iceParameters?: unknown }>(
+        'restart-ice',
+        { transportId: transport.id },
+        8000,
+      );
+      if (response?.iceParameters) {
+        await transport.restartIce({
+          iceParameters: response.iceParameters as mediasoupTypes.IceParameters,
+        });
+      }
+    } catch {
+      // ICE restart failed – schedule full reconnect
+      this.iceRestartInProgress.delete(transport.id);
+      if (!this.closed) {
+        this.scheduleReconnect();
+      }
+      return;
+    }
+    // Give the ICE restart 8s to work before trying harder recovery
+    setTimeout(() => {
+      this.iceRestartInProgress.delete(transport.id);
+    }, 8000);
+  }
+
+  private scheduleReconnect(): void {
+    if (this.closed || this.reconnecting || this.reconnectTimer) return;
+    if (this.reconnectAttempts >= VoiceSfuClient.MAX_RECONNECT_ATTEMPTS) {
+      this.callbacks.onStateChange?.('failed');
+      return;
+    }
+
+    this.reconnecting = true;
+    this.callbacks.onReconnecting?.();
+
+    // Exponential backoff: 500ms, 1s, 2s, 4s, ...
+    const delay = Math.min(500 * Math.pow(2, this.reconnectAttempts), 15_000);
+    this.reconnectAttempts++;
+
+    this.reconnectTimer = setTimeout(() => {
+      this.reconnectTimer = null;
+      void this.performReconnect();
+    }, delay);
+  }
+
+  private async performReconnect(): Promise<void> {
+    if (this.closed) return;
+
+    // Save current audio track
+    const currentAudioTrack =
+      this.pendingLocalAudioTrack ??
+      this.audioProducer?.track ??
+      null;
+    this.pendingLocalAudioTrack = null;
+
+    // Clean up old transports without notifying remote removal
+    this.cleanupTransportsOnly();
+
+    try {
+      // Re-create transports
+      this.sendTransport = await this.createTransport('send');
+      this.recvTransport = await this.createTransport('recv');
+
+      // Re-produce audio if we had a track
+      if (currentAudioTrack && currentAudioTrack.readyState === 'live' && this.device?.canProduce('audio')) {
+        this.audioProducer = await this.sendTransport.produce({
+          track: currentAudioTrack,
+          appData: { type: 'voice-audio' },
+        });
+        this.audioProducer.on('transportclose', () => {
+          this.audioProducer = null;
+        });
+      }
+
+      // Re-subscribe to remote producers
+      await this.syncProducers();
+
+      this.reconnecting = false;
+      this.callbacks.onReconnected?.();
+      this.callbacks.onStateChange?.('connected');
+    } catch {
+      this.reconnecting = false;
+      // Schedule another attempt
+      this.scheduleReconnect();
+    }
+  }
+
+  private cleanupTransportsOnly(): void {
+    if (this.audioProducer) {
+      try { this.audioProducer.close(); } catch {}
+      this.audioProducer = null;
+    }
+    for (const consumer of this.consumerByProducerId.values()) {
+      try { consumer.close(); } catch {}
+    }
+    this.consumerByProducerId.clear();
+    try { this.sendTransport?.close(); } catch {}
+    try { this.recvTransport?.close(); } catch {}
+    this.sendTransport = null;
+    this.recvTransport = null;
+  }
+
+  private startKeepalive(): void {
+    this.clearKeepaliveTimer();
+    this.keepaliveTimer = setInterval(() => {
+      if (this.closed || this.reconnecting) return;
+      // Light query to keep the WS/SFU session alive and detect stale connections
+      void this.request('list-producers', undefined, 5000).catch(() => {
+        // If this consistently fails, connectionstatechange will trigger reconnect
+      });
+    }, VoiceSfuClient.KEEPALIVE_INTERVAL_MS);
+  }
+
+  private clearKeepaliveTimer(): void {
+    if (this.keepaliveTimer) {
+      clearInterval(this.keepaliveTimer);
+      this.keepaliveTimer = null;
+    }
+  }
+
+  private clearReconnectTimer(): void {
+    if (this.reconnectTimer) {
+      clearTimeout(this.reconnectTimer);
+      this.reconnectTimer = null;
+    }
+  }
+
   private async consumeProducer(producerId: string, userId: string): Promise<void> {
-    if (this.consumerByProducerId.has(producerId) || this.closed) {
+    if (this.consumerByProducerId.has(producerId) || this.closed || this.reconnecting) {
       return;
     }
     if (!this.recvTransport || !this.device) {
@@ -312,6 +536,8 @@ export class VoiceSfuClient {
       if (!isRetryable || this.closed) {
         throw error;
       }
+      // Wait a short delay before retry to avoid hammering
+      await new Promise((resolve) => setTimeout(resolve, 300));
       return this.request<TData>(action, data, timeoutMs);
     }
   }

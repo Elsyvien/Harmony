@@ -501,6 +501,12 @@
 .voice-status-icon.signal.good { filter: none; opacity: 1; color: var(--positive); }
 .voice-status-icon.signal.fair { filter: none; opacity: 1; color: #f0b232; }
 .voice-status-icon.signal.bad { filter: none; opacity: 1; color: var(--danger); }
+.voice-status-icon.signal.pending { filter: none; opacity: 0.7; color: #888; animation: pulse-signal 1.5s ease-in-out infinite; }
+
+@keyframes pulse-signal {
+  0%, 100% { opacity: 0.4; }
+  50% { opacity: 0.9; }
+}
 
 .voice-detailed-stats {
   margin-top: 24px;

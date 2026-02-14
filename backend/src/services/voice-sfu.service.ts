@@ -4,6 +4,8 @@ import { AppError } from '../utils/app-error.js';
 type VoiceSfuTransportDirection = 'send' | 'recv';
 type Consumer = mediasoupTypes.Consumer;
 type DtlsParameters = mediasoupTypes.DtlsParameters;
+type IceCandidate = mediasoupTypes.IceCandidate;
+type IceParameters = mediasoupTypes.IceParameters;
 type Producer = mediasoupTypes.Producer;
 type Router = mediasoupTypes.Router;
 type RouterRtpCodecCapability = mediasoupTypes.RouterRtpCodecCapability;
@@ -42,6 +44,10 @@ export type VoiceSfuTransportOptions = {
   iceCandidates: WebRtcTransport['iceCandidates'];
   dtlsParameters: WebRtcTransport['dtlsParameters'];
   sctpParameters: SctpParameters | undefined;
+};
+
+export type VoiceSfuIceRestartResult = {
+  iceParameters: IceParameters;
 };
 
 export type VoiceSfuProducerInfo = {
@@ -129,8 +135,24 @@ export class VoiceSfuService {
         userId,
       },
       initialAvailableOutgoingBitrate: 2_000_000,
+      iceConsentTimeout: 45,
     });
     peer.transports.set(transport.id, transport);
+    transport.on('icestatechange', (iceState) => {
+      if (iceState === 'disconnected') {
+        // Give time for ICE to recover before closing
+        setTimeout(() => {
+          if (transport.iceState === 'disconnected' || transport.iceState === 'closed') {
+            // Transport is still disconnected – leave it for the client to restart
+          }
+        }, 10_000);
+      }
+    });
+    transport.on('dtlsstatechange', (dtlsState) => {
+      if (dtlsState === 'failed' || dtlsState === 'closed') {
+        transport.close();
+      }
+    });
     transport.observer.on('close', () => {
       peer.transports.delete(transport.id);
       this.cleanupPeerIfIdle(channelId, userId);
@@ -274,6 +296,61 @@ export class VoiceSfuService {
     }
     await consumer.resume();
     return true;
+  }
+
+  async restartIce(
+    channelId: string,
+    userId: string,
+    transportId: string,
+  ): Promise<VoiceSfuIceRestartResult> {
+    const transport = this.getTransport(channelId, userId, transportId);
+    const iceParameters = await transport.restartIce();
+    return { iceParameters };
+  }
+
+  getTransportStats(
+    channelId: string,
+    userId: string,
+  ): Array<{
+    transportId: string;
+    direction: string;
+    iceState: string;
+    dtlsState: string;
+    sctpState: string | undefined;
+    bytesSent: number;
+    bytesReceived: number;
+    producerCount: number;
+    consumerCount: number;
+  }> {
+    const peer = this.getPeer(channelId, userId);
+    if (!peer) {
+      return [];
+    }
+    const result: Array<{
+      transportId: string;
+      direction: string;
+      iceState: string;
+      dtlsState: string;
+      sctpState: string | undefined;
+      bytesSent: number;
+      bytesReceived: number;
+      producerCount: number;
+      consumerCount: number;
+    }> = [];
+    for (const [transportId, transport] of peer.transports) {
+      result.push({
+        transportId,
+        direction: String(transport.appData.direction ?? 'unknown'),
+        iceState: transport.iceState,
+        dtlsState: transport.dtlsState,
+        sctpState: transport.sctpState ?? undefined,
+        bytesSent: (transport as unknown as { bytesReceived?: number; bytesSent?: number }).bytesSent ?? 0,
+        bytesReceived: (transport as unknown as { bytesReceived?: number }).bytesReceived ?? 0,
+        producerCount: peer.producers.size,
+        consumerCount: peer.consumers.size,
+      });
+    }
+    return result;
   }
 
   getPeerProducerInfos(channelId: string, userId: string): VoiceSfuProducerInfo[] {

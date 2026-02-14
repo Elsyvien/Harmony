@@ -56,7 +56,9 @@ type VoiceSfuRequestAction =
   | 'close-producer'
   | 'list-producers'
   | 'consume'
-  | 'resume-consumer';
+  | 'resume-consumer'
+  | 'restart-ice'
+  | 'get-transport-stats';
 
 type VoiceSfuRequestPayload = {
   requestId?: string;
@@ -883,6 +885,35 @@ const wsPluginImpl: FastifyPluginAsync<WsPluginOptions> = async (fastify, option
               sendSfuResponse(ctx, payload.requestId, {
                 ok: true,
                 data: { resumed },
+              });
+              return;
+            }
+
+            if (payload.action === 'restart-ice') {
+              const requestData = payload.data as { transportId?: string } | undefined;
+              if (!requestData?.transportId) {
+                throw new AppError('INVALID_SFU_REQUEST', 400, 'Missing transportId');
+              }
+              const result = await options.voiceSfuService.restartIce(
+                payload.channelId,
+                ctx.userId,
+                requestData.transportId,
+              );
+              sendSfuResponse(ctx, payload.requestId, {
+                ok: true,
+                data: { iceParameters: result.iceParameters },
+              });
+              return;
+            }
+
+            if (payload.action === 'get-transport-stats') {
+              const stats = options.voiceSfuService.getTransportStats(
+                payload.channelId,
+                ctx.userId,
+              );
+              sendSfuResponse(ctx, payload.requestId, {
+                ok: true,
+                data: { transports: stats },
               });
               return;
             }

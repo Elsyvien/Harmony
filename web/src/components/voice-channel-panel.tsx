@@ -484,14 +484,20 @@ export function VoiceChannelPanel(props: VoiceChannelPanelProps) {
           const audioState = !isSelf ? props.getParticipantAudioState?.(participant.userId) : null;
           const stats = props.connectionStats.find(s => s.userId === participant.userId);
           const rtt = stats?.currentRttMs;
-          const connState = stats?.connectionState || 'new';
+          const connState = stats?.connectionState || (props.joined && !isSelf ? 'connecting' : 'new');
           const iceState = stats?.iceConnectionState;
           
           let signalIcon = '📶';
           let signalClass = 'good';
-          if (rtt !== undefined && rtt !== null) {
-            if (rtt > 300) { signalIcon = '📶'; signalClass = 'bad'; }
-            else if (rtt > 150) { signalIcon = '📶'; signalClass = 'fair'; }
+          if (connState === 'connecting' || connState === 'new' || iceState === 'checking') {
+            signalClass = 'pending';
+          } else if (connState === 'disconnected' || connState === 'failed') {
+            signalClass = 'bad';
+          } else if (rtt !== undefined && rtt !== null) {
+            if (rtt > 300) { signalClass = 'bad'; }
+            else if (rtt > 150) { signalClass = 'fair'; }
+          } else if (stats && rtt === null) {
+            signalClass = 'pending';
           }
 
           let displayStatus = participant.deafened ? 'Deafened' : participant.muted ? 'Muted' : isSpeaking ? 'Speaking' : 'Connected';
@@ -566,7 +572,10 @@ export function VoiceChannelPanel(props: VoiceChannelPanelProps) {
               <article key={stats.userId} className="voice-detailed-stat-card">
                 <header>
                   <strong>{stats.username}</strong>
-                  <small>{stats.connectionState} • {stats.iceConnectionState}</small>
+                  <small>
+                    {stats.connectionState} • {stats.iceConnectionState}
+                    {(stats.localCandidateType === 'sfu' || stats.remoteCandidateType === 'sfu') && ' • SFU'}
+                  </small>
                 </header>
                 <div className="voice-detailed-metrics">
                   <div className="voice-metric-item">
@@ -592,6 +601,10 @@ export function VoiceChannelPanel(props: VoiceChannelPanelProps) {
                   <div className="voice-metric-item">
                     <label>Packet Loss</label>
                     <span>{formatMetric(stats.inboundAudio.packetsLost, 0)}</span>
+                  </div>
+                  <div className="voice-metric-item">
+                    <label>Audio Jitter</label>
+                    <span>{formatMetric(stats.inboundAudio.jitterMs)} ms</span>
                   </div>
                 </div>
               </article>

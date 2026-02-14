@@ -726,6 +726,131 @@ export function ChatPage() {
     const connections = Array.from(peerConnectionsRef.current.entries());
     if (connections.length === 0) {
       if (voiceAudioTransportMode === 'sfu' && auth.user) {
+        // Collect real stats from SFU transports via their underlying RTCPeerConnections
+        const sfuClient = voiceSfuClientRef.current;
+        const sfuPeerConnections = sfuClient?.getTransportPeerConnections() ?? [];
+        const validPcs = sfuPeerConnections
+          .filter((entry) => entry.pc && entry.pc.connectionState !== 'closed')
+          .map((entry) => entry.pc!);
+
+        if (validPcs.length > 0) {
+          // Merge stats from send+recv transports into per-participant entries
+          const aggregatedOutboundAudio = createEmptyMediaStats();
+          const aggregatedInboundAudio = createEmptyMediaStats();
+          let bestRttMs: number | null = null;
+          let availableBitrateKbps: number | null = null;
+          let localCandidateType: string | null = null;
+          let remoteCandidateType: string | null = null;
+          let effectiveConnectionState = voiceSfuTransportState;
+          let effectiveIceState: RTCIceConnectionState = mapPeerConnectionStateToIceState(voiceSfuTransportState);
+
+          for (const pc of validPcs) {
+            try {
+              const report = await pc.getStats();
+              effectiveConnectionState = pc.connectionState;
+              effectiveIceState = pc.iceConnectionState;
+
+              const localCandidates = new Map<string, { candidateType?: string }>();
+              const remoteCandidates = new Map<string, { candidateType?: string }>();
+              let selectedPair: (RTCIceCandidatePairStats & { availableOutgoingBitrate?: number }) | null = null;
+
+              for (const stat of report.values()) {
+                if (stat.type === 'local-candidate') {
+                  localCandidates.set(stat.id, stat as unknown as { candidateType?: string });
+                  continue;
+                }
+                if (stat.type === 'remote-candidate') {
+                  remoteCandidates.set(stat.id, stat as unknown as { candidateType?: string });
+                  continue;
+                }
+                if (stat.type === 'candidate-pair') {
+                  const pair = stat as RTCIceCandidatePairStats & { selected?: boolean; availableOutgoingBitrate?: number };
+                  if (pair.nominated || pair.selected) {
+                    selectedPair = pair;
+                  }
+                  continue;
+                }
+
+                if (stat.type === 'outbound-rtp') {
+                  const rtp = stat as RTCOutboundRtpStreamStats & { kind?: string; mediaType?: string; isRemote?: boolean };
+                  if (rtp.isRemote) continue;
+                  const mediaKind = rtp.kind ?? rtp.mediaType ?? 'audio';
+                  if (mediaKind === 'audio') {
+                    const bitrateKbps =
+                      typeof rtp.bytesSent === 'number'
+                        ? computeKbpsFromSnapshot(`sfu:out:${rtp.id}`, rtp.bytesSent, rtp.timestamp)
+                        : null;
+                    accumulateMediaStats(aggregatedOutboundAudio, {
+                      bitrateKbps,
+                      packets: typeof rtp.packetsSent === 'number' ? rtp.packetsSent : null,
+                    });
+                  }
+                  continue;
+                }
+
+                if (stat.type === 'inbound-rtp') {
+                  const rtp = stat as RTCInboundRtpStreamStats & { kind?: string; mediaType?: string };
+                  const mediaKind = rtp.kind ?? rtp.mediaType ?? 'audio';
+                  if (mediaKind === 'audio') {
+                    const bitrateKbps =
+                      typeof rtp.bytesReceived === 'number'
+                        ? computeKbpsFromSnapshot(`sfu:in:${rtp.id}`, rtp.bytesReceived, rtp.timestamp)
+                        : null;
+                    accumulateMediaStats(aggregatedInboundAudio, {
+                      bitrateKbps,
+                      packets: typeof rtp.packetsReceived === 'number' ? rtp.packetsReceived : null,
+                      packetsLost: typeof rtp.packetsLost === 'number' ? rtp.packetsLost : null,
+                      jitterMs: typeof rtp.jitter === 'number' ? rtp.jitter * 1000 : null,
+                    });
+                  }
+                }
+              }
+
+              if (selectedPair) {
+                const rtt = typeof selectedPair.currentRoundTripTime === 'number'
+                  ? selectedPair.currentRoundTripTime * 1000
+                  : null;
+                if (rtt !== null && (bestRttMs === null || rtt < bestRttMs)) {
+                  bestRttMs = rtt;
+                }
+                if (typeof selectedPair.availableOutgoingBitrate === 'number') {
+                  availableBitrateKbps = selectedPair.availableOutgoingBitrate / 1000;
+                }
+                const lc = selectedPair.localCandidateId ? localCandidates.get(selectedPair.localCandidateId) : null;
+                const rc = selectedPair.remoteCandidateId ? remoteCandidates.get(selectedPair.remoteCandidateId) : null;
+                if (lc?.candidateType) localCandidateType = lc.candidateType;
+                if (rc?.candidateType) remoteCandidateType = rc.candidateType;
+              }
+            } catch {
+              // Continue with other PCs
+            }
+          }
+
+          // Build per-participant stats entries using the aggregated SFU data
+          const sfuStats = joinedVoiceParticipants
+            .filter((participant) => participant.userId !== auth.user?.id)
+            .map((participant) => ({
+              userId: participant.userId,
+              username: participant.username,
+              connectionState: effectiveConnectionState,
+              iceConnectionState: effectiveIceState,
+              signalingState: 'stable' as RTCSignalingState,
+              currentRttMs: bestRttMs,
+              availableOutgoingBitrateKbps: availableBitrateKbps,
+              localCandidateType: localCandidateType ?? 'sfu',
+              remoteCandidateType: remoteCandidateType ?? 'sfu',
+              outboundAudio: { ...aggregatedOutboundAudio },
+              inboundAudio: { ...aggregatedInboundAudio },
+              outboundVideo: createEmptyMediaStats(),
+              inboundVideo: createEmptyMediaStats(),
+            }));
+          sfuStats.sort((a, b) => a.username.localeCompare(b.username));
+          setVoiceConnectionStats(sfuStats);
+          setVoiceStatsUpdatedAt(Date.now());
+          return;
+        }
+
+        // Fallback: no PCs available yet (still connecting)
         const syntheticStats = joinedVoiceParticipants
           .filter((participant) => participant.userId !== auth.user?.id)
           .map((participant) => ({
@@ -1505,6 +1630,14 @@ export function ChatPage() {
               channelId,
               state,
             });
+          },
+          onReconnecting: () => {
+            logVoiceDebug('voice_sfu_reconnecting', { channelId });
+            setVoiceSfuTransportState('connecting' as RTCPeerConnectionState);
+          },
+          onReconnected: () => {
+            logVoiceDebug('voice_sfu_reconnected', { channelId });
+            setVoiceSfuTransportState('connected');
           },
         },
       });
@@ -3513,7 +3646,7 @@ export function ChatPage() {
         );
       };
       void syncVoiceTransport();
-    }, 300);
+    }, 50);
 
     return () => {
       cancelled = true;
