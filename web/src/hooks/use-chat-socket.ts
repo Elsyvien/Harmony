@@ -107,6 +107,7 @@ export function useChatSocket(params: {
       }
     >(),
   );
+  const authenticatedRef = useRef(false);
   const subscribedChannelIdsRef = useRef(params.subscribedChannelIds);
   const onMessageNewRef = useRef(params.onMessageNew);
   const onMessageUpdatedRef = useRef(params.onMessageUpdated);
@@ -160,16 +161,9 @@ export function useChatSocket(params: {
       socketRef.current = socket;
 
       socket.onopen = () => {
-        setConnected(true);
+        authenticatedRef.current = false;
+        setConnected(false);
         sendEvent('auth', { token: params.token });
-        joinedChannelIds.clear();
-        for (const channelId of subscribedChannelIdsRef.current) {
-          if (!channelId) {
-            continue;
-          }
-          sendEvent('channel:join', { channelId });
-          joinedChannelIds.add(channelId);
-        }
       };
 
       socket.onmessage = (event) => {
@@ -179,6 +173,20 @@ export function useChatSocket(params: {
             const payload = parsed.payload as { message?: Message };
             if (payload.message) {
               onMessageNewRef.current(payload.message);
+            }
+            return;
+          }
+
+          if (parsed.type === 'auth:ok') {
+            authenticatedRef.current = true;
+            setConnected(true);
+            joinedChannelIds.clear();
+            for (const channelId of subscribedChannelIdsRef.current) {
+              if (!channelId) {
+                continue;
+              }
+              sendEvent('channel:join', { channelId });
+              joinedChannelIds.add(channelId);
             }
             return;
           }
@@ -302,6 +310,7 @@ export function useChatSocket(params: {
       };
 
       socket.onclose = () => {
+        authenticatedRef.current = false;
         setConnected(false);
         setPing(null);
         for (const pending of pendingVoiceSfuRequestsRef.current.values()) {
@@ -319,6 +328,7 @@ export function useChatSocket(params: {
     connect();
 
     return () => {
+      authenticatedRef.current = false;
       isClosed = true;
       setConnected(false);
       setPing(null);
@@ -337,7 +347,7 @@ export function useChatSocket(params: {
   }, [params.token, sendEvent]);
 
   useEffect(() => {
-    if (!params.token) {
+    if (!params.token || !connected) {
       return;
     }
 
@@ -359,7 +369,7 @@ export function useChatSocket(params: {
       sendEvent('channel:join', { channelId: nextChannelId });
       joinedSet.add(nextChannelId);
     }
-  }, [params.token, params.subscribedChannelIds, sendEvent]);
+  }, [connected, params.token, params.subscribedChannelIds, sendEvent]);
 
   const sendMessage = useCallback(
     (channelId: string, content: string) => {
@@ -408,7 +418,7 @@ export function useChatSocket(params: {
       timeoutMs = 10_000,
     ): Promise<TData> => {
       const socket = socketRef.current;
-      if (!socket || socket.readyState !== WebSocket.OPEN) {
+      if (!socket || socket.readyState !== WebSocket.OPEN || !authenticatedRef.current) {
         return Promise.reject(new Error('Realtime connection is not active'));
       }
       const requestId =
