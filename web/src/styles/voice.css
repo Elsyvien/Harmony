@@ -533,6 +533,11 @@
   padding: 16px;
 }
 
+.voice-detailed-stat-card-empty {
+  grid-column: 1 / -1;
+  text-align: center;
+}
+
 .voice-detailed-stat-card header {
   margin-bottom: 12px;
 }

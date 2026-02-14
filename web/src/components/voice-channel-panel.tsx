@@ -554,6 +554,14 @@ export function VoiceChannelPanel(props: VoiceChannelPanelProps) {
             <small>{props.statsUpdatedAt ? `Last update: ${new Date(props.statsUpdatedAt).toLocaleTimeString()}` : 'Waiting...'}</small>
           </header>
           <div className="voice-detailed-stats-grid">
+            {props.connectionStats.length === 0 ? (
+              <article className="voice-detailed-stat-card voice-detailed-stat-card-empty">
+                <header>
+                  <strong>Collecting voice stats</strong>
+                  <small>Waiting for active peer transport telemetry.</small>
+                </header>
+              </article>
+            ) : null}
             {props.connectionStats.map((stats) => (
               <article key={stats.userId} className="voice-detailed-stat-card">
                 <header>
