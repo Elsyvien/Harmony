@@ -724,7 +724,9 @@ export function ChatPage() {
 
   const collectVoiceConnectionStats = useCallback(async () => {
     const connections = Array.from(peerConnectionsRef.current.entries());
-    if (connections.length === 0) {
+    // When SFU handles audio, always use SFU stats path (even if P2P connections
+    // exist for video) so the primary connection state reflects the working SFU link.
+    if (connections.length === 0 || (voiceAudioTransportMode === 'sfu' && auth.user)) {
       if (voiceAudioTransportMode === 'sfu' && auth.user) {
         // Collect real stats from SFU transports via their underlying RTCPeerConnections
         const sfuClient = voiceSfuClientRef.current;
@@ -2326,7 +2328,7 @@ export function ChatPage() {
           return;
         }
         if (connection.connectionState === 'failed') {
-          if (!hasTurnRelayConfigured) {
+          if (!hasTurnRelayConfigured && !voiceSfuAudioActiveRef.current) {
             setError(
               'Voice P2P connection failed (no TURN configured). This usually happens on strict/mobile/company NAT networks.',
             );
@@ -3624,26 +3626,35 @@ export function ChatPage() {
           }
         }
 
-        const sortedPeerUserIds = Array.from(desiredPeerUserIds).sort();
-        await Promise.allSettled(
-          sortedPeerUserIds.map(async (peerUserId) => {
-            if (cancelled || voiceTransportEpochRef.current !== transportEpoch) return;
-            try {
-              const hadExistingConnection = peerConnectionsRef.current.has(peerUserId);
-              const pc = await ensurePeerConnection(peerUserId, activeVoiceChannelId);
-              if (pc.signalingState === 'stable' && !hadExistingConnection) {
-                // Newly created peer connection needs an initial offer.
-                await createOfferForPeer(peerUserId, activeVoiceChannelId);
-                requestStreamSnapshotFromPeer(activeVoiceChannelId, peerUserId, 'join-sync');
-              } else if (pc.signalingState === 'stable') {
-                // Already exists, ensure it is healthy.
-                if (pc.connectionState === 'failed' || pc.connectionState === 'disconnected') {
-                  pc.restartIce?.();
+        // When SFU handles audio, only create P2P connections when video content is
+        // actively being shared. P2P connections will still be created on-demand when
+        // a remote peer sends a signaling offer (e.g. starts sharing screen/camera).
+        const sfuHandlesAudio = voiceSfuEnabled && voiceSfuAudioActiveRef.current;
+        const hasLocalVideoContent = Boolean(localScreenStreamRef.current?.getVideoTracks().some(t => t.readyState === 'live'));
+        const skipEagerP2P = sfuHandlesAudio && !hasLocalVideoContent;
+
+        if (!skipEagerP2P) {
+          const sortedPeerUserIds = Array.from(desiredPeerUserIds).sort();
+          await Promise.allSettled(
+            sortedPeerUserIds.map(async (peerUserId) => {
+              if (cancelled || voiceTransportEpochRef.current !== transportEpoch) return;
+              try {
+                const hadExistingConnection = peerConnectionsRef.current.has(peerUserId);
+                const pc = await ensurePeerConnection(peerUserId, activeVoiceChannelId);
+                if (pc.signalingState === 'stable' && !hadExistingConnection) {
+                  // Newly created peer connection needs an initial offer.
+                  await createOfferForPeer(peerUserId, activeVoiceChannelId);
+                  requestStreamSnapshotFromPeer(activeVoiceChannelId, peerUserId, 'join-sync');
+                } else if (pc.signalingState === 'stable') {
+                  // Already exists, ensure it is healthy.
+                  if (pc.connectionState === 'failed' || pc.connectionState === 'disconnected') {
+                    pc.restartIce?.();
+                  }
                 }
-              }
-            } catch {}
-          })
-        );
+              } catch {}
+            })
+          );
+        }
       };
       void syncVoiceTransport();
     }, 50);
@@ -4265,6 +4276,27 @@ export function ChatPage() {
           return;
         }
 
+        // When SFU handles audio, P2P connections may not exist yet because we
+        // defer their creation until video content is actually shared. Ensure
+        // P2P connections exist for all voice participants before adding video.
+        const voiceParticipants = voiceParticipantsByChannel[currentVoiceChannelId] ?? [];
+        const desiredPeerIds = voiceParticipants
+          .map((p) => p.userId)
+          .filter((uid) => uid !== auth.user?.id);
+
+        for (const peerUserId of desiredPeerIds) {
+          if (!peerConnectionsRef.current.has(peerUserId)) {
+            try {
+              const pc = await ensurePeerConnection(peerUserId, currentVoiceChannelId);
+              if (pc.signalingState === 'stable') {
+                await createOfferForPeerRef.current(peerUserId, currentVoiceChannelId);
+              }
+            } catch {
+              // Best effort – continue with other peers.
+            }
+          }
+        }
+
         for (const [peerUserId, connection] of peerConnectionsRef.current) {
           const sender = getOrCreateVideoSender(connection);
           videoSenderByPeerRef.current.set(peerUserId, sender);
@@ -4304,6 +4336,9 @@ export function ChatPage() {
       requestVideoRenegotiationForPeer,
       getOrCreateVideoSender,
       unlockAudioContexts,
+      voiceParticipantsByChannel,
+      auth.user,
+      ensurePeerConnection,
     ],
   );
 
