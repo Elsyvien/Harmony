@@ -376,6 +376,66 @@ export function VoiceChannelPanel(props: VoiceChannelPanelProps) {
         </button>
       </div>
 
+      {props.showDetailedStats && (
+        <section className="voice-detailed-stats">
+          <header className="voice-detailed-stats-header">
+            <strong>Connection Analytics</strong>
+            <small>{props.statsUpdatedAt ? `Last update: ${new Date(props.statsUpdatedAt).toLocaleTimeString()}` : 'Waiting...'}</small>
+          </header>
+          <div className="voice-detailed-stats-grid">
+            {props.connectionStats.length === 0 ? (
+              <article className="voice-detailed-stat-card voice-detailed-stat-card-empty">
+                <header>
+                  <strong>Collecting voice stats</strong>
+                  <small>Waiting for active peer transport telemetry.</small>
+                </header>
+              </article>
+            ) : null}
+            {props.connectionStats.map((stats) => (
+              <article key={stats.userId} className="voice-detailed-stat-card">
+                <header>
+                  <strong>{stats.username}</strong>
+                  <small>
+                    {stats.connectionState} • {stats.iceConnectionState}
+                    {(stats.localCandidateType === 'sfu' || stats.remoteCandidateType === 'sfu') && ' • SFU'}
+                  </small>
+                </header>
+                <div className="voice-detailed-metrics">
+                  <div className="voice-metric-item">
+                    <label>Latency (RTT)</label>
+                    <span>{formatMetric(stats.currentRttMs)} ms</span>
+                  </div>
+                  <div className="voice-metric-item">
+                    <label>Bitrate Out</label>
+                    <span>{formatMetric(stats.availableOutgoingBitrateKbps)} kbps</span>
+                  </div>
+                  <div className="voice-metric-item">
+                    <label>Audio In/Out</label>
+                    <span>{formatMetric(stats.inboundAudio.bitrateKbps)} / {formatMetric(stats.outboundAudio.bitrateKbps)} kbps</span>
+                  </div>
+                  <div className="voice-metric-item">
+                    <label>Video In/Out</label>
+                    <span>{formatMetric(stats.inboundVideo.bitrateKbps)} / {formatMetric(stats.outboundVideo.bitrateKbps)} kbps</span>
+                  </div>
+                  <div className="voice-metric-item">
+                    <label>Video Resolution</label>
+                    <span>{stats.inboundVideo.frameWidth ? `${stats.inboundVideo.frameWidth}x${stats.inboundVideo.frameHeight}` : '--'}</span>
+                  </div>
+                  <div className="voice-metric-item">
+                    <label>Packet Loss</label>
+                    <span>{formatMetric(stats.inboundAudio.packetsLost, 0)}</span>
+                  </div>
+                  <div className="voice-metric-item">
+                    <label>Audio Jitter</label>
+                    <span>{formatMetric(stats.inboundAudio.jitterMs)} ms</span>
+                  </div>
+                </div>
+              </article>
+            ))}
+          </div>
+        </section>
+      )}
+
       {hasScreenShares && (
         <div className={`voice-screen-shares ${isCinemaMode ? 'cinema-mode' : maximizedStreamId ? 'has-maximized' : 'grid-layout'}`}>
           {isCinemaMode && (
@@ -441,6 +501,25 @@ export function VoiceChannelPanel(props: VoiceChannelPanelProps) {
               📷 Share Camera
             </button>
           </div>
+        </div>
+      )}
+
+      {props.joined && hasScreenShares && (
+        <div className="voice-panel-header-actions" style={{ justifyContent: 'center', marginTop: 4 }}>
+          {hasLocalShare ? (
+            <button className="voice-action-btn danger" onClick={() => props.onToggleVideoShare(props.localStreamSource ?? 'screen')}>
+              ⏹️ Stop Sharing
+            </button>
+          ) : (
+            <>
+              <button className="voice-action-btn" onClick={() => props.onToggleVideoShare('screen')}>
+                🖥️ Share Screen
+              </button>
+              <button className="voice-action-btn" onClick={() => props.onToggleVideoShare('camera')}>
+                📷 Share Camera
+              </button>
+            </>
+          )}
         </div>
       )}
 
@@ -552,66 +631,6 @@ export function VoiceChannelPanel(props: VoiceChannelPanelProps) {
           );
         })}
       </div>
-
-      {props.showDetailedStats && (
-        <section className="voice-detailed-stats">
-          <header className="voice-detailed-stats-header">
-            <strong>Connection Analytics</strong>
-            <small>{props.statsUpdatedAt ? `Last update: ${new Date(props.statsUpdatedAt).toLocaleTimeString()}` : 'Waiting...'}</small>
-          </header>
-          <div className="voice-detailed-stats-grid">
-            {props.connectionStats.length === 0 ? (
-              <article className="voice-detailed-stat-card voice-detailed-stat-card-empty">
-                <header>
-                  <strong>Collecting voice stats</strong>
-                  <small>Waiting for active peer transport telemetry.</small>
-                </header>
-              </article>
-            ) : null}
-            {props.connectionStats.map((stats) => (
-              <article key={stats.userId} className="voice-detailed-stat-card">
-                <header>
-                  <strong>{stats.username}</strong>
-                  <small>
-                    {stats.connectionState} • {stats.iceConnectionState}
-                    {(stats.localCandidateType === 'sfu' || stats.remoteCandidateType === 'sfu') && ' • SFU'}
-                  </small>
-                </header>
-                <div className="voice-detailed-metrics">
-                  <div className="voice-metric-item">
-                    <label>Latency (RTT)</label>
-                    <span>{formatMetric(stats.currentRttMs)} ms</span>
-                  </div>
-                  <div className="voice-metric-item">
-                    <label>Bitrate Out</label>
-                    <span>{formatMetric(stats.availableOutgoingBitrateKbps)} kbps</span>
-                  </div>
-                  <div className="voice-metric-item">
-                    <label>Audio In/Out</label>
-                    <span>{formatMetric(stats.inboundAudio.bitrateKbps)} / {formatMetric(stats.outboundAudio.bitrateKbps)} kbps</span>
-                  </div>
-                  <div className="voice-metric-item">
-                    <label>Video In/Out</label>
-                    <span>{formatMetric(stats.inboundVideo.bitrateKbps)} / {formatMetric(stats.outboundVideo.bitrateKbps)} kbps</span>
-                  </div>
-                  <div className="voice-metric-item">
-                    <label>Video Resolution</label>
-                    <span>{stats.inboundVideo.frameWidth ? `${stats.inboundVideo.frameWidth}x${stats.inboundVideo.frameHeight}` : '--'}</span>
-                  </div>
-                  <div className="voice-metric-item">
-                    <label>Packet Loss</label>
-                    <span>{formatMetric(stats.inboundAudio.packetsLost, 0)}</span>
-                  </div>
-                  <div className="voice-metric-item">
-                    <label>Audio Jitter</label>
-                    <span>{formatMetric(stats.inboundAudio.jitterMs)} ms</span>
-                  </div>
-                </div>
-              </article>
-            ))}
-          </div>
-        </section>
-      )}
     </section>
   );
 }
