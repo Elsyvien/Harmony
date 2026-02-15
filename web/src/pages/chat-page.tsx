@@ -272,26 +272,7 @@ function createEmptyMediaStats(): VoiceDetailedMediaStats {
   };
 }
 
-function mapPeerConnectionStateToIceState(
-  state: RTCPeerConnectionState,
-): RTCIceConnectionState {
-  if (state === 'connected') {
-    return 'connected';
-  }
-  if (state === 'connecting') {
-    return 'checking';
-  }
-  if (state === 'disconnected') {
-    return 'disconnected';
-  }
-  if (state === 'failed') {
-    return 'failed';
-  }
-  if (state === 'closed') {
-    return 'closed';
-  }
-  return 'new';
-}
+// mapPeerConnectionStateToIceState removed (was only used by SFU stats path)
 
 function accumulateMediaStats(
   target: VoiceDetailedMediaStats,
@@ -504,9 +485,9 @@ export function ChatPage() {
     createDefaultVoiceIceConfig(),
   );
   const [voiceSfuEnabled, setVoiceSfuEnabled] = useState(false);
-  const [voiceSfuAudioOnly, setVoiceSfuAudioOnly] = useState(true);
+  const [_voiceSfuAudioOnly, setVoiceSfuAudioOnly] = useState(true);
   const [voiceAudioTransportMode, setVoiceAudioTransportMode] = useState<'p2p' | 'sfu'>('p2p');
-  const [voiceSfuTransportState, setVoiceSfuTransportState] =
+  const [_voiceSfuTransportState, setVoiceSfuTransportState] =
     useState<RTCPeerConnectionState>('new');
   const [savingVoiceSettingsChannelId, setSavingVoiceSettingsChannelId] = useState<string | null>(null);
   const [streamStatusBanner, setStreamStatusBanner] = useState<{
@@ -725,230 +706,8 @@ export function ChatPage() {
 
   const collectVoiceConnectionStats = useCallback(async () => {
     const connections = Array.from(peerConnectionsRef.current.entries());
-    // When SFU handles audio, always use SFU stats path (even if P2P connections
-    // exist for video) so the primary connection state reflects the working SFU link.
-    // However, also collect P2P video stats alongside to populate analytics when
-    // SFU transport is still connecting but P2P video is already established.
-    if (connections.length === 0 || (voiceAudioTransportMode === 'sfu' && auth.user)) {
-      if (voiceAudioTransportMode === 'sfu' && auth.user) {
-        // Collect real stats from SFU transports via their underlying RTCPeerConnections
-        const sfuClient = voiceSfuClientRef.current;
-        const sfuPeerConnections = sfuClient?.getTransportPeerConnections() ?? [];
-        const validPcs = sfuPeerConnections
-          .filter((entry) => entry.pc && entry.pc.connectionState !== 'closed')
-          .map((entry) => entry.pc!);
-
-        if (validPcs.length > 0) {
-          // Merge stats from send+recv transports into per-participant entries
-          const aggregatedOutboundAudio = createEmptyMediaStats();
-          const aggregatedInboundAudio = createEmptyMediaStats();
-          let bestRttMs: number | null = null;
-          let availableBitrateKbps: number | null = null;
-          let localCandidateType: string | null = null;
-          let remoteCandidateType: string | null = null;
-          let effectiveConnectionState = voiceSfuTransportState;
-          let effectiveIceState: RTCIceConnectionState = mapPeerConnectionStateToIceState(voiceSfuTransportState);
-
-          for (const pc of validPcs) {
-            try {
-              const report = await pc.getStats();
-              effectiveConnectionState = pc.connectionState;
-              effectiveIceState = pc.iceConnectionState;
-
-              const localCandidates = new Map<string, { candidateType?: string }>();
-              const remoteCandidates = new Map<string, { candidateType?: string }>();
-              let selectedPair: (RTCIceCandidatePairStats & { availableOutgoingBitrate?: number }) | null = null;
-
-              for (const stat of report.values()) {
-                if (stat.type === 'local-candidate') {
-                  localCandidates.set(stat.id, stat as unknown as { candidateType?: string });
-                  continue;
-                }
-                if (stat.type === 'remote-candidate') {
-                  remoteCandidates.set(stat.id, stat as unknown as { candidateType?: string });
-                  continue;
-                }
-                if (stat.type === 'candidate-pair') {
-                  const pair = stat as RTCIceCandidatePairStats & { selected?: boolean; availableOutgoingBitrate?: number };
-                  if (pair.nominated || pair.selected) {
-                    selectedPair = pair;
-                  }
-                  continue;
-                }
-
-                if (stat.type === 'outbound-rtp') {
-                  const rtp = stat as RTCOutboundRtpStreamStats & { kind?: string; mediaType?: string; isRemote?: boolean };
-                  if (rtp.isRemote) continue;
-                  const mediaKind = rtp.kind ?? rtp.mediaType ?? 'audio';
-                  if (mediaKind === 'audio') {
-                    const bitrateKbps =
-                      typeof rtp.bytesSent === 'number'
-                        ? computeKbpsFromSnapshot(`sfu:out:${rtp.id}`, rtp.bytesSent, rtp.timestamp)
-                        : null;
-                    accumulateMediaStats(aggregatedOutboundAudio, {
-                      bitrateKbps,
-                      packets: typeof rtp.packetsSent === 'number' ? rtp.packetsSent : null,
-                    });
-                  }
-                  continue;
-                }
-
-                if (stat.type === 'inbound-rtp') {
-                  const rtp = stat as RTCInboundRtpStreamStats & { kind?: string; mediaType?: string };
-                  const mediaKind = rtp.kind ?? rtp.mediaType ?? 'audio';
-                  if (mediaKind === 'audio') {
-                    const bitrateKbps =
-                      typeof rtp.bytesReceived === 'number'
-                        ? computeKbpsFromSnapshot(`sfu:in:${rtp.id}`, rtp.bytesReceived, rtp.timestamp)
-                        : null;
-                    accumulateMediaStats(aggregatedInboundAudio, {
-                      bitrateKbps,
-                      packets: typeof rtp.packetsReceived === 'number' ? rtp.packetsReceived : null,
-                      packetsLost: typeof rtp.packetsLost === 'number' ? rtp.packetsLost : null,
-                      jitterMs: typeof rtp.jitter === 'number' ? rtp.jitter * 1000 : null,
-                    });
-                  }
-                }
-              }
-
-              if (selectedPair) {
-                const rtt = typeof selectedPair.currentRoundTripTime === 'number'
-                  ? selectedPair.currentRoundTripTime * 1000
-                  : null;
-                if (rtt !== null && (bestRttMs === null || rtt < bestRttMs)) {
-                  bestRttMs = rtt;
-                }
-                if (typeof selectedPair.availableOutgoingBitrate === 'number') {
-                  availableBitrateKbps = selectedPair.availableOutgoingBitrate / 1000;
-                }
-                const lc = selectedPair.localCandidateId ? localCandidates.get(selectedPair.localCandidateId) : null;
-                const rc = selectedPair.remoteCandidateId ? remoteCandidates.get(selectedPair.remoteCandidateId) : null;
-                if (lc?.candidateType) localCandidateType = lc.candidateType;
-                if (rc?.candidateType) remoteCandidateType = rc.candidateType;
-              }
-            } catch {
-              // Continue with other PCs
-            }
-          }
-
-          // Build per-participant stats entries using the aggregated SFU data
-          const sfuStats = joinedVoiceParticipants
-            .filter((participant) => participant.userId !== auth.user?.id)
-            .map((participant) => ({
-              userId: participant.userId,
-              username: participant.username,
-              connectionState: effectiveConnectionState,
-              iceConnectionState: effectiveIceState,
-              signalingState: 'stable' as RTCSignalingState,
-              currentRttMs: bestRttMs,
-              availableOutgoingBitrateKbps: availableBitrateKbps,
-              localCandidateType: localCandidateType ?? 'sfu',
-              remoteCandidateType: remoteCandidateType ?? 'sfu',
-              outboundAudio: { ...aggregatedOutboundAudio },
-              inboundAudio: { ...aggregatedInboundAudio },
-              outboundVideo: createEmptyMediaStats(),
-              inboundVideo: createEmptyMediaStats(),
-            }));
-          // Merge P2P video stats into SFU entries when both transports are active
-          if (connections.length > 0) {
-            const p2pVideoStats = new Map<string, { outbound: VoiceDetailedMediaStats; inbound: VoiceDetailedMediaStats }>();
-            for (const [peerUserId, connection] of connections) {
-              try {
-                if (connection.connectionState === 'closed') continue;
-                const report = await connection.getStats();
-                const outbound = createEmptyMediaStats();
-                const inbound = createEmptyMediaStats();
-                for (const stat of report.values()) {
-                  if (stat.type === 'outbound-rtp') {
-                    const rtp = stat as RTCOutboundRtpStreamStats & { kind?: string; mediaType?: string; isRemote?: boolean };
-                    if (rtp.isRemote) continue;
-                    const mediaKind = rtp.kind ?? rtp.mediaType ?? '';
-                    if (mediaKind === 'video') {
-                      const bitrateKbps = typeof rtp.bytesSent === 'number'
-                        ? computeKbpsFromSnapshot(`p2p:out:${rtp.id}`, rtp.bytesSent, rtp.timestamp)
-                        : null;
-                      accumulateMediaStats(outbound, {
-                        bitrateKbps,
-                        framesPerSecond: typeof (rtp as unknown as Record<string, unknown>).framesPerSecond === 'number'
-                          ? (rtp as unknown as Record<string, number>).framesPerSecond : null,
-                        frameWidth: typeof (rtp as unknown as Record<string, unknown>).frameWidth === 'number'
-                          ? (rtp as unknown as Record<string, number>).frameWidth : null,
-                        frameHeight: typeof (rtp as unknown as Record<string, unknown>).frameHeight === 'number'
-                          ? (rtp as unknown as Record<string, number>).frameHeight : null,
-                      });
-                    }
-                  }
-                  if (stat.type === 'inbound-rtp') {
-                    const rtp = stat as RTCInboundRtpStreamStats & { kind?: string; mediaType?: string };
-                    const mediaKind = rtp.kind ?? rtp.mediaType ?? '';
-                    if (mediaKind === 'video') {
-                      const bitrateKbps = typeof rtp.bytesReceived === 'number'
-                        ? computeKbpsFromSnapshot(`p2p:in:${rtp.id}`, rtp.bytesReceived, rtp.timestamp)
-                        : null;
-                      accumulateMediaStats(inbound, {
-                        bitrateKbps,
-                        framesPerSecond: typeof rtp.framesPerSecond === 'number' ? rtp.framesPerSecond : null,
-                        frameWidth: typeof rtp.frameWidth === 'number' ? rtp.frameWidth : null,
-                        frameHeight: typeof rtp.frameHeight === 'number' ? rtp.frameHeight : null,
-                        packetsLost: typeof rtp.packetsLost === 'number' ? rtp.packetsLost : null,
-                        jitterMs: typeof rtp.jitter === 'number' ? rtp.jitter * 1000 : null,
-                      });
-                    }
-                  }
-                }
-                p2pVideoStats.set(peerUserId, { outbound, inbound });
-              } catch {}
-            }
-            for (const entry of sfuStats) {
-              const videoStats = p2pVideoStats.get(entry.userId);
-              if (videoStats) {
-                entry.outboundVideo = videoStats.outbound;
-                entry.inboundVideo = videoStats.inbound;
-              }
-            }
-          }
-
-          sfuStats.sort((a, b) => a.username.localeCompare(b.username));
-          setVoiceConnectionStats(sfuStats);
-          setVoiceStatsUpdatedAt(Date.now());
-          return;
-        }
-
-        // Fallback: no PCs available yet (still connecting)
-        // Also check P2P connections for fallback state information
-        const fallbackConnectionState: RTCPeerConnectionState = (() => {
-          if (voiceSfuTransportState === 'connected' || voiceSfuTransportState === 'connecting') {
-            return voiceSfuTransportState;
-          }
-          // If SFU PCs aren't available but P2P connections are established,
-          // use the best P2P state as a hint so analytics don't appear empty.
-          for (const [, pc] of connections) {
-            if (pc.connectionState === 'connected') return 'connected';
-          }
-          return voiceSfuTransportState;
-        })();
-        const syntheticStats = joinedVoiceParticipants
-          .filter((participant) => participant.userId !== auth.user?.id)
-          .map((participant) => ({
-            userId: participant.userId,
-            username: participant.username,
-            connectionState: fallbackConnectionState,
-            iceConnectionState: mapPeerConnectionStateToIceState(fallbackConnectionState),
-            signalingState: 'stable' as RTCSignalingState,
-            currentRttMs: null,
-            availableOutgoingBitrateKbps: null,
-            localCandidateType: 'sfu',
-            remoteCandidateType: 'sfu',
-            outboundAudio: createEmptyMediaStats(),
-            inboundAudio: createEmptyMediaStats(),
-            outboundVideo: createEmptyMediaStats(),
-            inboundVideo: createEmptyMediaStats(),
-          }));
-        syntheticStats.sort((a, b) => a.username.localeCompare(b.username));
-        setVoiceConnectionStats(syntheticStats);
-        setVoiceStatsUpdatedAt(Date.now());
-        return;
-      }
+    // Pure P2P mode: skip SFU stats entirely and use P2P connection stats.
+    if (connections.length === 0) {
       setVoiceConnectionStats([]);
       setVoiceStatsUpdatedAt(Date.now());
       return;
@@ -1096,8 +855,6 @@ export function ChatPage() {
     computeKbpsFromSnapshot,
     joinedVoiceParticipants,
     auth.user,
-    voiceAudioTransportMode,
-    voiceSfuTransportState,
   ]);
 
   useEffect(() => {
@@ -1675,6 +1432,7 @@ export function ChatPage() {
     setVoiceSfuTransportState('new');
   }, []);
 
+  /* SFU transport disabled – kept for future re-enablement
   const startVoiceSfuTransport = useCallback(
     async (channelId: string, localAudioTrack: MediaStreamTrack | null) => {
       if (!auth.user || !voiceSfuEnabled) {
@@ -1750,6 +1508,7 @@ export function ChatPage() {
     },
     [auth.user, logVoiceDebug, stopVoiceSfuTransport, voiceSfuEnabled],
   );
+  */
 
   const handleVoiceSfuEvent = useCallback(
     async (payload: VoiceSfuEventPayload) => {
@@ -2330,18 +2089,7 @@ export function ChatPage() {
         applyReceiverBuffering(event.receiver, event.track.kind === 'video' ? 'video' : 'audio');
         const streamFromTrack = event.streams[0] ?? new MediaStream([event.track]);
         if (event.track.kind === 'audio') {
-          const existingRemoteStream = remoteAudioStreamsRef.current[peerUserId] ?? null;
-          const hasLiveExistingAudioTrack = Boolean(
-            existingRemoteStream?.getAudioTracks().some((track) => track.readyState === 'live'),
-          );
-          if (
-            voiceSfuAudioActiveRef.current &&
-            remoteAudioUsersViaSfuRef.current.has(peerUserId) &&
-            hasLiveExistingAudioTrack
-          ) {
-            return;
-          }
-          remoteAudioUsersViaSfuRef.current.delete(peerUserId);
+          // Pure P2P: always accept remote audio tracks from peer connections.
           setRemoteAudioStreams((prev) => ({
             ...prev,
             [peerUserId]: streamFromTrack,
@@ -3695,20 +3443,8 @@ export function ChatPage() {
 
         if (cancelled || voiceTransportEpochRef.current !== transportEpoch) return;
 
-        const localProcessedAudioTrack =
-          (localVoiceProcessedStreamRef.current ?? localVoiceStreamRef.current)
-            ?.getAudioTracks()
-            .find((track) => track.readyState === 'live') ?? null;
-        if (voiceSfuEnabled) {
-          const sfuStarted = await startVoiceSfuTransport(activeVoiceChannelId, localProcessedAudioTrack);
-          if (!sfuStarted) {
-            setNotice('Voice fallback active: using direct P2P audio transport.');
-          } else {
-            await voiceSfuClientRef.current?.syncProducers();
-          }
-        } else {
-          stopVoiceSfuTransport();
-        }
+        // Pure P2P mode: SFU transport disabled, all audio/video over direct peer connections.
+        stopVoiceSfuTransport();
 
         const desiredPeerUserIds = new Set(
           participants
@@ -3722,35 +3458,26 @@ export function ChatPage() {
           }
         }
 
-        // When SFU handles audio, only create P2P connections when video content is
-        // actively being shared. P2P connections will still be created on-demand when
-        // a remote peer sends a signaling offer (e.g. starts sharing screen/camera).
-        const sfuHandlesAudio = voiceSfuEnabled && voiceSfuAudioActiveRef.current;
-        const hasLocalVideoContent = Boolean(localScreenStreamRef.current?.getVideoTracks().some(t => t.readyState === 'live'));
-        const skipEagerP2P = sfuHandlesAudio && !hasLocalVideoContent;
-
-        if (!skipEagerP2P) {
-          const sortedPeerUserIds = Array.from(desiredPeerUserIds).sort();
-          await Promise.allSettled(
-            sortedPeerUserIds.map(async (peerUserId) => {
-              if (cancelled || voiceTransportEpochRef.current !== transportEpoch) return;
-              try {
-                const hadExistingConnection = peerConnectionsRef.current.has(peerUserId);
-                const pc = await ensurePeerConnection(peerUserId, activeVoiceChannelId);
-                if (pc.signalingState === 'stable' && !hadExistingConnection) {
-                  // Newly created peer connection needs an initial offer.
-                  await createOfferForPeer(peerUserId, activeVoiceChannelId);
-                  requestStreamSnapshotFromPeer(activeVoiceChannelId, peerUserId, 'join-sync');
-                } else if (pc.signalingState === 'stable') {
-                  // Already exists, ensure it is healthy.
-                  if (pc.connectionState === 'failed' || pc.connectionState === 'disconnected') {
-                    pc.restartIce?.();
-                  }
+        const sortedPeerUserIds = Array.from(desiredPeerUserIds).sort();
+        await Promise.allSettled(
+          sortedPeerUserIds.map(async (peerUserId) => {
+            if (cancelled || voiceTransportEpochRef.current !== transportEpoch) return;
+            try {
+              const hadExistingConnection = peerConnectionsRef.current.has(peerUserId);
+              const pc = await ensurePeerConnection(peerUserId, activeVoiceChannelId);
+              if (pc.signalingState === 'stable' && !hadExistingConnection) {
+                // Newly created peer connection needs an initial offer.
+                await createOfferForPeer(peerUserId, activeVoiceChannelId);
+                requestStreamSnapshotFromPeer(activeVoiceChannelId, peerUserId, 'join-sync');
+              } else if (pc.signalingState === 'stable') {
+                // Already exists, ensure it is healthy.
+                if (pc.connectionState === 'failed' || pc.connectionState === 'disconnected') {
+                  pc.restartIce?.();
                 }
-              } catch {}
-            })
-          );
-        }
+              }
+            } catch {}
+          })
+        );
       };
       void syncVoiceTransport();
     }, 50);
@@ -3770,9 +3497,7 @@ export function ChatPage() {
     ensurePeerConnection,
     createOfferForPeer,
     requestStreamSnapshotFromPeer,
-    startVoiceSfuTransport,
     stopVoiceSfuTransport,
-    voiceSfuEnabled,
   ]);
 
   useEffect(() => {
@@ -5402,8 +5127,7 @@ export function ChatPage() {
                 {' • '}
                 {activeRemoteAudioUsers.length} remote stream(s)
                 {' • '}
-                Audio via {voiceAudioTransportMode === 'sfu' ? 'Server SFU' : 'P2P'}
-                {voiceAudioTransportMode === 'sfu' && voiceSfuAudioOnly ? ' (audio-only)' : ''}
+                Audio via P2P
               </small>
             </div>
             <button
