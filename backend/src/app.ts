@@ -7,6 +7,7 @@ import { Prisma } from '@prisma/client';
 import Fastify from 'fastify';
 import { createHmac, randomUUID } from 'node:crypto';
 import { mkdir } from 'node:fs/promises';
+import { networkInterfaces } from 'node:os';
 import path from 'node:path';
 import { ZodError } from 'zod';
 import { loadEnv } from './config/env.js';
@@ -103,11 +104,31 @@ export async function buildApp() {
   const userService = new UserService();
   const adminService = new AdminService();
   const adminUserService = new AdminUserService();
+  // Auto-detect a routable IP for SFU ICE candidates when SFU_ANNOUNCED_IP is not set.
+  // Without this, mediasoup generates candidates with 0.0.0.0 which browsers cannot reach.
+  let sfuAnnouncedIp: string | null = env.SFU_ANNOUNCED_IP.trim() || null;
+  if (!sfuAnnouncedIp && env.SFU_ENABLED) {
+    const ifaces = networkInterfaces();
+    for (const entries of Object.values(ifaces)) {
+      if (!entries) continue;
+      for (const entry of entries) {
+        if (entry.family === 'IPv4' && !entry.internal) {
+          sfuAnnouncedIp = entry.address;
+          break;
+        }
+      }
+      if (sfuAnnouncedIp) break;
+    }
+    // Fallback for loopback-only environments
+    if (!sfuAnnouncedIp) sfuAnnouncedIp = '127.0.0.1';
+    app.log.info(`SFU_ANNOUNCED_IP not set – auto-detected ${sfuAnnouncedIp}`);
+  }
+
   const voiceSfuService = new VoiceSfuService({
     enabled: env.SFU_ENABLED,
     audioOnly: env.SFU_AUDIO_ONLY,
     listenIp: env.SFU_LISTEN_IP,
-    announcedIp: env.SFU_ANNOUNCED_IP.trim() ? env.SFU_ANNOUNCED_IP.trim() : null,
+    announcedIp: sfuAnnouncedIp,
     minPort: env.SFU_MIN_PORT,
     maxPort: env.SFU_MAX_PORT,
     enableUdp: env.SFU_WEBRTC_UDP,

@@ -727,6 +727,8 @@ export function ChatPage() {
     const connections = Array.from(peerConnectionsRef.current.entries());
     // When SFU handles audio, always use SFU stats path (even if P2P connections
     // exist for video) so the primary connection state reflects the working SFU link.
+    // However, also collect P2P video stats alongside to populate analytics when
+    // SFU transport is still connecting but P2P video is already established.
     if (connections.length === 0 || (voiceAudioTransportMode === 'sfu' && auth.user)) {
       if (voiceAudioTransportMode === 'sfu' && auth.user) {
         // Collect real stats from SFU transports via their underlying RTCPeerConnections
@@ -847,6 +849,65 @@ export function ChatPage() {
               outboundVideo: createEmptyMediaStats(),
               inboundVideo: createEmptyMediaStats(),
             }));
+          // Merge P2P video stats into SFU entries when both transports are active
+          if (connections.length > 0) {
+            const p2pVideoStats = new Map<string, { outbound: VoiceDetailedMediaStats; inbound: VoiceDetailedMediaStats }>();
+            for (const [peerUserId, connection] of connections) {
+              try {
+                if (connection.connectionState === 'closed') continue;
+                const report = await connection.getStats();
+                const outbound = createEmptyMediaStats();
+                const inbound = createEmptyMediaStats();
+                for (const stat of report.values()) {
+                  if (stat.type === 'outbound-rtp') {
+                    const rtp = stat as RTCOutboundRtpStreamStats & { kind?: string; mediaType?: string; isRemote?: boolean };
+                    if (rtp.isRemote) continue;
+                    const mediaKind = rtp.kind ?? rtp.mediaType ?? '';
+                    if (mediaKind === 'video') {
+                      const bitrateKbps = typeof rtp.bytesSent === 'number'
+                        ? computeKbpsFromSnapshot(`p2p:out:${rtp.id}`, rtp.bytesSent, rtp.timestamp)
+                        : null;
+                      accumulateMediaStats(outbound, {
+                        bitrateKbps,
+                        framesPerSecond: typeof (rtp as unknown as Record<string, unknown>).framesPerSecond === 'number'
+                          ? (rtp as unknown as Record<string, number>).framesPerSecond : null,
+                        frameWidth: typeof (rtp as unknown as Record<string, unknown>).frameWidth === 'number'
+                          ? (rtp as unknown as Record<string, number>).frameWidth : null,
+                        frameHeight: typeof (rtp as unknown as Record<string, unknown>).frameHeight === 'number'
+                          ? (rtp as unknown as Record<string, number>).frameHeight : null,
+                      });
+                    }
+                  }
+                  if (stat.type === 'inbound-rtp') {
+                    const rtp = stat as RTCInboundRtpStreamStats & { kind?: string; mediaType?: string };
+                    const mediaKind = rtp.kind ?? rtp.mediaType ?? '';
+                    if (mediaKind === 'video') {
+                      const bitrateKbps = typeof rtp.bytesReceived === 'number'
+                        ? computeKbpsFromSnapshot(`p2p:in:${rtp.id}`, rtp.bytesReceived, rtp.timestamp)
+                        : null;
+                      accumulateMediaStats(inbound, {
+                        bitrateKbps,
+                        framesPerSecond: typeof rtp.framesPerSecond === 'number' ? rtp.framesPerSecond : null,
+                        frameWidth: typeof rtp.frameWidth === 'number' ? rtp.frameWidth : null,
+                        frameHeight: typeof rtp.frameHeight === 'number' ? rtp.frameHeight : null,
+                        packetsLost: typeof rtp.packetsLost === 'number' ? rtp.packetsLost : null,
+                        jitterMs: typeof rtp.jitter === 'number' ? rtp.jitter * 1000 : null,
+                      });
+                    }
+                  }
+                }
+                p2pVideoStats.set(peerUserId, { outbound, inbound });
+              } catch {}
+            }
+            for (const entry of sfuStats) {
+              const videoStats = p2pVideoStats.get(entry.userId);
+              if (videoStats) {
+                entry.outboundVideo = videoStats.outbound;
+                entry.inboundVideo = videoStats.inbound;
+              }
+            }
+          }
+
           sfuStats.sort((a, b) => a.username.localeCompare(b.username));
           setVoiceConnectionStats(sfuStats);
           setVoiceStatsUpdatedAt(Date.now());
@@ -854,13 +915,25 @@ export function ChatPage() {
         }
 
         // Fallback: no PCs available yet (still connecting)
+        // Also check P2P connections for fallback state information
+        const fallbackConnectionState: RTCPeerConnectionState = (() => {
+          if (voiceSfuTransportState === 'connected' || voiceSfuTransportState === 'connecting') {
+            return voiceSfuTransportState;
+          }
+          // If SFU PCs aren't available but P2P connections are established,
+          // use the best P2P state as a hint so analytics don't appear empty.
+          for (const [, pc] of connections) {
+            if (pc.connectionState === 'connected') return 'connected';
+          }
+          return voiceSfuTransportState;
+        })();
         const syntheticStats = joinedVoiceParticipants
           .filter((participant) => participant.userId !== auth.user?.id)
           .map((participant) => ({
             userId: participant.userId,
             username: participant.username,
-            connectionState: voiceSfuTransportState,
-            iceConnectionState: mapPeerConnectionStateToIceState(voiceSfuTransportState),
+            connectionState: fallbackConnectionState,
+            iceConnectionState: mapPeerConnectionStateToIceState(fallbackConnectionState),
             signalingState: 'stable' as RTCSignalingState,
             currentRttMs: null,
             availableOutgoingBitrateKbps: null,
