@@ -76,10 +76,11 @@ const CAMERA_MAX_CAPTURE_CONSTRAINTS = {
 
 const REMOTE_VIDEO_PLAYOUT_DELAY_HINT_SECONDS = 0.35;
 const REMOTE_VIDEO_JITTER_BUFFER_TARGET_MS = 300;
-const REMOTE_AUDIO_PLAYOUT_DELAY_HINT_SECONDS = 0.2;
-const REMOTE_AUDIO_JITTER_BUFFER_TARGET_MS = 180;
-const REMOTE_SPEAKING_HOLD_MS = 420;
-const REMOTE_SPEAKING_THRESHOLD_FLOOR = 0.006;
+const REMOTE_AUDIO_PLAYOUT_DELAY_HINT_SECONDS = 0.06;
+const REMOTE_AUDIO_JITTER_BUFFER_TARGET_MS = 60;
+const REMOTE_SPEAKING_HOLD_MS = 350;
+const REMOTE_SPEAKING_THRESHOLD_FLOOR = 0.008;
+const SPEAKING_DETECTION_INTERVAL_MS = 50;
 
 const CAMERA_FALLBACK_QUALITY_LABELS = [
   '1080p 30fps',
@@ -1215,6 +1216,24 @@ export function ChatPage() {
     }
   }, [auth.token]);
 
+  const notificationAudioContextRef = useRef<AudioContext | null>(null);
+
+  const getNotificationAudioContext = useCallback(() => {
+    if (!audioContextsUnlockedRef.current) return null;
+    const existing = notificationAudioContextRef.current;
+    if (existing && existing.state !== 'closed') {
+      if (existing.state === 'suspended') {
+        void existing.resume().catch(() => {});
+      }
+      return existing;
+    }
+    const AudioContextClass = resolveAudioContextClass();
+    if (!AudioContextClass) return null;
+    const ctx = new AudioContextClass();
+    notificationAudioContextRef.current = ctx;
+    return ctx;
+  }, []);
+
   const playIncomingMessageSound = useCallback(() => {
     if (!preferences.playMessageSound) {
       return;
@@ -1223,11 +1242,10 @@ export function ChatPage() {
       return;
     }
     try {
-      const AudioContextClass = resolveAudioContextClass();
-      if (!AudioContextClass) {
+      const ctx = getNotificationAudioContext();
+      if (!ctx) {
         return;
       }
-      const ctx = new AudioContextClass();
       const oscillator = ctx.createOscillator();
       const gain = ctx.createGain();
       oscillator.type = 'triangle';
@@ -1239,24 +1257,20 @@ export function ChatPage() {
       gain.connect(ctx.destination);
       oscillator.start();
       oscillator.stop(ctx.currentTime + 0.14);
-      window.setTimeout(() => {
-        void ctx.close();
-      }, 220);
     } catch {
       // Best effort only.
     }
-  }, [preferences.playMessageSound]);
+  }, [preferences.playMessageSound, getNotificationAudioContext]);
 
   const playVoiceStateSound = useCallback((kind: 'join' | 'leave') => {
     if (!audioContextsUnlockedRef.current) {
       return;
     }
     try {
-      const AudioContextClass = resolveAudioContextClass();
-      if (!AudioContextClass) {
+      const ctx = getNotificationAudioContext();
+      if (!ctx) {
         return;
       }
-      const ctx = new AudioContextClass();
       const oscillator = ctx.createOscillator();
       const gain = ctx.createGain();
       oscillator.type = 'sine';
@@ -1268,13 +1282,10 @@ export function ChatPage() {
       gain.connect(ctx.destination);
       oscillator.start();
       oscillator.stop(ctx.currentTime + 0.13);
-      window.setTimeout(() => {
-        void ctx.close();
-      }, 220);
     } catch {
       // Best effort only.
     }
-  }, []);
+  }, [getNotificationAudioContext]);
 
   const clearPendingSignature = useCallback((signature: string) => {
     pendingSignaturesRef.current.delete(signature);
@@ -1505,6 +1516,10 @@ export function ChatPage() {
     if (remoteSpeakingContextRef.current) {
       void remoteSpeakingContextRef.current.close();
       remoteSpeakingContextRef.current = null;
+    }
+    if (notificationAudioContextRef.current) {
+      void notificationAudioContextRef.current.close();
+      notificationAudioContextRef.current = null;
     }
   }, [closePeerConnection]);
 
@@ -1769,7 +1784,8 @@ export function ChatPage() {
     resetLocalAnalyser();
     const analyserContext = new AudioContextClass();
     const analyser = analyserContext.createAnalyser();
-    analyser.fftSize = 1024;
+    analyser.fftSize = 512;
+    analyser.smoothingTimeConstant = 0.3;
     const source = analyserContext.createMediaStreamSource(stream);
     source.connect(analyser);
     localAnalyserContextRef.current = analyserContext;
@@ -1806,6 +1822,8 @@ export function ChatPage() {
       echoCancellation: true,
       noiseSuppression: true,
       autoGainControl: true,
+      sampleRate: 48000,
+      channelCount: 1,
       ...(deviceId ? { deviceId: { exact: deviceId } } : {}),
     });
 
@@ -1867,40 +1885,45 @@ export function ChatPage() {
       localVoiceProcessedStreamRef.current = null;
 
       let processedStream = rawStream;
-      try {
-        const AudioContextClass = resolveAudioContextClass();
-        if (AudioContextClass) {
-          const gainContext = new AudioContextClass();
-          if (audioContextsUnlockedRef.current && gainContext.state === 'suspended') {
-            try {
-              await gainContext.resume();
-            } catch {
-              // Some browsers only allow resume from a direct user gesture.
+      const currentInputGain = voiceInputGainRef.current;
+      // Skip gain processing pipeline when gain is at 100% (unity) — no audible change
+      const needsGainProcessing = currentInputGain !== 100;
+      if (needsGainProcessing) {
+        try {
+          const AudioContextClass = resolveAudioContextClass();
+          if (AudioContextClass) {
+            const gainContext = new AudioContextClass({ sampleRate: 48000 });
+            if (audioContextsUnlockedRef.current && gainContext.state === 'suspended') {
+              try {
+                await gainContext.resume();
+              } catch {
+                // Some browsers only allow resume from a direct user gesture.
+              }
             }
-          }
-          if (gainContext.state === 'running') {
-            const source = gainContext.createMediaStreamSource(rawStream);
-            const gainNode = gainContext.createGain();
-            const targetGain = Math.max(0.0001, voiceInputGainRef.current / 100);
-            if (previousGainNode) {
-              gainNode.gain.setValueAtTime(0.0001, gainContext.currentTime);
-              gainNode.gain.exponentialRampToValueAtTime(targetGain, gainContext.currentTime + 0.22);
+            if (gainContext.state === 'running') {
+              const source = gainContext.createMediaStreamSource(rawStream);
+              const gainNode = gainContext.createGain();
+              const targetGain = Math.max(0.0001, currentInputGain / 100);
+              if (previousGainNode) {
+                gainNode.gain.setValueAtTime(0.0001, gainContext.currentTime);
+                gainNode.gain.exponentialRampToValueAtTime(targetGain, gainContext.currentTime + 0.22);
+              } else {
+                gainNode.gain.value = targetGain;
+              }
+              const destination = gainContext.createMediaStreamDestination();
+              source.connect(gainNode);
+              gainNode.connect(destination);
+              localVoiceGainContextRef.current = gainContext;
+              localVoiceGainNodeRef.current = gainNode;
+              localVoiceProcessedStreamRef.current = destination.stream;
+              processedStream = destination.stream;
             } else {
-              gainNode.gain.value = targetGain;
+              void gainContext.close();
             }
-            const destination = gainContext.createMediaStreamDestination();
-            source.connect(gainNode);
-            gainNode.connect(destination);
-            localVoiceGainContextRef.current = gainContext;
-            localVoiceGainNodeRef.current = gainNode;
-            localVoiceProcessedStreamRef.current = destination.stream;
-            processedStream = destination.stream;
-          } else {
-            void gainContext.close();
           }
+        } catch {
+          processedStream = rawStream;
         }
-      } catch {
-        processedStream = rawStream;
       }
 
       const processedTrack = processedStream.getAudioTracks()[0] ?? rawTrack;
@@ -3983,17 +4006,11 @@ export function ChatPage() {
     }
 
     const selfId = auth.user.id;
-    let frame = 0;
     const data = new Uint8Array(analyser.fftSize);
 
     const tick = () => {
       analyser.getByteTimeDomainData(data);
-      let sum = 0;
-      for (let i = 0; i < data.length; i += 1) {
-        const normalized = (data[i] - 128) / 128;
-        sum += normalized * normalized;
-      }
-      const rms = Math.sqrt(sum / data.length);
+      const rms = computeTimeDomainRms(data);
       const speaking = rms >= preferences.voiceInputSensitivity;
       setSpeakingUserIds((prev) => {
         const hasSelf = prev.includes(selfId);
@@ -4005,12 +4022,11 @@ export function ChatPage() {
         }
         return prev;
       });
-      frame = window.requestAnimationFrame(tick);
     };
 
-    frame = window.requestAnimationFrame(tick);
+    const intervalId = window.setInterval(tick, SPEAKING_DETECTION_INTERVAL_MS);
     return () => {
-      window.cancelAnimationFrame(frame);
+      window.clearInterval(intervalId);
       setSpeakingUserIds((prev) => prev.filter((id) => id !== selfId));
     };
   }, [
@@ -4054,7 +4070,7 @@ export function ChatPage() {
         const source = context.createMediaStreamSource(stream);
         const analyser = context.createAnalyser();
         analyser.fftSize = 512;
-        analyser.smoothingTimeConstant = 0.6;
+        analyser.smoothingTimeConstant = 0.35;
         source.connect(analyser);
         remoteSpeakingSourceByUserRef.current.set(userId, source);
         remoteSpeakingAnalyserByUserRef.current.set(userId, analyser);
@@ -4075,7 +4091,6 @@ export function ChatPage() {
       preferences.voiceInputSensitivity * 0.75,
     );
     const remoteOrder = viewedRemoteAudioUsers.map((user) => user.userId);
-    let frame = 0;
     const tick = () => {
       const now = performance.now();
       const remoteSpeakingSet = new Set<string>();
@@ -4107,13 +4122,11 @@ export function ChatPage() {
         }
         return next;
       });
-
-      frame = window.requestAnimationFrame(tick);
     };
 
-    frame = window.requestAnimationFrame(tick);
+    const intervalId = window.setInterval(tick, SPEAKING_DETECTION_INTERVAL_MS);
     return () => {
-      window.cancelAnimationFrame(frame);
+      window.clearInterval(intervalId);
     };
   }, [
     preferences.showVoiceActivity,

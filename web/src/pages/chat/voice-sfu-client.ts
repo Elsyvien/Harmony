@@ -99,6 +99,12 @@ export class VoiceSfuClient {
     if (localAudioTrack && device.canProduce('audio')) {
       this.audioProducer = await this.sendTransport.produce({
         track: localAudioTrack,
+        codecOptions: {
+          opusStereo: false,
+          opusDtx: true,
+          opusFec: true,
+          opusMaxPlaybackRate: 48000,
+        },
         appData: { type: 'voice-audio' },
       });
       this.audioProducer.on('transportclose', () => {
@@ -137,6 +143,12 @@ export class VoiceSfuClient {
     }
     this.audioProducer = await this.sendTransport.produce({
       track,
+      codecOptions: {
+        opusStereo: false,
+        opusDtx: true,
+        opusFec: true,
+        opusMaxPlaybackRate: 48000,
+      },
       appData: { type: 'voice-audio' },
     });
   }
@@ -388,6 +400,12 @@ export class VoiceSfuClient {
       if (currentAudioTrack && currentAudioTrack.readyState === 'live' && this.device?.canProduce('audio')) {
         this.audioProducer = await this.sendTransport.produce({
           track: currentAudioTrack,
+          codecOptions: {
+            opusStereo: false,
+            opusDtx: true,
+            opusFec: true,
+            opusMaxPlaybackRate: 48000,
+          },
           appData: { type: 'voice-audio' },
         });
         this.audioProducer.on('transportclose', () => {
