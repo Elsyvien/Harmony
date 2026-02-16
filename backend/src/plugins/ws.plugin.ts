@@ -41,6 +41,9 @@ interface ClientContext {
   activeVoiceChannelId: string | null;
   state: PresenceState;
   lastActivity: number;
+  voiceSignalWindowStartedAt: number;
+  voiceSignalCountInWindow: number;
+  voiceSignalRateLimitNotified: boolean;
   socket: {
     send: (data: string) => void;
     on: (event: 'message' | 'close', handler: (raw?: unknown) => void | Promise<void>) => void;
@@ -68,6 +71,8 @@ type VoiceSfuRequestPayload = {
 };
 
 const WS_OPEN_STATE = 1;
+const VOICE_SIGNAL_WINDOW_MS = 5_000;
+const VOICE_SIGNAL_MAX_PER_WINDOW = 400;
 
 const wsPluginImpl: FastifyPluginAsync<WsPluginOptions> = async (fastify, options) => {
   await fastify.register(websocket);
@@ -99,8 +104,29 @@ const wsPluginImpl: FastifyPluginAsync<WsPluginOptions> = async (fastify, option
     }
   };
 
+  const consumeVoiceSignalBudget = (ctx: ClientContext): 'ok' | 'limited-notify' | 'limited-silent' => {
+    const now = Date.now();
+    if (now - ctx.voiceSignalWindowStartedAt >= VOICE_SIGNAL_WINDOW_MS) {
+      ctx.voiceSignalWindowStartedAt = now;
+      ctx.voiceSignalCountInWindow = 0;
+      ctx.voiceSignalRateLimitNotified = false;
+    }
+
+    ctx.voiceSignalCountInWindow += 1;
+    if (ctx.voiceSignalCountInWindow <= VOICE_SIGNAL_MAX_PER_WINDOW) {
+      return 'ok';
+    }
+
+    if (!ctx.voiceSignalRateLimitNotified) {
+      ctx.voiceSignalRateLimitNotified = true;
+      return 'limited-notify';
+    }
+
+    return 'limited-silent';
+  };
+
   const logVoiceEvent = (
-    level: 'info' | 'warn' | 'error',
+    level: 'debug' | 'info' | 'warn' | 'error',
     event: string,
     details: Record<string, unknown>,
   ) => {
@@ -446,6 +472,9 @@ const wsPluginImpl: FastifyPluginAsync<WsPluginOptions> = async (fastify, option
       activeVoiceChannelId: null,
       state: 'online',
       lastActivity: Date.now(),
+      voiceSignalWindowStartedAt: Date.now(),
+      voiceSignalCountInWindow: 0,
+      voiceSignalRateLimitNotified: false,
       socket: socket,
     };
 
@@ -947,6 +976,24 @@ const wsPluginImpl: FastifyPluginAsync<WsPluginOptions> = async (fastify, option
             throw new AppError('INVALID_SIGNAL', 400, 'Missing channelId, targetUserId or data');
           }
 
+          const voiceSignalBudget = consumeVoiceSignalBudget(ctx);
+          if (voiceSignalBudget !== 'ok') {
+            if (voiceSignalBudget === 'limited-notify') {
+              logVoiceEvent('warn', 'voice_signal_rate_limited', {
+                userId: ctx.userId,
+                channelId: payload.channelId,
+                targetUserId: payload.targetUserId,
+                countInWindow: ctx.voiceSignalCountInWindow,
+                windowMs: VOICE_SIGNAL_WINDOW_MS,
+              });
+              send(ctx, 'error', {
+                code: 'VOICE_SIGNAL_RATE_LIMITED',
+                message: 'Voice signaling rate limit exceeded. Please wait and retry.',
+              });
+            }
+            return;
+          }
+
           const senderVoiceChannel = ctx.activeVoiceChannelId ?? activeVoiceChannelByUser.get(ctx.userId);
           if (senderVoiceChannel !== payload.channelId) {
             logVoiceEvent('warn', 'voice_signal_sender_not_joined', {
@@ -971,7 +1018,7 @@ const wsPluginImpl: FastifyPluginAsync<WsPluginOptions> = async (fastify, option
             payload.data && typeof payload.data === 'object' && 'kind' in payload.data
               ? String((payload.data as { kind?: unknown }).kind ?? 'unknown')
               : 'unknown';
-          logVoiceEvent('info', 'voice_signal_forwarded', {
+          logVoiceEvent('debug', 'voice_signal_forwarded', {
             userId: ctx.userId,
             channelId: payload.channelId,
             targetUserId: payload.targetUserId,

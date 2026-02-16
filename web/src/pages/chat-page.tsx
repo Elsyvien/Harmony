@@ -81,6 +81,7 @@ const REMOTE_AUDIO_JITTER_BUFFER_TARGET_MS = 60;
 const REMOTE_SPEAKING_HOLD_MS = 350;
 const REMOTE_SPEAKING_THRESHOLD_FLOOR = 0.008;
 const SPEAKING_DETECTION_INTERVAL_MS = 50;
+const VIDEO_RECOVERY_SIGNAL_COOLDOWN_MS = 3000;
 
 const CAMERA_FALLBACK_QUALITY_LABELS = [
   '1080p 30fps',
@@ -560,6 +561,7 @@ export function ChatPage() {
   >(new Map());
   const remoteVideoRecoveryAttemptByPeerRef = useRef<Map<string, number>>(new Map());
   const remoteVideoRecoveryStreakByPeerRef = useRef<Map<string, number>>(new Map());
+  const lastVideoRecoverySignalAtByPeerRef = useRef<Map<string, number>>(new Map());
   const voiceSfuClientRef = useRef<VoiceSfuClient | null>(null);
   const voiceSfuChannelIdRef = useRef<string | null>(null);
   const voiceSfuAudioActiveRef = useRef(false);
@@ -1215,6 +1217,7 @@ export function ChatPage() {
     remoteVideoTrafficByPeerRef.current.delete(peerUserId);
     remoteVideoRecoveryAttemptByPeerRef.current.delete(peerUserId);
     remoteVideoRecoveryStreakByPeerRef.current.delete(peerUserId);
+    lastVideoRecoverySignalAtByPeerRef.current.delete(peerUserId);
     remoteAudioUsersViaSfuRef.current.delete(peerUserId);
     const remoteAudioSource = remoteAudioSourceByUserRef.current.get(peerUserId);
     if (remoteAudioSource) {
@@ -1281,6 +1284,7 @@ export function ChatPage() {
     remoteVideoTrafficByPeerRef.current.clear();
     remoteVideoRecoveryAttemptByPeerRef.current.clear();
     remoteVideoRecoveryStreakByPeerRef.current.clear();
+    lastVideoRecoverySignalAtByPeerRef.current.clear();
     for (const timeoutId of disconnectTimeoutByPeerRef.current.values()) {
       window.clearTimeout(timeoutId);
     }
@@ -2328,6 +2332,31 @@ export function ChatPage() {
     [auth.user, createOfferForPeer],
   );
 
+  const requestVideoRecoveryFromPeer = useCallback(
+    (
+      channelId: string,
+      peerUserId: string,
+      reason: 'stall-detected' | 'snapshot-mismatch',
+      stagnantSamples?: number,
+    ) => {
+      if (activeVoiceChannelIdRef.current !== channelId) {
+        return false;
+      }
+      const now = Date.now();
+      const lastRecoveryAt = lastVideoRecoverySignalAtByPeerRef.current.get(peerUserId) ?? 0;
+      if (now - lastRecoveryAt < VIDEO_RECOVERY_SIGNAL_COOLDOWN_MS) {
+        return false;
+      }
+      lastVideoRecoverySignalAtByPeerRef.current.set(peerUserId, now);
+      return sendVoiceSignalRef.current(channelId, peerUserId, {
+        kind: 'video-recovery-request',
+        reason,
+        ...(typeof stagnantSamples === 'number' ? { stagnantSamples } : {}),
+      } satisfies VoiceSignalData);
+    },
+    [],
+  );
+
   const getLocalVideoSourceSnapshot = useCallback(() => {
     const localVideoTrack = localScreenStreamRef.current
       ?.getVideoTracks()
@@ -2451,10 +2480,7 @@ export function ChatPage() {
               delete next[payload.fromUserId];
               return next;
             });
-            sendVoiceSignalRef.current(payload.channelId, payload.fromUserId, {
-              kind: 'video-recovery-request',
-              reason: 'snapshot-mismatch',
-            } satisfies VoiceSignalData);
+            requestVideoRecoveryFromPeer(payload.channelId, payload.fromUserId, 'snapshot-mismatch');
             requestVideoRenegotiationForPeer(payload.fromUserId, payload.channelId);
           }
         } else {
@@ -2537,10 +2563,7 @@ export function ChatPage() {
               [payload.fromUserId]: stream,
             }));
           } else {
-            sendVoiceSignalRef.current(payload.channelId, payload.fromUserId, {
-              kind: 'video-recovery-request',
-              reason: 'snapshot-mismatch',
-            } satisfies VoiceSignalData);
+            requestVideoRecoveryFromPeer(payload.channelId, payload.fromUserId, 'snapshot-mismatch');
             requestVideoRenegotiationForPeer(payload.fromUserId, payload.channelId);
             requestStreamSnapshotFromPeer(payload.channelId, payload.fromUserId, 'retry');
           }
@@ -2704,7 +2727,9 @@ export function ChatPage() {
   getLocalVideoSourceSnapshot,
   getOrCreateVideoSender,
   localStreamSource,
+  requestStreamSnapshotFromPeer,
   requestVideoRenegotiationForPeer,
+  requestVideoRecoveryFromPeer,
   sendStreamSnapshotToPeer,
 ],
 );
@@ -3740,11 +3765,12 @@ export function ChatPage() {
             packetsReceived,
             recoveryStreak: nextRecoveryStreak,
           });
-          sendVoiceSignalRef.current(activeVoiceChannelId, peerUserId, {
-            kind: 'video-recovery-request',
-            reason: 'stall-detected',
+          requestVideoRecoveryFromPeer(
+            activeVoiceChannelId,
+            peerUserId,
+            'stall-detected',
             stagnantSamples,
-          } satisfies VoiceSignalData);
+          );
           requestVideoRenegotiationForPeer(peerUserId, activeVoiceChannelId);
 
           if (nextRecoveryStreak < 3) {
@@ -3787,6 +3813,7 @@ export function ChatPage() {
     ensurePeerConnection,
     logVoiceDebug,
     requestStreamSnapshotFromPeer,
+    requestVideoRecoveryFromPeer,
     requestVideoRenegotiationForPeer,
   ]);
 
