@@ -474,6 +474,9 @@ export function ChatPage() {
   const [remoteAudioStreams, setRemoteAudioStreams] = useState<Record<string, MediaStream>>({});
   const [speakingUserIds, setSpeakingUserIds] = useState<string[]>([]);
   const [remoteScreenShares, setRemoteScreenShares] = useState<Record<string, MediaStream>>({});
+  const [remoteAdvertisedVideoSourceByPeer, setRemoteAdvertisedVideoSourceByPeer] = useState<
+    Record<string, StreamSource | null>
+  >({});
   const [localScreenShareStream, setLocalScreenShareStream] = useState<MediaStream | null>(null);
   const [localStreamSource, setLocalStreamSource] = useState<StreamSource | null>(null);
   const [streamQualityLabel, setStreamQualityLabel] = useState(DEFAULT_STREAM_QUALITY);
@@ -651,6 +654,7 @@ export function ChatPage() {
     activeVoiceChannelId,
     voiceParticipantsByChannel,
     remoteScreenShares,
+    remoteAdvertisedVideoSourceByPeer,
     localScreenShareStream,
     localStreamSource,
     authUserId: auth.user?.id,
@@ -1207,6 +1211,14 @@ export function ChatPage() {
     makingOfferByPeerRef.current.delete(peerUserId);
     ignoreOfferByPeerRef.current.delete(peerUserId);
     remoteVideoSourceByPeerRef.current.delete(peerUserId);
+    setRemoteAdvertisedVideoSourceByPeer((prev) => {
+      if (!(peerUserId in prev)) {
+        return prev;
+      }
+      const next = { ...prev };
+      delete next[peerUserId];
+      return next;
+    });
     remoteVideoStreamByPeerRef.current.delete(peerUserId);
     const pendingSnapshotTimeout = pendingStreamSnapshotRetryTimeoutByPeerRef.current.get(peerUserId);
     if (pendingSnapshotTimeout) {
@@ -1275,6 +1287,7 @@ export function ChatPage() {
     makingOfferByPeerRef.current.clear();
     ignoreOfferByPeerRef.current.clear();
     remoteVideoSourceByPeerRef.current.clear();
+    setRemoteAdvertisedVideoSourceByPeer({});
     remoteVideoStreamByPeerRef.current.clear();
     for (const timeoutId of pendingStreamSnapshotRetryTimeoutByPeerRef.current.values()) {
       window.clearTimeout(timeoutId);
@@ -2460,6 +2473,15 @@ export function ChatPage() {
         }
 
         remoteVideoSourceByPeerRef.current.set(payload.fromUserId, signal.source);
+        setRemoteAdvertisedVideoSourceByPeer((prev) => {
+          if (prev[payload.fromUserId] === signal.source) {
+            return prev;
+          }
+          return {
+            ...prev,
+            [payload.fromUserId]: signal.source,
+          };
+        });
         const stream = remoteVideoStreamByPeerRef.current.get(payload.fromUserId);
         const hasLiveVideoTrack = Boolean(
           stream?.getVideoTracks().some((track) => track.readyState === 'live'),
@@ -2552,6 +2574,15 @@ export function ChatPage() {
 
       if (signal.kind === 'video-source') {
         remoteVideoSourceByPeerRef.current.set(payload.fromUserId, signal.source);
+        setRemoteAdvertisedVideoSourceByPeer((prev) => {
+          if (prev[payload.fromUserId] === signal.source) {
+            return prev;
+          }
+          return {
+            ...prev,
+            [payload.fromUserId]: signal.source,
+          };
+        });
         if (signal.source === 'screen' || signal.source === 'camera') {
           const stream = remoteVideoStreamByPeerRef.current.get(payload.fromUserId);
           const hasLiveVideoTrack = Boolean(

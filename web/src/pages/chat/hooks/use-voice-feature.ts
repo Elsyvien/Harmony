@@ -49,6 +49,7 @@ type UseVoiceFeatureOptions = {
   activeVoiceChannelId: string | null;
   voiceParticipantsByChannel: Record<string, VoiceParticipant[]>;
   remoteScreenShares: Record<string, MediaStream>;
+  remoteAdvertisedVideoSourceByPeer: Record<string, 'screen' | 'camera' | null>;
   localScreenShareStream: MediaStream | null;
   localStreamSource: 'screen' | 'camera' | null;
   authUserId: string | undefined;
@@ -61,6 +62,7 @@ export function useVoiceFeature({
   activeVoiceChannelId,
   voiceParticipantsByChannel,
   remoteScreenShares,
+  remoteAdvertisedVideoSourceByPeer,
   localScreenShareStream,
   localStreamSource,
   authUserId,
@@ -110,23 +112,31 @@ export function useVoiceFeature({
       Boolean(stream?.getVideoTracks().some((track) => track.readyState === 'live'));
 
     const liveUserIds = new Set<string>();
+    for (const [userId, source] of Object.entries(remoteAdvertisedVideoSourceByPeer)) {
+      if (source === 'screen' || source === 'camera') {
+        liveUserIds.add(userId);
+      }
+    }
     for (const [userId, stream] of Object.entries(remoteScreenShares)) {
       if (!hasLiveVideoTrack(stream)) {
         continue;
       }
       liveUserIds.add(userId);
     }
-    if (
-      localStreamSource !== null &&
-      localScreenShareStream &&
-      hasLiveVideoTrack(localScreenShareStream) &&
-      authUserId
-    ) {
+    const localShareAdvertised = localStreamSource !== null || localScreenShareStream !== null;
+    if (localShareAdvertised && authUserId) {
       liveUserIds.add(authUserId);
     }
     byChannel[activeVoiceChannelId] = [...liveUserIds];
     return byChannel;
-  }, [activeVoiceChannelId, remoteScreenShares, localScreenShareStream, localStreamSource, authUserId]);
+  }, [
+    activeVoiceChannelId,
+    remoteAdvertisedVideoSourceByPeer,
+    remoteScreenShares,
+    localScreenShareStream,
+    localStreamSource,
+    authUserId,
+  ]);
 
   const getUserAudioState = useCallback(
     (userId: string): UserAudioPreference => userAudioPrefs[userId] ?? { volume: 100, muted: false },
