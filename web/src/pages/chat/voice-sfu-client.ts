@@ -1,5 +1,6 @@
 import { Device, type types as mediasoupTypes } from 'mediasoup-client';
 import type { VoiceSfuEventPayload, VoiceSfuRequestAction } from '../../hooks/use-chat-socket';
+import { getVoiceReconnectDelayMs } from './utils/voice-reconnect';
 
 type VoiceSfuRequest = <TData = unknown>(
   action: VoiceSfuRequestAction,
@@ -368,8 +369,7 @@ export class VoiceSfuClient {
     this.reconnecting = true;
     this.callbacks.onReconnecting?.();
 
-    // Exponential backoff: 500ms, 1s, 2s, 4s, ...
-    const delay = Math.min(500 * Math.pow(2, this.reconnectAttempts), 15_000);
+    const delay = getVoiceReconnectDelayMs(this.reconnectAttempts);
     this.reconnectAttempts++;
 
     this.reconnectTimer = setTimeout(() => {
