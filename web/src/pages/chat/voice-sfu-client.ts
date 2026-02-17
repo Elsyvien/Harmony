@@ -283,7 +283,7 @@ export class VoiceSfuClient {
         ? this.device.createSendTransport(response.transport)
         : this.device.createRecvTransport(response.transport);
 
-    transport.on('connect', ({ dtlsParameters }, callback, errback) => {
+    transport.on('connect', ({ dtlsParameters }: { dtlsParameters: mediasoupTypes.DtlsParameters }, callback: () => void, errback: (error: Error) => void) => {
       void this.requestWithRetry('connect-transport', {
         transportId: transport.id,
         dtlsParameters,
@@ -292,7 +292,7 @@ export class VoiceSfuClient {
         .catch((err) => errback(err instanceof Error ? err : new Error(String(err))));
     });
 
-    transport.on('connectionstatechange', (state) => {
+    transport.on('connectionstatechange', (state: mediasoupTypes.ConnectionState) => {
       this.callbacks.onStateChange?.(state);
 
       if (state === 'disconnected') {
@@ -308,7 +308,7 @@ export class VoiceSfuClient {
       }
     });
 
-    transport.on('produce', ({ kind, rtpParameters, appData }, callback, errback) => {
+    transport.on('produce', ({ kind, rtpParameters, appData }: { kind: 'audio' | 'video'; rtpParameters: mediasoupTypes.RtpParameters; appData: mediasoupTypes.AppData }, callback: (args: { id: string }) => void, errback: (error: Error) => void) => {
       void this.requestWithRetry<{ producer?: VoiceSfuProducerInfo }>('produce', {
         transportId: transport.id,
         kind,
@@ -428,15 +428,15 @@ export class VoiceSfuClient {
 
   private cleanupTransportsOnly(): void {
     if (this.audioProducer) {
-      try { this.audioProducer.close(); } catch {}
+      try { this.audioProducer.close(); } catch { void 0; }
       this.audioProducer = null;
     }
     for (const consumer of this.consumerByProducerId.values()) {
-      try { consumer.close(); } catch {}
+      try { consumer.close(); } catch { void 0; }
     }
     this.consumerByProducerId.clear();
-    try { this.sendTransport?.close(); } catch {}
-    try { this.recvTransport?.close(); } catch {}
+    try { this.sendTransport?.close(); } catch { void 0; }
+    try { this.recvTransport?.close(); } catch { void 0; }
     this.sendTransport = null;
     this.recvTransport = null;
   }
