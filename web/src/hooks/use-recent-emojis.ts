@@ -3,7 +3,11 @@ import { getStorageItem, setStorageItem } from '../utils/safe-storage';
 
 const STORAGE_KEY = 'harmony_recent_reactions';
 const MAX_RECENT = 3;
-const DEFAULT_REACTIONS = ['👍', '❤️', '😂'];
+const DEFAULT_REACTIONS = ['thumbs_up', 'heart', 'laugh'];
+
+function isAsciiReaction(value: string) {
+  return /^[\x20-\x7E]+$/.test(value);
+}
 
 export function useRecentEmojis() {
   const [recentEmojis, setRecentEmojis] = useState<string[]>(() => {
@@ -13,7 +17,10 @@ export function useRecentEmojis() {
         const parsed = JSON.parse(stored) as unknown;
         if (Array.isArray(parsed) && parsed.length > 0) {
           return parsed
-            .filter((emoji): emoji is string => typeof emoji === 'string' && emoji.length > 0)
+            .filter(
+              (emoji): emoji is string =>
+                typeof emoji === 'string' && emoji.length > 0 && isAsciiReaction(emoji),
+            )
             .slice(0, MAX_RECENT);
         }
       }

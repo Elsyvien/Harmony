@@ -5,7 +5,16 @@ import { cancelSmoothScroll, smoothScrollTo } from '../utils/smooth-scroll';
 import { useRecentEmojis } from '../hooks/use-recent-emojis';
 import { resolveMediaUrl } from '../utils/media-url';
 
-const MESSAGE_REACTION_PANEL_EMOJIS = ['👍', '❤️', '😂', '🎉', '🔥', '😮', '👏', '😢'];
+const MESSAGE_REACTION_PANEL_EMOJIS = [
+  'thumbs_up',
+  'heart',
+  'laugh',
+  'party',
+  'fire',
+  'surprised',
+  'clap',
+  'sad',
+];
 
 interface ChatViewProps {
   activeChannelId: string | null;
