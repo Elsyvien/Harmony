@@ -581,6 +581,9 @@ export function ChatPage() {
   const createOfferForPeerRef = useRef((() => Promise.resolve()) as (peerUserId: string, channelId: string) => Promise<void>);
   const leaveVoiceRef = useRef((() => false) as (channelId?: string) => boolean);
   const messageSearchInputRef = useRef<HTMLInputElement | null>(null);
+  const isMountedRef = useRef(true);
+  const activeChannelIdRef = useRef<string | null>(null);
+  const pendingMessageLoadsRef = useRef(0);
   const hasTurnRelayConfigured = useMemo(() => hasTurnRelayInIceConfig(voiceIceConfig), [voiceIceConfig]);
 
   const logVoiceDebug = useCallback((event: string, details?: Record<string, unknown>) => {
@@ -607,6 +610,16 @@ export function ChatPage() {
     () => channels.find((channel) => channel.id === activeChannelId) ?? null,
     [channels, activeChannelId],
   );
+
+  useEffect(() => {
+    activeChannelIdRef.current = activeChannelId;
+  }, [activeChannelId]);
+
+  useEffect(() => {
+    return () => {
+      isMountedRef.current = false;
+    };
+  }, []);
 
   const handleDirectChannelOpened = useCallback((channel: Channel) => {
     setChannels((prev) => upsertChannel(prev, channel));
@@ -1014,9 +1027,15 @@ export function ChatPage() {
       if (!auth.token) {
         return;
       }
-      setLoadingMessages(true);
+      pendingMessageLoadsRef.current += 1;
+      if (isMountedRef.current) {
+        setLoadingMessages(true);
+      }
       try {
         const response = await chatApi.messages(auth.token, channelId, { before, limit: 50 });
+        if (!isMountedRef.current || activeChannelIdRef.current !== channelId) {
+          return;
+        }
         setMessages((prev) => {
           if (prepend) {
             return mergeMessages(response.messages, prev);
@@ -1025,7 +1044,10 @@ export function ChatPage() {
           return mergeServerWithLocal(response.messages, localPending);
         });
       } finally {
-        setLoadingMessages(false);
+        pendingMessageLoadsRef.current = Math.max(0, pendingMessageLoadsRef.current - 1);
+        if (isMountedRef.current && pendingMessageLoadsRef.current === 0) {
+          setLoadingMessages(false);
+        }
       }
     },
     [auth.token],
