@@ -70,9 +70,6 @@ interface VoiceChannelPanelProps {
   onToggleDetailedStats: () => void;
   connectionStats: VoiceDetailedConnectionStats[];
   statsUpdatedAt: number | null;
-  protectVoiceEnabled: boolean;
-  protectVoiceStatus: 'stable' | 'mild' | 'severe';
-  onToggleProtectVoice: () => void;
 }
 
 function stringToColor(str: string) {
@@ -360,13 +357,6 @@ export function VoiceChannelPanel(props: VoiceChannelPanelProps) {
             📡 {visibleRemoteScreenShares.length + (hasLocalShare ? 1 : 0)} Live
           </span>
         )}
-        <button 
-          className={`voice-overview-chip ${props.protectVoiceEnabled ? 'ok' : ''}`}
-          onClick={props.onToggleProtectVoice}
-          style={{ cursor: 'pointer' }}
-        >
-          🛡️ Protect Voice: {props.protectVoiceEnabled ? props.protectVoiceStatus.toUpperCase() : 'OFF'}
-        </button>
         <button 
           className={`voice-overview-chip ${props.showDetailedStats ? 'ok' : ''}`}
           onClick={props.onToggleDetailedStats}

@@ -324,8 +324,6 @@ export function ChatPage() {
   const [localStreamSource, setLocalStreamSource] = useState<StreamSource | null>(null);
   const [streamQualityLabel, setStreamQualityLabel] = useState(DEFAULT_STREAM_QUALITY);
   const [showDetailedVoiceStats, setShowDetailedVoiceStats] = useState(false);
-  const [protectVoiceEnabled, setProtectVoiceEnabled] = useState(false);
-  const [protectVoiceStatus] = useState<'stable' | 'mild' | 'severe'>('stable');
   const [voiceConnectionStats, setVoiceConnectionStats] = useState<VoiceDetailedConnectionStats[]>([]);
   const [voiceStatsUpdatedAt, setVoiceStatsUpdatedAt] = useState<number | null>(null);
   const [voiceIceConfig, setVoiceIceConfig] = useState<RTCConfiguration>(() =>
@@ -3456,11 +3454,6 @@ export function ChatPage() {
                 }
                 connectionStats={voiceConnectionStats}
                 statsUpdatedAt={voiceStatsUpdatedAt}
-                protectVoiceEnabled={protectVoiceEnabled}
-                protectVoiceStatus={protectVoiceStatus}
-                onToggleProtectVoice={() =>
-                  setProtectVoiceEnabled((current) => !current)
-                }
               />
             ) : (
               <>
