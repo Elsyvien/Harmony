@@ -173,7 +173,7 @@ export function useRemoteSpeakingActivity({
         if (!analyser || !data) {
           continue;
         }
-        analyser.getByteTimeDomainData(data);
+        analyser.getByteTimeDomainData(data as Uint8Array<ArrayBuffer>);
         const rms = computeTimeDomainRms(data);
         if (rms >= speakingThreshold) {
           remoteSpeakingLastSpokeAtByUserRef.current.set(userId, now);
