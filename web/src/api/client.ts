@@ -1,4 +1,5 @@
 import type { ApiError } from '../types/api';
+import { clearStoredAuth, dispatchAuthUnauthorizedEvent } from '../config/auth';
 
 const API_BASE_URL = import.meta.env.VITE_API_URL ?? 'http://localhost:4000';
 
@@ -29,9 +30,8 @@ export async function apiRequest<T>(
 
   if (!response.ok) {
     if (response.status === 401 && token) {
-      localStorage.removeItem('discordclone_token');
-      localStorage.removeItem('discordclone_user');
-      window.location.href = '/login';
+      clearStoredAuth();
+      dispatchAuthUnauthorizedEvent();
     }
     throw await parseError(response);
   }
