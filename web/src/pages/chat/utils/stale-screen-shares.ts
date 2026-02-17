@@ -15,7 +15,7 @@ export function getStaleRemoteScreenShareUserIds(params: {
     const source = remoteVideoSourceByPeer.get(userId) ?? null;
     const peerConnection = peerConnectionsByUser.get(userId);
     const isPeerClosed = !peerConnection || peerConnection.connectionState === 'closed';
-    if (source === null || !hasLiveVideoTrack(stream) || isPeerClosed) {
+    if (source !== 'screen' || !hasLiveVideoTrack(stream) || isPeerClosed) {
       staleUserIds.push(userId);
     }
   }
