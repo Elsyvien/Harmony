@@ -23,6 +23,7 @@ import {
 } from './chat/hooks/use-message-lifecycle-feature';
 import { upsertChannel, useProfileDmFeature } from './chat/hooks/use-profile-dm-feature';
 import { useReactionsFeature } from './chat/hooks/use-reactions-feature';
+import { useRemoteSpeakingActivity } from './chat/hooks/use-remote-speaking-activity';
 import { useVoiceFeature } from './chat/hooks/use-voice-feature';
 import { useAuth } from '../store/auth-store';
 import type {
@@ -2471,26 +2472,13 @@ export function ChatPage() {
     isSelfDeafened,
   ]);
 
-  // Speaking detection – remote audio
-  useEffect(() => {
-    if (!preferences.showVoiceActivity) {
-      setSpeakingUserIds((prev) => prev.filter((id) => id === auth.user?.id));
-      return;
-    }
-
-    const nextRemoteSpeaking = viewedRemoteAudioUsers
-      .filter(({ stream }) => stream.active)
-      .map(({ userId }) => userId);
-
-    setSpeakingUserIds((prev) => {
-      const localSelf = prev.filter((id) => id === auth.user?.id);
-      const merged = [...new Set([...localSelf, ...nextRemoteSpeaking])];
-      if (merged.length === prev.length && merged.every((id, index) => id === prev[index])) {
-        return prev;
-      }
-      return merged;
-    });
-  }, [preferences.showVoiceActivity, viewedRemoteAudioUsers, auth.user?.id]);
+  useRemoteSpeakingActivity({
+    enabled: preferences.showVoiceActivity,
+    sensitivity: preferences.voiceInputSensitivity,
+    currentUserId: auth.user?.id,
+    remoteAudioUsers: viewedRemoteAudioUsers,
+    setSpeakingUserIds,
+  });
 
   const applyStreamQualityToStream = useCallback((
     stream: MediaStream,
