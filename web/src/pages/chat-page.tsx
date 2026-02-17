@@ -31,6 +31,7 @@ import {
   isValidStreamQualityLabel,
   toVideoTrackConstraints,
 } from './chat/utils/stream-quality';
+import { getStaleRemoteScreenShareUserIds } from './chat/utils/stale-screen-shares';
 import { useVoiceFeature } from './chat/hooks/use-voice-feature';
 import { useAuth } from '../store/auth-store';
 import type {
@@ -1048,17 +1049,11 @@ export function ChatPage() {
   }, [activeRemoteAudioUsers, disconnectRemoteAudioForUser]);
 
   const pruneStaleRemoteScreenShares = useCallback(() => {
-    const staleUserIds: string[] = [];
-    for (const [userId, stream] of Object.entries(remoteScreenShares)) {
-      const source = remoteVideoSourceByPeerRef.current.get(userId) ?? null;
-      const peerConnection = peerConnectionsRef.current.get(userId);
-      const videoTracks = stream.getVideoTracks();
-      const hasLiveVideoTrack = videoTracks.some((track) => track.readyState === 'live');
-      const isPeerClosed = !peerConnection || peerConnection.connectionState === 'closed';
-      if (source === null || !hasLiveVideoTrack || isPeerClosed) {
-        staleUserIds.push(userId);
-      }
-    }
+    const staleUserIds = getStaleRemoteScreenShareUserIds({
+      remoteScreenShares,
+      remoteVideoSourceByPeer: remoteVideoSourceByPeerRef.current,
+      peerConnectionsByUser: peerConnectionsRef.current,
+    });
     if (staleUserIds.length === 0) {
       return;
     }
