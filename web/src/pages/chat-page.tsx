@@ -1085,6 +1085,11 @@ export function ChatPage() {
     }
     resetLocalAnalyser();
     const analyserContext = new AudioContextClass();
+    if (analyserContext.state === 'suspended') {
+      void analyserContext.resume().catch(() => {
+        // Some browsers require an explicit user gesture to resume.
+      });
+    }
     const analyser = analyserContext.createAnalyser();
     analyser.fftSize = 1024;
     const source = analyserContext.createMediaStreamSource(stream);
@@ -1190,6 +1195,11 @@ export function ChatPage() {
           (window as typeof window & { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
         if (AudioContextClass) {
           const gainContext = new AudioContextClass();
+          if (gainContext.state === 'suspended') {
+            void gainContext.resume().catch(() => {
+              // Some browsers require an explicit user gesture to resume.
+            });
+          }
           const source = gainContext.createMediaStreamSource(rawStream);
           const gainNode = gainContext.createGain();
           gainNode.gain.value = voiceInputGainRef.current / 100;
@@ -2843,6 +2853,10 @@ export function ChatPage() {
         if (isSelfMuted !== joinMuted) {
           setIsSelfMuted(joinMuted);
         }
+        // Pre-warm voice capture on the user gesture path so browser audio contexts can unlock.
+        void getLocalVoiceStream().catch(() => {
+          // Join flow still continues; sync phase will surface actionable errors.
+        });
         if (activeVoiceChannelId && activeVoiceChannelId !== channelId) {
           ws.leaveVoice(activeVoiceChannelId);
         }
@@ -2863,7 +2877,16 @@ export function ChatPage() {
         setVoiceBusyChannelId(null);
       }
     },
-    [auth.token, ws, activeVoiceChannelId, playVoiceStateSound, isSelfMuted, isSelfDeafened, preferences.autoMuteOnJoin],
+    [
+      auth.token,
+      ws,
+      activeVoiceChannelId,
+      playVoiceStateSound,
+      isSelfMuted,
+      isSelfDeafened,
+      preferences.autoMuteOnJoin,
+      getLocalVoiceStream,
+    ],
   );
 
   const leaveVoiceChannel = useCallback(
