@@ -147,7 +147,9 @@ export const chatApi = {
 
   updateAdminSettings(
     token: string,
-    input: Partial<Pick<AdminSettings, 'allowRegistrations' | 'readOnlyMode' | 'slowModeSeconds'>>,
+    input: Partial<
+      Pick<AdminSettings, 'allowRegistrations' | 'readOnlyMode' | 'slowModeSeconds' | 'idleTimeoutMinutes'>
+    >,
   ) {
     return apiRequest<{ settings: AdminSettings }>(
       '/admin/settings',
