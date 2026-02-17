@@ -4385,11 +4385,11 @@ export function ChatPage() {
   const sendFriendRequest = useCallback(
     async (username: string) => {
       if (!auth.token) {
-        return;
+        return false;
       }
       const normalizedUsername = username.trim().replace(/^@/, '');
       if (!normalizedUsername) {
-        return;
+        return false;
       }
       setSubmittingFriendRequest(true);
       try {
@@ -4397,9 +4397,11 @@ export function ChatPage() {
         await loadFriendData();
         setFriendsError(null);
         setNotice(`Friend request sent to ${normalizedUsername}.`);
+        return true;
       } catch (err) {
         setFriendsError(getErrorMessage(err, 'Could not send friend request'));
         setNotice(null);
+        return false;
       } finally {
         setSubmittingFriendRequest(false);
       }
@@ -5495,7 +5497,9 @@ export function ChatPage() {
         acceptingFriendRequest={acceptingSelectedUserFriendRequest}
         sendingFriendRequest={submittingFriendRequest}
         friendRequestError={friendsError}
-        onSendFriendRequest={sendFriendRequest}
+        onSendFriendRequest={async (username) => {
+          await sendFriendRequest(username);
+        }}
         onAcceptFriendRequest={acceptFriendRequest}
       />
 

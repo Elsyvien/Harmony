@@ -13,7 +13,7 @@ interface FriendsPanelProps {
   actionBusyId: string | null;
   submittingRequest: boolean;
   onRefresh: () => Promise<void>;
-  onSendRequest: (username: string) => Promise<void>;
+  onSendRequest: (username: string) => Promise<boolean | void>;
   onAccept: (requestId: string) => Promise<void>;
   onDecline: (requestId: string) => Promise<void>;
   onCancel: (requestId: string) => Promise<void>;
@@ -105,9 +105,16 @@ export function FriendsPanel(props: FriendsPanelProps) {
               if (!username || props.submittingRequest) {
                 return;
               }
-              await props.onSendRequest(username);
-              setUsernameInput('');
-              setTab('outgoing');
+              try {
+                const sent = await props.onSendRequest(username);
+                if (sent === false) {
+                  return;
+                }
+                setUsernameInput('');
+                setTab('outgoing');
+              } catch {
+                // Keep input and tab unchanged on failure so retry is easy.
+              }
             }}
           >
             <input
