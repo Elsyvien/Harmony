@@ -23,6 +23,7 @@ import { useChannelMessageLoader } from './chat/hooks/use-channel-message-loader
 import { upsertChannel, useProfileDmFeature } from './chat/hooks/use-profile-dm-feature';
 import { useReactionsFeature } from './chat/hooks/use-reactions-feature';
 import { useRemoteSpeakingActivity } from './chat/hooks/use-remote-speaking-activity';
+import { useAdminFeature } from './chat/hooks/use-admin-feature';
 import {
   DEFAULT_STREAM_QUALITY,
   clampCameraPreset,
@@ -40,14 +41,10 @@ import { getStaleRemoteScreenShareUserIds } from './chat/utils/stale-screen-shar
 import { useVoiceFeature } from './chat/hooks/use-voice-feature';
 import { useAuth } from '../store/auth-store';
 import type {
-  AdminSettings,
-  AdminStats,
-  AdminUserSummary,
   Channel,
   FriendRequestSummary,
   FriendSummary,
   Message,
-  UserRole,
 } from '../types/api';
 import { getErrorMessage } from '../utils/error-message';
 import { trackTelemetryError } from '../utils/telemetry';
@@ -204,20 +201,6 @@ export function ChatPage() {
   const [activeView, setActiveView] = useState<MainView>('chat');
   const [mobilePane, setMobilePane] = useState<MobilePane>('none');
 
-  const [adminStats, setAdminStats] = useState<AdminStats | null>(null);
-  const [loadingAdminStats, setLoadingAdminStats] = useState(false);
-  const [adminStatsError, setAdminStatsError] = useState<string | null>(null);
-  const [adminSettings, setAdminSettings] = useState<AdminSettings | null>(null);
-  const [loadingAdminSettings, setLoadingAdminSettings] = useState(false);
-  const [adminSettingsError, setAdminSettingsError] = useState<string | null>(null);
-  const [savingAdminSettings, setSavingAdminSettings] = useState(false);
-  const [adminUsers, setAdminUsers] = useState<AdminUserSummary[]>([]);
-  const [loadingAdminUsers, setLoadingAdminUsers] = useState(false);
-  const [adminUsersError, setAdminUsersError] = useState<string | null>(null);
-  const [updatingAdminUserId, setUpdatingAdminUserId] = useState<string | null>(null);
-  const [deletingAdminUserId, setDeletingAdminUserId] = useState<string | null>(null);
-  const [clearingAdminUsers, setClearingAdminUsers] = useState(false);
-
   const [friends, setFriends] = useState<FriendSummary[]>([]);
   const [incomingRequests, setIncomingRequests] = useState<FriendRequestSummary[]>([]);
   const [outgoingRequests, setOutgoingRequests] = useState<FriendRequestSummary[]>([]);
@@ -268,6 +251,33 @@ export function ChatPage() {
     useState<MicrophonePermissionState>('unknown');
   const [requestingMicrophonePermission, setRequestingMicrophonePermission] = useState(false);
   const [hiddenUnreadCount, setHiddenUnreadCount] = useState(0);
+  const {
+    adminStats,
+    loadingAdminStats,
+    adminStatsError,
+    adminSettings,
+    loadingAdminSettings,
+    adminSettingsError,
+    savingAdminSettings,
+    adminUsers,
+    loadingAdminUsers,
+    adminUsersError,
+    updatingAdminUserId,
+    deletingAdminUserId,
+    clearingAdminUsers,
+    loadAdminStats,
+    loadAdminSettings,
+    saveAdminSettings,
+    loadAdminUsers,
+    updateAdminUser,
+    deleteAdminUser,
+    clearAdminUsersExceptCurrent,
+  } = useAdminFeature({
+    authToken: auth.token,
+    isAdmin: auth.user?.isAdmin,
+    currentUserId: auth.user?.id,
+    onNotice: setNotice,
+  });
   const previousIncomingRequestCountRef = useRef<number | null>(null);
   const streamStatusBannerTimeoutRef = useRef<number | null>(null);
   const pendingSignaturesRef = useRef(new Set<string>());
@@ -2571,140 +2581,6 @@ export function ChatPage() {
     },
     [applyStreamQualityToStream, localStreamSource],
   );
-
-  const loadAdminStats = useCallback(async () => {
-    if (!auth.token || !auth.user?.isAdmin) {
-      return;
-    }
-    setLoadingAdminStats(true);
-    try {
-      const response = await chatApi.adminStats(auth.token);
-      setAdminStats(response.stats);
-      setAdminStatsError(null);
-    } catch (err) {
-      setAdminStatsError(getErrorMessage(err, 'Could not load admin stats'));
-    } finally {
-      setLoadingAdminStats(false);
-    }
-  }, [auth.token, auth.user?.isAdmin]);
-
-  const loadAdminSettings = useCallback(async () => {
-    if (!auth.token || !auth.user?.isAdmin) {
-      return;
-    }
-    setLoadingAdminSettings(true);
-    try {
-      const response = await chatApi.adminSettings(auth.token);
-      setAdminSettings(response.settings);
-      setAdminSettingsError(null);
-    } catch (err) {
-      setAdminSettingsError(getErrorMessage(err, 'Could not load admin settings'));
-    } finally {
-      setLoadingAdminSettings(false);
-    }
-  }, [auth.token, auth.user?.isAdmin]);
-
-  const saveAdminSettings = useCallback(
-    async (next: AdminSettings) => {
-      if (!auth.token || !auth.user?.isAdmin) {
-        return;
-      }
-      setSavingAdminSettings(true);
-      try {
-        const response = await chatApi.updateAdminSettings(auth.token, next);
-        setAdminSettings(response.settings);
-        setAdminSettingsError(null);
-      } catch (err) {
-        setAdminSettingsError(getErrorMessage(err, 'Could not save admin settings'));
-      } finally {
-        setSavingAdminSettings(false);
-      }
-    },
-    [auth.token, auth.user?.isAdmin],
-  );
-
-  const loadAdminUsers = useCallback(async () => {
-    if (!auth.token || !auth.user?.isAdmin) {
-      return;
-    }
-    setLoadingAdminUsers(true);
-    try {
-      const response = await chatApi.adminUsers(auth.token);
-      setAdminUsers(response.users);
-      setAdminUsersError(null);
-    } catch (err) {
-      setAdminUsersError(getErrorMessage(err, 'Could not load users'));
-    } finally {
-      setLoadingAdminUsers(false);
-    }
-  }, [auth.token, auth.user?.isAdmin]);
-
-  const updateAdminUser = useCallback(
-    async (
-      userId: string,
-      input: Partial<{
-        role: UserRole;
-        avatarUrl: string | null;
-        isSuspended: boolean;
-        suspensionHours: number;
-      }>,
-    ) => {
-      if (!auth.token || !auth.user?.isAdmin) {
-        return;
-      }
-      setUpdatingAdminUserId(userId);
-      try {
-        const response = await chatApi.updateAdminUser(auth.token, userId, input);
-        setAdminUsers((prev) => prev.map((user) => (user.id === userId ? response.user : user)));
-        setAdminUsersError(null);
-      } catch (err) {
-        setAdminUsersError(getErrorMessage(err, 'Could not update user'));
-      } finally {
-        setUpdatingAdminUserId(null);
-      }
-    },
-    [auth.token, auth.user?.isAdmin],
-  );
-
-  const deleteAdminUser = useCallback(
-    async (userId: string) => {
-      if (!auth.token || !auth.user?.isAdmin) {
-        return;
-      }
-      setDeletingAdminUserId(userId);
-      try {
-        await chatApi.deleteAdminUser(auth.token, userId);
-        setAdminUsers((prev) => prev.filter((user) => user.id !== userId));
-        setAdminUsersError(null);
-      } catch (err) {
-        setAdminUsersError(getErrorMessage(err, 'Could not delete user'));
-      } finally {
-        setDeletingAdminUserId(null);
-      }
-    },
-    [auth.token, auth.user?.isAdmin],
-  );
-
-  const clearAdminUsersExceptCurrent = useCallback(async () => {
-    if (!auth.token || !auth.user?.isAdmin) {
-      return;
-    }
-    setClearingAdminUsers(true);
-    try {
-      const response = await chatApi.clearAdminUsersExceptSelf(auth.token);
-      setAdminUsers((prev) => prev.filter((user) => user.id === auth.user?.id));
-      setAdminUsersError(null);
-      setNotice(
-        response.deletedCount === 1
-          ? 'Deleted 1 user. Your account was kept.'
-          : `Deleted ${response.deletedCount} users. Your account was kept.`,
-      );
-    } catch (err) {
-      setAdminUsersError(getErrorMessage(err, 'Could not clear users'));
-    } finally {
-      setClearingAdminUsers(false);
-    }
-  }, [auth.token, auth.user?.id, auth.user?.isAdmin]);
 
   const sendFriendRequest = useCallback(
     async (username: string) => {
