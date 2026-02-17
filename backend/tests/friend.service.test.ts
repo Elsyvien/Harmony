@@ -32,11 +32,13 @@ class InMemoryUserRepo implements UserRepository {
   }
 
   async findByEmail(email: string) {
-    return this.users.find((user) => user.email === email) ?? null;
+    const normalized = email.toLowerCase();
+    return this.users.find((user) => user.email.toLowerCase() === normalized) ?? null;
   }
 
   async findByUsername(username: string) {
-    return this.users.find((user) => user.username === username) ?? null;
+    const normalized = username.toLowerCase();
+    return this.users.find((user) => user.username.toLowerCase() === normalized) ?? null;
   }
 
   async create(params: {
@@ -188,6 +190,14 @@ describe('FriendService', () => {
     expect(aliceRequests.incoming).toHaveLength(0);
     expect(bobRequests.incoming).toHaveLength(1);
     expect(bobRequests.outgoing).toHaveLength(0);
+  });
+
+  it('resolves friend request target by username with different casing', async () => {
+    const request = await service.sendRequest(alice.id, ' BoB ');
+
+    expect(request.to.id).toBe(bob.id);
+    expect(request.to.username).toBe(bob.username);
+    expect(request.from.id).toBe(alice.id);
   });
 
   it('rejects duplicate pending requests in either direction', async () => {

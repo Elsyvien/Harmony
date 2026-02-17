@@ -26,11 +26,13 @@ class InMemoryUserRepo implements UserRepository {
   }
 
   async findByEmail(email: string) {
-    return this.users.find((user) => user.email === email) ?? null;
+    const normalized = email.toLowerCase();
+    return this.users.find((user) => user.email.toLowerCase() === normalized) ?? null;
   }
 
   async findByUsername(username: string) {
-    return this.users.find((user) => user.username === username) ?? null;
+    const normalized = username.toLowerCase();
+    return this.users.find((user) => user.username.toLowerCase() === normalized) ?? null;
   }
 
   async create(params: {
@@ -82,20 +84,36 @@ describe('AuthService', () => {
     expect(stored?.passwordHash).not.toBe('SuperSecret12');
   });
 
-  it('rejects duplicate emails', async () => {
+  it('rejects duplicate emails ignoring case', async () => {
     await service.register({
       username: 'first_user',
-      email: 'dup@example.com',
+      email: 'Dup@Example.com',
       password: 'Password123',
     });
 
     await expect(
       service.register({
         username: 'second_user',
-        email: 'dup@example.com',
+        email: ' dup@example.com ',
         password: 'Password123',
       }),
     ).rejects.toMatchObject({ code: 'EMAIL_EXISTS' } satisfies Partial<AppError>);
+  });
+
+  it('rejects duplicate usernames ignoring case', async () => {
+    await service.register({
+      username: 'First_User',
+      email: 'first@example.com',
+      password: 'Password123',
+    });
+
+    await expect(
+      service.register({
+        username: ' first_user ',
+        email: 'second@example.com',
+        password: 'Password123',
+      }),
+    ).rejects.toMatchObject({ code: 'USERNAME_EXISTS' } satisfies Partial<AppError>);
   });
 
   it('rejects invalid login credentials', async () => {
@@ -113,14 +131,45 @@ describe('AuthService', () => {
     ).rejects.toMatchObject({ code: 'INVALID_CREDENTIALS' } satisfies Partial<AppError>);
   });
 
-  it('assigns owner role to Max', async () => {
-    const user = await service.register({
+  it('allows login with mixed-case email input', async () => {
+    const registered = await service.register({
+      username: 'mixed_case_login',
+      email: 'Mixed.Case@Example.com',
+      password: 'Password123',
+    });
+
+    const loggedIn = await service.login({
+      email: '  mIxEd.cAsE@example.COM  ',
+      password: 'Password123',
+    });
+
+    expect(loggedIn.id).toBe(registered.id);
+  });
+
+  it('assigns owner role for cased max username variants', async () => {
+    const mixedCase = await service.register({
       username: 'Max',
+      email: 'max-mixed@example.com',
+      password: 'Password123',
+    });
+
+    expect(mixedCase.role).toBe('OWNER');
+    expect(mixedCase.isAdmin).toBe(true);
+  });
+
+  it('rejects max-variant username duplicates ignoring case', async () => {
+    await service.register({
+      username: 'max',
       email: 'max@example.com',
       password: 'Password123',
     });
 
-    expect(user.role).toBe('OWNER');
-    expect(user.isAdmin).toBe(true);
+    await expect(
+      service.register({
+        username: 'MAX',
+        email: 'max-variant@example.com',
+        password: 'Password123',
+      }),
+    ).rejects.toMatchObject({ code: 'USERNAME_EXISTS' } satisfies Partial<AppError>);
   });
 });

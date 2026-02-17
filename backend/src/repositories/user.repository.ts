@@ -20,11 +20,25 @@ export class PrismaUserRepository implements UserRepository {
   }
 
   findByEmail(email: string) {
-    return prisma.user.findUnique({ where: { email } });
+    return prisma.user.findFirst({
+      where: {
+        email: {
+          equals: email,
+          mode: 'insensitive',
+        },
+      },
+    });
   }
 
   findByUsername(username: string) {
-    return prisma.user.findUnique({ where: { username } });
+    return prisma.user.findFirst({
+      where: {
+        username: {
+          equals: username,
+          mode: 'insensitive',
+        },
+      },
+    });
   }
 
   create(params: {

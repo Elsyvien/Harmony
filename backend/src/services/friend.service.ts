@@ -80,26 +80,9 @@ export class FriendService {
       throw new AppError('VALIDATION_ERROR', 400, 'Username is required');
     }
 
-    const direct = await this.userRepo.findByUsername(targetUsername);
-    if (direct) {
-      return direct;
-    }
-
-    // Lightweight fallback for users entering different letter case.
-    const lower = targetUsername.toLowerCase();
-    if (lower !== targetUsername) {
-      const loweredMatch = await this.userRepo.findByUsername(lower);
-      if (loweredMatch) {
-        return loweredMatch;
-      }
-    }
-
-    const upper = targetUsername.toUpperCase();
-    if (upper !== targetUsername) {
-      const upperMatch = await this.userRepo.findByUsername(upper);
-      if (upperMatch) {
-        return upperMatch;
-      }
+    const user = await this.userRepo.findByUsername(targetUsername);
+    if (user) {
+      return user;
     }
 
     throw new AppError('USER_NOT_FOUND', 404, 'User not found');
