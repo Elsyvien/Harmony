@@ -270,7 +270,7 @@ const ScreenShareItem = memo(function ScreenShareItem({
         </div>
         <div className="voice-screen-share-bottom">
           <div className="voice-screen-share-label">
-            <span style={{ opacity: 0.8 }}>Video</span> {label}
+            <span style={{ opacity: 0.8 }}>📺</span> {label}
           </div>
           <div className="voice-screen-share-controls">
             {onCinema && (
@@ -283,7 +283,7 @@ const ScreenShareItem = memo(function ScreenShareItem({
                 title="Cinema Mode"
                 style={{ marginRight: '4px' }}
               >
-                Cinema
+                🎬
               </button>
             )}
             <button
@@ -294,7 +294,7 @@ const ScreenShareItem = memo(function ScreenShareItem({
               }}
               title="Fullscreen"
             >
-              Full
+              ⛶
             </button>
           </div>
         </div>
@@ -333,14 +333,14 @@ export function VoiceChannelPanel(props: VoiceChannelPanelProps) {
             disabled={!props.joined}
             onClick={props.onToggleMute}
           >
-            {props.isMuted ? 'Unmute' : 'Mute'}
+            {props.isMuted ? '🔇 Unmute' : '🎤 Mute'}
           </button>
           <button
             className={`voice-action-btn ${props.joined ? 'danger' : 'primary'}`}
             disabled={props.busy || !props.wsConnected}
             onClick={() => props.joined ? void props.onLeave() : void props.onJoin()}
           >
-            {props.busy ? 'Working...' : props.joined ? 'Leave Voice' : 'Join Voice'}
+            {props.busy ? '⌛ ...' : props.joined ? '🚪 Leave' : '🔊 Join Voice'}
           </button>
         </div>
       </header>
@@ -350,11 +350,11 @@ export function VoiceChannelPanel(props: VoiceChannelPanelProps) {
           {props.wsConnected ? '● Connected' : '○ Disconnected'}
         </span>
         <span className="voice-overview-chip">
-          {props.participants.length} Participants
+          👥 {props.participants.length} Participants
         </span>
         {hasScreenShares && (
           <span className="voice-overview-chip ok">
-            {visibleRemoteScreenShares.length + (hasLocalShare ? 1 : 0)} Live Streams
+            📡 {visibleRemoteScreenShares.length + (hasLocalShare ? 1 : 0)} Live
           </span>
         )}
         <button 
@@ -362,7 +362,7 @@ export function VoiceChannelPanel(props: VoiceChannelPanelProps) {
           onClick={props.onToggleDetailedStats}
           style={{ cursor: 'pointer' }}
         >
-          Stats
+          📊 Stats
         </button>
       </div>
 
@@ -444,7 +444,7 @@ export function VoiceChannelPanel(props: VoiceChannelPanelProps) {
               }}
               onClick={() => setIsCinemaMode(false)}
             >
-              Exit Cinema Mode
+              ✕ Exit Cinema Mode
             </button>
           )}
           {hasLocalShare && props.localScreenShareStream && (
@@ -480,15 +480,15 @@ export function VoiceChannelPanel(props: VoiceChannelPanelProps) {
 
       {props.joined && !hasScreenShares && (
         <div className="voice-stream-empty-state">
-          <div className="voice-stream-empty-icon">VIDEO</div>
+          <div className="voice-stream-empty-icon">📺</div>
           <strong>No one is streaming</strong>
           <p>Share your screen or camera to start a live broadcast in this channel.</p>
           <div className="voice-panel-header-actions" style={{ justifyContent: 'center' }}>
             <button className="voice-action-btn" onClick={() => props.onToggleVideoShare('screen')}>
-              Share Screen
+              🖥️ Share Screen
             </button>
             <button className="voice-action-btn" onClick={() => props.onToggleVideoShare('camera')}>
-              Share Camera
+              📷 Share Camera
             </button>
           </div>
         </div>
@@ -498,15 +498,15 @@ export function VoiceChannelPanel(props: VoiceChannelPanelProps) {
         <div className="voice-panel-header-actions" style={{ justifyContent: 'center', marginTop: 4 }}>
           {hasLocalShare ? (
             <button className="voice-action-btn danger" onClick={() => props.onToggleVideoShare(props.localStreamSource ?? 'screen')}>
-              Stop Sharing
+              ⏹️ Stop Sharing
             </button>
           ) : (
             <>
               <button className="voice-action-btn" onClick={() => props.onToggleVideoShare('screen')}>
-                Share Screen
+                🖥️ Share Screen
               </button>
               <button className="voice-action-btn" onClick={() => props.onToggleVideoShare('camera')}>
-                Share Camera
+                📷 Share Camera
               </button>
             </>
           )}
@@ -556,7 +556,7 @@ export function VoiceChannelPanel(props: VoiceChannelPanelProps) {
           const connState = stats?.connectionState || (props.joined && !isSelf ? 'connecting' : 'new');
           const iceState = stats?.iceConnectionState;
           
-          const signalIcon = 'NET';
+          const signalIcon = '📶';
           let signalClass = 'good';
           if (connState === 'connecting' || connState === 'new' || iceState === 'checking') {
             signalClass = 'pending';
@@ -614,8 +614,8 @@ export function VoiceChannelPanel(props: VoiceChannelPanelProps) {
                 >
                   {signalIcon}
                 </span>
-                {participant.muted && <span className="voice-status-icon muted" title="Muted">M</span>}
-                {participant.deafened && <span className="voice-status-icon deafened" title="Deafened">D</span>}
+                {participant.muted && <span className="voice-status-icon muted">🔇</span>}
+                {participant.deafened && <span className="voice-status-icon deafened">🎧</span>}
               </div>
             </div>
           );
