@@ -14,16 +14,23 @@ import { useChatSocket } from '../hooks/use-chat-socket';
 import type { PresenceState, PresenceUser, VoiceParticipant, VoiceStatePayload } from '../hooks/use-chat-socket';
 import { useUserPreferences } from '../hooks/use-user-preferences';
 import {
-  mergeMessages,
-  mergeServerWithLocal,
   messageSignature,
   reconcileIncomingMessage,
   useMessageLifecycleFeature,
   type ReplyTarget,
 } from './chat/hooks/use-message-lifecycle-feature';
+import { useChannelMessageLoader } from './chat/hooks/use-channel-message-loader';
 import { upsertChannel, useProfileDmFeature } from './chat/hooks/use-profile-dm-feature';
 import { useReactionsFeature } from './chat/hooks/use-reactions-feature';
 import { useRemoteSpeakingActivity } from './chat/hooks/use-remote-speaking-activity';
+import {
+  DEFAULT_STREAM_QUALITY,
+  clampCameraPreset,
+  getCameraCapturePresetLabels,
+  getStreamQualityPreset,
+  isValidStreamQualityLabel,
+  toVideoTrackConstraints,
+} from './chat/utils/stream-quality';
 import { useVoiceFeature } from './chat/hooks/use-voice-feature';
 import { useAuth } from '../store/auth-store';
 import type {
@@ -43,72 +50,12 @@ type MainView = 'chat' | 'friends' | 'settings' | 'admin';
 type MobilePane = 'none' | 'channels' | 'users';
 type MicrophonePermissionState = 'granted' | 'denied' | 'prompt' | 'unsupported' | 'unknown';
 type StreamSource = 'screen' | 'camera';
-const DEFAULT_STREAM_QUALITY = '720p 30fps';
-
-const STREAM_QUALITY_CONSTRAINTS: Record<string, { width: number; height: number; frameRate: number }> = {
-  '360p 15fps': { width: 640, height: 360, frameRate: 15 },
-  '360p 30fps': { width: 640, height: 360, frameRate: 30 },
-  '480p 15fps': { width: 854, height: 480, frameRate: 15 },
-  '480p 30fps': { width: 854, height: 480, frameRate: 30 },
-  '720p 15fps': { width: 1280, height: 720, frameRate: 15 },
-  '720p 30fps': { width: 1280, height: 720, frameRate: 30 },
-  '720p 60fps': { width: 1280, height: 720, frameRate: 60 },
-  '900p 30fps': { width: 1600, height: 900, frameRate: 30 },
-  '1080p 30fps': { width: 1920, height: 1080, frameRate: 30 },
-  '1080p 60fps': { width: 1920, height: 1080, frameRate: 60 },
-  '1440p 30fps': { width: 2560, height: 1440, frameRate: 30 },
-  '1440p 60fps': { width: 2560, height: 1440, frameRate: 60 },
-  '2160p 30fps': { width: 3840, height: 2160, frameRate: 30 },
-};
-
-const CAMERA_MAX_CAPTURE_CONSTRAINTS = {
-  width: 1920,
-  height: 1080,
-  frameRate: 30,
-} as const;
-
-const CAMERA_FALLBACK_QUALITY_LABELS = [
-  '1080p 30fps',
-  '720p 30fps',
-  '720p 15fps',
-  '480p 30fps',
-  '480p 15fps',
-  '360p 30fps',
-  '360p 15fps',
-] as const;
-
-type StreamQualityPreset = { width: number; height: number; frameRate: number };
-
-function getStreamQualityPreset(label: string): StreamQualityPreset {
-  return STREAM_QUALITY_CONSTRAINTS[label] ?? STREAM_QUALITY_CONSTRAINTS[DEFAULT_STREAM_QUALITY];
-}
-
-function toVideoTrackConstraints(preset: StreamQualityPreset): MediaTrackConstraints {
-  return {
-    width: { ideal: preset.width, max: preset.width },
-    height: { ideal: preset.height, max: preset.height },
-    frameRate: { ideal: preset.frameRate, max: preset.frameRate },
-  };
-}
 
 function clampMediaElementVolume(value: number) {
   if (!Number.isFinite(value)) {
     return 1;
   }
   return Math.min(1, Math.max(0, value));
-}
-
-function clampCameraPreset(preset: StreamQualityPreset): StreamQualityPreset {
-  return {
-    width: Math.min(preset.width, CAMERA_MAX_CAPTURE_CONSTRAINTS.width),
-    height: Math.min(preset.height, CAMERA_MAX_CAPTURE_CONSTRAINTS.height),
-    frameRate: Math.min(preset.frameRate, CAMERA_MAX_CAPTURE_CONSTRAINTS.frameRate),
-  };
-}
-
-function getCameraCapturePresetLabels(preferredLabel: string): string[] {
-  const labels = [preferredLabel, ...CAMERA_FALLBACK_QUALITY_LABELS, DEFAULT_STREAM_QUALITY];
-  return [...new Set(labels.filter((label) => Boolean(STREAM_QUALITY_CONSTRAINTS[label])))];
 }
 
 type VoiceSignalData =
@@ -388,9 +335,6 @@ export function ChatPage() {
   const createOfferForPeerRef = useRef((() => Promise.resolve()) as (peerUserId: string, channelId: string) => Promise<void>);
   const leaveVoiceRef = useRef((() => false) as (channelId?: string) => boolean);
   const messageSearchInputRef = useRef<HTMLInputElement | null>(null);
-  const isMountedRef = useRef(true);
-  const activeChannelIdRef = useRef<string | null>(null);
-  const pendingMessageLoadsRef = useRef(0);
   const hasTurnRelayConfigured = useMemo(() => hasTurnRelayInIceConfig(voiceIceConfig), [voiceIceConfig]);
 
   const logVoiceDebug = useCallback((event: string, details?: Record<string, unknown>) => {
@@ -417,16 +361,6 @@ export function ChatPage() {
     () => channels.find((channel) => channel.id === activeChannelId) ?? null,
     [channels, activeChannelId],
   );
-
-  useEffect(() => {
-    activeChannelIdRef.current = activeChannelId;
-  }, [activeChannelId]);
-
-  useEffect(() => {
-    return () => {
-      isMountedRef.current = false;
-    };
-  }, []);
 
   const handleDirectChannelOpened = useCallback((channel: Channel) => {
     setChannels((prev) => upsertChannel(prev, channel));
@@ -750,36 +684,12 @@ export function ChatPage() {
     }
   }, []);
 
-  const loadMessages = useCallback(
-    async (channelId: string, before?: string, prepend = false) => {
-      if (!auth.token) {
-        return;
-      }
-      pendingMessageLoadsRef.current += 1;
-      if (isMountedRef.current) {
-        setLoadingMessages(true);
-      }
-      try {
-        const response = await chatApi.messages(auth.token, channelId, { before, limit: 50 });
-        if (!isMountedRef.current || activeChannelIdRef.current !== channelId) {
-          return;
-        }
-        setMessages((prev) => {
-          if (prepend) {
-            return mergeMessages(response.messages, prev);
-          }
-          const localPending = prev.filter((item) => item.optimistic || item.failed);
-          return mergeServerWithLocal(response.messages, localPending);
-        });
-      } finally {
-        pendingMessageLoadsRef.current = Math.max(0, pendingMessageLoadsRef.current - 1);
-        if (isMountedRef.current && pendingMessageLoadsRef.current === 0) {
-          setLoadingMessages(false);
-        }
-      }
-    },
-    [auth.token],
-  );
+  const loadMessages = useChannelMessageLoader({
+    token: auth.token,
+    activeChannelId,
+    setMessages,
+    setLoadingMessages,
+  });
 
   const loadFriendData = useCallback(async () => {
     if (!auth.token) {
@@ -2671,7 +2581,7 @@ export function ChatPage() {
 
   const handleStreamQualityChange = useCallback(
     (value: string) => {
-      if (!STREAM_QUALITY_CONSTRAINTS[value]) {
+      if (!isValidStreamQualityLabel(value)) {
         return;
       }
       setStreamQualityLabel(value);
