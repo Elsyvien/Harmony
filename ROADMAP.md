@@ -1,6 +1,6 @@
-# 🗺️ Project Roadmap
+# Project Roadmap
 
-## 🟢 Phase 1: Foundation (Completed)
+## Phase 1: Foundation (Completed)
 **Goal:** A functional real-time chat application with persistent storage and authentication.
 - [x] **Backend Setup:** Fastify + Node.js + WebSocket (ws).
 - [x] **Database:** SQLite with Prisma ORM.
@@ -8,7 +8,7 @@
 - [x] **Real-time Messaging:** WebSocket broadcasting.
 - [x] **Basic UI:** React + Vite frontend with channel switching.
 
-## 🟢 Phase 2: Refinement & UI (Completed)
+## Phase 2: Refinement & UI (Completed)
 **Goal:** A high-fidelity, polished user experience with administrative controls.
 - [x] **"Refined Brutalist" Design:** Custom CSS, Space Grotesk typography, dark mode.
 - [x] **3-Pane Layout:** Channels | Chat | Online Users.
@@ -19,7 +19,7 @@
 
 ---
 
-## 🟡 Phase 3: Rich Interactions (Next Steps)
+## Phase 3: Rich Interactions (Next Steps)
 **Goal:** Enhance communication beyond plain text.
 - [ ] **Rich Text Support:** Markdown rendering (bold, italic, code blocks).
 - [ ] **Emoji Picker:** Integration of a standard emoji selector.
@@ -27,14 +27,14 @@
 - [ ] **Link Previews:** OpenGraph scraping for shared URLs.
 - [ ] **Message Reactions:** Add reactions to messages.
 
-## ⚪ Phase 4: Social & Privacy
+## Phase 4: Social & Privacy
 **Goal:** Personal connections and user status.
 - [ ] **Direct Messages (DMs):** Private 1:1 conversations.
 - [ ] **User Status:** Real-time Online/Idle/DND indicators.
 - [x] **Friend System:** Send/Accept friend requests, manage incoming/outgoing queues, remove friends.
 - [ ] **Block List:** User-side moderation.
 
-## ⚪ Phase 5: Architecture Expansion
+## Phase 5: Architecture Expansion
 **Goal:** Transform from a "Team Chat" to a multi-server, guild-based "Platform" (Discord-like).
 - [ ] **Multi-Server Support (Guilds):**
     - Create `Server` model.
@@ -42,7 +42,7 @@
     - Invite system.
 - [ ] **Advanced Permissions:** Granular channel-level permissions.
 
-## ⚪ Phase 6: Real-Time Media
+## Phase 6: Real-Time Media
 **Goal:** Voice and Video capabilities.
 - [ ] **Voice Channels:** WebRTC integration (SFU or Mesh).
 - [ ] **Screen Sharing:** Desktop capture and streaming.

@@ -1,8 +1,8 @@
-# 🤖 AGENT.md - Project Context & Guidelines
+# AGENT.md - Project Context & Guidelines
 
 This file is for AI agents to understand the context, conventions, and architectural decisions of the **Harmony** project.
 
-## 🏗️ Tech Stack
+## Tech Stack
 
 ### Backend (`/backend`)
 - **Runtime:** Node.js (TypeScript)
@@ -17,7 +17,7 @@ This file is for AI agents to understand the context, conventions, and architect
 - **Styling:** Plain CSS (Modules/Global) with extensive CSS Variables. **No Tailwind.**
 - **State Management:** `zustand` (via `auth-store.ts`), React Context/Hooks.
 
-## 🎨 Design System: "Refined Brutalist"
+## Design System: "Refined Brutalist"
 
 The project adheres to a specific aesthetic direction. **Do not deviate to generic Material/Bootstrap styles.**
 
@@ -34,7 +34,7 @@ The project adheres to a specific aesthetic direction. **Do not deviate to gener
   - Explicit borders defining a grid layout.
   - High density information.
 
-## 📂 Key Architecture Notes
+## Key Architecture Notes
 
 ### 1. Data Model (`backend/prisma/schema.prisma`)
 - **Current Scope:** Single-Tenant / Global.
@@ -54,14 +54,14 @@ The project adheres to a specific aesthetic direction. **Do not deviate to gener
 - Auto-reconnect logic.
 - Messages are optimistic but verified via socket events.
 
-## 🛠️ Development Guidelines
+## Development Guidelines
 
 1.  **CSS Over Utility:** We write semantic CSS in `global.css` or component files. Do not use inline styles for structural layout.
 2.  **Explicit Types:** Always define interfaces for Props and API responses in `types/api.ts`.
 3.  **Safety:** When modifying `ChatPage` or core components, ensure `read_file` is used first to respect the complex state (e.g., `activeView` switching).
 4.  **Icons:** Use inline SVGs for icons. Do not install an icon library (Lucide/FontAwesome) unless requested. Keep it lightweight.
 
-## 🚀 Common Commands
+## Common Commands
 - `npm run dev` (in `/web`): Start frontend.
 - `npm run dev` (in `/backend`): Start backend server.
 - `npx prisma studio` (in `/backend`): View database.
