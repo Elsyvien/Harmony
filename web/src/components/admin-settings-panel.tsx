@@ -1,17 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import type { AdminSettings, AdminStats, AdminUserSummary, UserRole } from '../types/api';
 
-type AdminVoiceTestStatus = 'idle' | 'running' | 'pass' | 'fail';
-
-export interface AdminVoiceTestEntry {
-  id: string;
-  label: string;
-  description: string;
-  status: AdminVoiceTestStatus;
-  message: string;
-  ranAt: number | null;
-}
-
 interface AdminSettingsPanelProps {
   stats: AdminStats | null;
   settings: AdminSettings | null;
@@ -42,10 +31,6 @@ interface AdminSettingsPanelProps {
   onClearUsersExceptCurrent: () => Promise<void>;
   clearingUsersExceptCurrent: boolean;
   currentUserId: string;
-  voiceTests: AdminVoiceTestEntry[];
-  runningVoiceTests: boolean;
-  onRunVoiceTest: (testId: string) => Promise<void>;
-  onRunAllVoiceTests: () => Promise<void>;
 }
 
 function formatUptime(totalSec: number) {
@@ -232,56 +217,6 @@ export function AdminSettingsPanel(props: AdminSettingsPanelProps) {
         >
           {props.savingSettings ? 'Saving...' : 'Save settings'}
         </button>
-      </article>
-
-      <article className="setting-card admin-test-menu">
-        <div className="admin-header">
-          <h3>Voice/Streaming Test Menu</h3>
-          <button
-            className="ghost-btn"
-            onClick={() => void props.onRunAllVoiceTests()}
-            disabled={props.runningVoiceTests}
-          >
-            {props.runningVoiceTests ? 'Running all tests...' : 'Run all tests'}
-          </button>
-        </div>
-        <p className="muted-inline">
-          Start tests directly from here and check pass/fail feedback immediately.
-        </p>
-        <div className="admin-test-list">
-          {props.voiceTests.map((test) => (
-            <div key={test.id} className="admin-test-row">
-              <div className="admin-test-main">
-                <strong>{test.label}</strong>
-                <small>{test.description}</small>
-                <small className="admin-test-message">{test.message}</small>
-                <small className="admin-test-time">
-                  {test.ranAt ? `Last run ${new Date(test.ranAt).toLocaleTimeString()}` : 'Not run yet'}
-                </small>
-              </div>
-              <div className="admin-test-actions">
-                <span
-                  className={`status-chip ${
-                    test.status === 'pass'
-                      ? 'ok'
-                      : test.status === 'fail'
-                        ? 'danger'
-                        : 'neutral'
-                  }`}
-                >
-                  {test.status === 'running' ? 'RUNNING' : test.status.toUpperCase()}
-                </span>
-                <button
-                  className="ghost-btn small"
-                  onClick={() => void props.onRunVoiceTest(test.id)}
-                  disabled={props.runningVoiceTests || test.status === 'running'}
-                >
-                  {test.status === 'running' ? 'Running...' : 'Run'}
-                </button>
-              </div>
-            </div>
-          ))}
-        </div>
       </article>
 
       <article className="setting-card">
