@@ -566,7 +566,7 @@ export function VoiceChannelPanel(props: VoiceChannelPanelProps) {
           const connState = stats?.connectionState || (props.joined && !isSelf ? 'connecting' : 'new');
           const iceState = stats?.iceConnectionState;
           
-          let signalIcon = '📶';
+          const signalIcon = '📶';
           let signalClass = 'good';
           if (connState === 'connecting' || connState === 'new' || iceState === 'checking') {
             signalClass = 'pending';

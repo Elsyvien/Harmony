@@ -4,7 +4,6 @@ import { AppError } from '../utils/app-error.js';
 type VoiceSfuTransportDirection = 'send' | 'recv';
 type Consumer = mediasoupTypes.Consumer;
 type DtlsParameters = mediasoupTypes.DtlsParameters;
-type IceCandidate = mediasoupTypes.IceCandidate;
 type IceParameters = mediasoupTypes.IceParameters;
 type Producer = mediasoupTypes.Producer;
 type Router = mediasoupTypes.Router;
@@ -138,7 +137,7 @@ export class VoiceSfuService {
       iceConsentTimeout: 45,
     });
     peer.transports.set(transport.id, transport);
-    transport.on('icestatechange', (iceState) => {
+    transport.on('icestatechange', (iceState: WebRtcTransport['iceState']) => {
       if (iceState === 'disconnected') {
         // Give time for ICE to recover before closing
         setTimeout(() => {
@@ -148,7 +147,7 @@ export class VoiceSfuService {
         }, 10_000);
       }
     });
-    transport.on('dtlsstatechange', (dtlsState) => {
+    transport.on('dtlsstatechange', (dtlsState: WebRtcTransport['dtlsState']) => {
       if (dtlsState === 'failed' || dtlsState === 'closed') {
         transport.close();
       }

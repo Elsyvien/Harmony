@@ -2,10 +2,13 @@ import { createContext, useContext, useEffect, useMemo, useState } from 'react';
 import type { PropsWithChildren } from 'react';
 import type { User, UserRole } from '../types/api';
 import { chatApi } from '../api/chat-api';
-import { getStorageItem, removeStorageItem, setStorageItem } from '../utils/safe-storage';
-
-const TOKEN_KEY = 'discordclone_token';
-const USER_KEY = 'discordclone_user';
+import {
+  AUTH_TOKEN_STORAGE_KEY,
+  AUTH_UNAUTHORIZED_EVENT,
+  AUTH_USER_STORAGE_KEY,
+  clearStoredAuth,
+} from '../config/auth';
+import { getStorageItem, setStorageItem } from '../utils/safe-storage';
 
 interface AuthState {
   token: string | null;
@@ -18,8 +21,8 @@ interface AuthContextValue extends AuthState {
   clearAuth: () => void;
 }
 
-const initialToken = getStorageItem(TOKEN_KEY);
-const initialUser = getStorageItem(USER_KEY);
+const initialToken = getStorageItem(AUTH_TOKEN_STORAGE_KEY);
+const initialUser = getStorageItem(AUTH_USER_STORAGE_KEY);
 
 function isUserRole(value: unknown): value is UserRole {
   return value === 'OWNER' || value === 'ADMIN' || value === 'MODERATOR' || value === 'MEMBER';
@@ -34,15 +37,8 @@ function parseStoredUser(raw: string | null): User | null {
     if (!parsed.id || !parsed.username || !parsed.email || !parsed.createdAt) {
       return null;
     }
-    const normalizedUsername = parsed.username.trim().toLowerCase();
-    const fallbackRole: UserRole =
-      normalizedUsername === 'max'
-        ? 'OWNER'
-        : parsed.isAdmin
-          ? 'ADMIN'
-          : 'MEMBER';
-    const role = isUserRole(parsed.role) ? parsed.role : fallbackRole;
-    const isAdmin = parsed.isAdmin ?? (role === 'OWNER' || role === 'ADMIN');
+    const role: UserRole = isUserRole(parsed.role) ? parsed.role : 'MEMBER';
+    const isAdmin = role === 'OWNER' || role === 'ADMIN';
     return {
       id: parsed.id,
       username: parsed.username,
@@ -68,6 +64,20 @@ export function AuthProvider({ children }: PropsWithChildren) {
   const [hydrating, setHydrating] = useState(Boolean(initialToken));
 
   useEffect(() => {
+    if (typeof window === 'undefined') {
+      return;
+    }
+    const handleUnauthorized = () => {
+      setHydrating(false);
+      setState({ token: null, user: null });
+    };
+    window.addEventListener(AUTH_UNAUTHORIZED_EVENT, handleUnauthorized);
+    return () => {
+      window.removeEventListener(AUTH_UNAUTHORIZED_EVENT, handleUnauthorized);
+    };
+  }, []);
+
+  useEffect(() => {
     if (!state.token || !hydrating) {
       return;
     }
@@ -79,14 +89,13 @@ export function AuthProvider({ children }: PropsWithChildren) {
         if (disposed) {
           return;
         }
-        setStorageItem(USER_KEY, JSON.stringify(response.user));
+        setStorageItem(AUTH_USER_STORAGE_KEY, JSON.stringify(response.user));
         setState((prev) => ({ ...prev, user: response.user }));
       } catch {
         if (disposed) {
           return;
         }
-        removeStorageItem(TOKEN_KEY);
-        removeStorageItem(USER_KEY);
+        clearStoredAuth();
         setState({ token: null, user: null });
       } finally {
         if (!disposed) {
@@ -106,14 +115,13 @@ export function AuthProvider({ children }: PropsWithChildren) {
       ...state,
       hydrating,
       setAuth: (token, user) => {
-        setStorageItem(TOKEN_KEY, token);
-        setStorageItem(USER_KEY, JSON.stringify(user));
+        setStorageItem(AUTH_TOKEN_STORAGE_KEY, token);
+        setStorageItem(AUTH_USER_STORAGE_KEY, JSON.stringify(user));
         setHydrating(false);
         setState({ token, user });
       },
       clearAuth: () => {
-        removeStorageItem(TOKEN_KEY);
-        removeStorageItem(USER_KEY);
+        clearStoredAuth();
         setHydrating(false);
         setState({ token: null, user: null });
       },

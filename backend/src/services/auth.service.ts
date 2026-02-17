@@ -19,11 +19,15 @@ export interface LoginInput {
 }
 
 function normalizeUsername(username: string) {
-  return username.trim().toLowerCase();
+  return username.trim();
+}
+
+function normalizeEmail(email: string) {
+  return email.trim().toLowerCase();
 }
 
 function bootstrapRoleForUsername(username: string): UserRole {
-  return normalizeUsername(username) === 'max' ? 'OWNER' : 'MEMBER';
+  return normalizeUsername(username).toLowerCase() === 'max' ? 'OWNER' : 'MEMBER';
 }
 
 export class AuthService {
@@ -34,26 +38,29 @@ export class AuthService {
   ) {}
 
   async register(input: RegisterInput): Promise<AuthUser> {
+    const username = normalizeUsername(input.username);
+    const email = normalizeEmail(input.email);
+
     const settings = await this.adminSettingsService?.getSettings();
     if (settings && !settings.allowRegistrations) {
       throw new AppError('REGISTRATION_DISABLED', 403, 'Registration is currently disabled');
     }
 
-    const existingEmail = await this.userRepo.findByEmail(input.email);
+    const existingEmail = await this.userRepo.findByEmail(email);
     if (existingEmail) {
       throw new AppError('EMAIL_EXISTS', 409, 'Email already in use');
     }
 
-    const existingUsername = await this.userRepo.findByUsername(input.username);
+    const existingUsername = await this.userRepo.findByUsername(username);
     if (existingUsername) {
       throw new AppError('USERNAME_EXISTS', 409, 'Username already in use');
     }
 
     const passwordHash = await bcrypt.hash(input.password, this.saltRounds);
-    const role = bootstrapRoleForUsername(input.username);
+    const role = bootstrapRoleForUsername(username);
     const user = await this.userRepo.create({
-      username: input.username,
-      email: input.email,
+      username,
+      email,
       passwordHash,
       role,
       isAdmin: isAdminRole(role),
@@ -63,7 +70,8 @@ export class AuthService {
   }
 
   async login(input: LoginInput): Promise<AuthUser> {
-    const user = await this.userRepo.findByEmail(input.email);
+    const email = normalizeEmail(input.email);
+    const user = await this.userRepo.findByEmail(email);
     if (!user) {
       throw new AppError('INVALID_CREDENTIALS', 401, 'Invalid credentials');
     }

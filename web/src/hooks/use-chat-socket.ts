@@ -327,6 +327,8 @@ export function useChatSocket(params: {
       };
     };
 
+    const pendingVoiceSfuRequests = pendingVoiceSfuRequestsRef.current;
+
     connect();
 
     return () => {
@@ -337,11 +339,11 @@ export function useChatSocket(params: {
       if (reconnectTimerRef.current) {
         window.clearTimeout(reconnectTimerRef.current);
       }
-      for (const pending of pendingVoiceSfuRequestsRef.current.values()) {
+      for (const pending of pendingVoiceSfuRequests.values()) {
         window.clearTimeout(pending.timeoutId);
         pending.reject(new Error('Socket connection closed'));
       }
-      pendingVoiceSfuRequestsRef.current.clear();
+      pendingVoiceSfuRequests.clear();
       joinedChannelIds.clear();
       socketRef.current?.close();
       socketRef.current = null;
