@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it } from 'vitest';
 import { randomUUID } from 'node:crypto';
 import type { UserRole } from '@prisma/client';
 import type { UserRepository } from '../src/repositories/user.repository.js';
+import type { AdminSettingsService } from '../src/services/admin-settings.service.js';
 import { AuthService } from '../src/services/auth.service.js';
 import { AppError } from '../src/utils/app-error.js';
 
@@ -171,5 +172,25 @@ describe('AuthService', () => {
         password: 'Password123',
       }),
     ).rejects.toMatchObject({ code: 'USERNAME_EXISTS' } satisfies Partial<AppError>);
+  });
+
+  it('blocks registration when admin settings disable registrations', async () => {
+    const adminSettingsService = {
+      getSettings: async () => ({
+        allowRegistrations: false,
+        readOnlyMode: false,
+        slowModeSeconds: 0,
+        idleTimeoutMinutes: 15,
+      }),
+    } as unknown as AdminSettingsService;
+    const gatedService = new AuthService(repo, 8, adminSettingsService);
+
+    await expect(
+      gatedService.register({
+        username: 'blocked_user',
+        email: 'blocked@example.com',
+        password: 'Password123',
+      }),
+    ).rejects.toMatchObject({ code: 'REGISTRATION_DISABLED' } satisfies Partial<AppError>);
   });
 });
