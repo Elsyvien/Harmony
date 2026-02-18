@@ -27,7 +27,8 @@ import { useRemoteSpeakingActivity } from './chat/hooks/use-remote-speaking-acti
 import { useFriendsFeature } from './chat/hooks/use-friends-feature';
 
 
-import { useChannelManagementFeature } from './chat/hooks/use-channel-management-feature';
+
+import { useChatPageEffects } from './chat/hooks/use-chat-page-effects';
 import {
   DEFAULT_STREAM_QUALITY,
   clampCameraPreset,
@@ -714,7 +715,6 @@ export function ChatPage() {
     setMessages,
     setLoadingMessages,
   });
-
 
   const playIncomingMessageSound = useCallback(() => {
     if (!preferences.playMessageSound) {
@@ -1926,6 +1926,29 @@ export function ChatPage() {
     },
   });
 
+  useChatPageEffects({
+    notice,
+    setNotice,
+    activeView,
+    activeChannelId,
+    activeChannelIsVoice: Boolean(activeChannel?.isVoice),
+    closeAudioContextMenu,
+    setReplyTarget,
+    setMobilePane,
+    setUnreadChannelCounts,
+    setMessages,
+    setMessageQuery,
+    loadMessages,
+    authToken: auth.token,
+    wsConnected: ws.connected,
+    isAdminUser: auth.user?.isAdmin,
+    loadAdminStats,
+    loadAdminSettings,
+    loadAdminUsers,
+    loadFriendData,
+    messageSearchInputRef,
+  });
+
   useEffect(() => {
     if (!ws.connected || !auth.user || !activeVoiceChannelId) {
       return;
@@ -2067,18 +2090,6 @@ export function ChatPage() {
   }, []);
 
   useEffect(() => {
-    if (!notice) {
-      return;
-    }
-    const timeout = window.setTimeout(() => {
-      setNotice(null);
-    }, 5000);
-    return () => {
-      window.clearTimeout(timeout);
-    };
-  }, [notice]);
-
-  useEffect(() => {
     let disposed = false;
     const loadRtcConfig = async () => {
       try {
@@ -2164,41 +2175,6 @@ export function ChatPage() {
         : `You received ${newRequestCount} friend requests.`,
     );
   }, [auth.token, incomingRequests.length]);
-
-  useEffect(() => {
-    if (activeView !== 'chat' || !activeChannelId) {
-      return;
-    }
-    setUnreadChannelCounts((prev) => {
-      if (!prev[activeChannelId]) {
-        return prev;
-      }
-      const next = { ...prev };
-      delete next[activeChannelId];
-      return next;
-    });
-  }, [activeView, activeChannelId]);
-
-  useEffect(() => {
-    closeAudioContextMenu();
-    setReplyTarget(null);
-    setMobilePane('none');
-  }, [activeView, activeChannelId, closeAudioContextMenu]);
-
-  useEffect(() => {
-    if (!activeChannelId) {
-      setMessages([]);
-      return;
-    }
-    if (activeChannel?.isVoice) {
-      setMessages([]);
-      setMessageQuery('');
-      return;
-    }
-    setMessages([]);
-    setMessageQuery('');
-    void loadMessages(activeChannelId);
-  }, [activeChannelId, activeChannel?.isVoice, loadMessages]);
 
   useEffect(() => {
     if (!ws.connected || !activeVoiceChannelId || !auth.user) {
@@ -2683,47 +2659,6 @@ export function ChatPage() {
   }, [enumerateAudioInputDevices, refreshMicrophonePermission]);
 
   useEffect(() => {
-    if (activeView !== 'admin' || !auth.user?.isAdmin) {
-      return;
-    }
-    void loadAdminStats();
-    void loadAdminSettings();
-    void loadAdminUsers();
-    const interval = window.setInterval(() => {
-      void loadAdminStats();
-      void loadAdminSettings();
-      void loadAdminUsers();
-    }, 5000);
-    return () => {
-      window.clearInterval(interval);
-    };
-  }, [activeView, auth.user?.isAdmin, loadAdminStats, loadAdminSettings, loadAdminUsers]);
-
-  useEffect(() => {
-    if (activeView !== 'friends' || !auth.token) {
-      return;
-    }
-    const interval = window.setInterval(() => {
-      void loadFriendData();
-    }, 8000);
-    return () => {
-      window.clearInterval(interval);
-    };
-  }, [activeView, auth.token, loadFriendData]);
-
-  useEffect(() => {
-    if (!auth.token || !activeChannelId || ws.connected) {
-      return;
-    }
-    const interval = window.setInterval(() => {
-      void loadMessages(activeChannelId);
-    }, 5000);
-    return () => {
-      window.clearInterval(interval);
-    };
-  }, [auth.token, activeChannelId, loadMessages, ws.connected]);
-
-  useEffect(() => {
     if (ws.connected) {
       return;
     }
@@ -2732,30 +2667,6 @@ export function ChatPage() {
     setVoiceBusyChannelId(null);
     teardownVoiceTransport();
   }, [ws.connected, teardownVoiceTransport]);
-
-  useEffect(() => {
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (!event.ctrlKey && !event.metaKey) {
-        return;
-      }
-      if (event.shiftKey || event.altKey) {
-        return;
-      }
-      if (event.key.toLowerCase() !== 'k') {
-        return;
-      }
-      if (activeView !== 'chat' || activeChannel?.isVoice) {
-        return;
-      }
-      event.preventDefault();
-      messageSearchInputRef.current?.focus();
-      messageSearchInputRef.current?.select();
-    };
-    window.addEventListener('keydown', onKeyDown);
-    return () => {
-      window.removeEventListener('keydown', onKeyDown);
-    };
-  }, [activeView, activeChannel?.isVoice]);
 
   const { toggleMessageReaction } = useReactionsFeature({
     authToken: auth.token,
@@ -3300,6 +3211,8 @@ export function ChatPage() {
     </main>
   );
 }
+
+
 
 
 
