@@ -1,15 +1,10 @@
 import { Navigate } from 'react-router-dom';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+
 import { chatApi } from '../api/chat-api';
-import { AdminSettingsPanel } from '../components/admin-settings-panel';
-import { ChannelSidebar } from '../components/channel-sidebar';
-import { ChatView } from '../components/chat-view';
-import { FriendsPanel } from '../components/friends-panel';
-import { MessageComposer } from '../components/message-composer';
-import { SettingsPanel } from '../components/settings-panel';
 import { UserProfile } from '../components/user-profile';
-import { UserSidebar } from '../components/user-sidebar';
-import { VoiceChannelPanel } from '../components/voice-channel-panel';
+
+import { ChatPageShell } from './chat/components/chat-page-shell';
 import { useChatSocket } from '../hooks/use-chat-socket';
 import type { PresenceUser, VoiceParticipant, VoiceStatePayload } from '../hooks/use-chat-socket';
 import { useUserPreferences } from '../hooks/use-user-preferences';
@@ -23,11 +18,10 @@ import { useChannelMessageLoader } from './chat/hooks/use-channel-message-loader
 import { upsertChannel, useProfileDmFeature } from './chat/hooks/use-profile-dm-feature';
 import { useReactionsFeature } from './chat/hooks/use-reactions-feature';
 import { useRemoteSpeakingActivity } from './chat/hooks/use-remote-speaking-activity';
-
+import { useAdminFeature } from './chat/hooks/use-admin-feature';
 import { useFriendsFeature } from './chat/hooks/use-friends-feature';
-
-
-
+import { useChatPresenceFeature } from './chat/hooks/use-chat-presence-feature';
+import { useChannelManagementFeature } from './chat/hooks/use-channel-management-feature';
 import { useChatPageEffects } from './chat/hooks/use-chat-page-effects';
 import {
   DEFAULT_STREAM_QUALITY,
@@ -1518,6 +1512,7 @@ export function ChatPage() {
         return;
       }
       if (!shouldInitiateOffer(auth.user.id, peerUserId)) {
+        sendVoiceSignalRef.current(channelId, peerUserId, { kind: 'renegotiate' } satisfies VoiceSignalData);
         return;
       }
       const connection = await ensurePeerConnection(peerUserId, channelId);
@@ -2770,11 +2765,12 @@ export function ChatPage() {
   };
 
   return (
-    <main className={chatLayoutClassName}>
-      <ChannelSidebar
-        channels={channels}
-        activeChannelId={activeChannelId}
-        onSelect={(channelId) => {
+    <ChatPageShell
+      chatLayoutClassName={chatLayoutClassName}
+      sidebarProps={{
+        channels,
+        activeChannelId,
+        onSelect: (channelId) => {
           setActiveChannelId(channelId);
           setActiveView('chat');
           setMobilePane('none');
@@ -2786,289 +2782,223 @@ export function ChatPage() {
             delete next[channelId];
             return next;
           });
-        }}
-        unreadChannelCounts={unreadChannelCounts}
-        activeView={activeView}
-        onChangeView={setActiveView}
-        onLogout={logout}
-        userId={auth.user.id}
-        username={auth.user.username}
-        isAdmin={auth.user.isAdmin}
-        onCreateChannel={createChannel}
-        onDeleteChannel={deleteChannel}
-        deletingChannelId={deletingChannelId}
-        activeVoiceChannelId={activeVoiceChannelId}
-        voiceParticipantCounts={voiceParticipantCounts}
-        voiceParticipantsByChannel={voiceParticipantsByChannel}
-        voiceStreamingUserIdsByChannel={voiceStreamingUserIdsByChannel}
-        remoteScreenShares={remoteScreenShares}
-        localScreenShareStream={localScreenShareStream}
-        localStreamSource={localStreamSource}
-        speakingUserIds={speakingUserIds}
-        onJoinVoice={joinVoiceChannel}
-        onLeaveVoice={leaveVoiceChannel}
-        isSelfMuted={isSelfMuted}
-        isSelfDeafened={isSelfDeafened}
-        onToggleMute={toggleSelfMute}
-        onToggleDeafen={toggleSelfDeafen}
-        joiningVoiceChannelId={voiceBusyChannelId}
-        incomingFriendRequests={incomingRequests.length}
-        avatarUrl={auth.user.avatarUrl}
-        ping={ws.ping}
-        state={currentPresenceState}
-      />
-
-      <section className="chat-panel">
-        <header className="panel-header">
-          <div className="panel-header-main">
-            {activeView === 'chat' ? (
-              <button
-                className="mobile-pane-toggle"
-                onClick={() =>
-                  setMobilePane((current) => (current === 'channels' ? 'none' : 'channels'))
-                }
-              >
-                Channels
-              </button>
-            ) : null}
-            <h1>{panelTitle}</h1>
-            {activeView === 'chat' ? (
-              <button
-                className="mobile-pane-toggle"
-                onClick={() => setMobilePane((current) => (current === 'users' ? 'none' : 'users'))}
-              >
-                Online
-              </button>
-            ) : null}
-            {error ? <p className="error-banner">{error}</p> : null}
-            {!error && notice ? <p className="info-banner">{notice}</p> : null}
-            {streamStatusBanner ? (
-              <p className={streamStatusBanner.type === 'error' ? 'error-banner' : 'info-banner'}>
-                {streamStatusBanner.message}
-              </p>
-            ) : null}
-          </div>
-          {activeView === 'chat' && !activeChannel?.isVoice ? (
-            <div className="panel-tools">
-              <input
-                ref={messageSearchInputRef}
-                className="panel-search-input"
-                value={messageQuery}
-                onChange={(event) => setMessageQuery(event.target.value)}
-                placeholder="Search messages"
-                aria-label="Search messages"
-              />
-              <span className="panel-search-hint">Ctrl/Cmd+K</span>
-              {messageQuery ? (
-                <button className="ghost-btn small" onClick={() => setMessageQuery('')}>
-                  Clear
-                </button>
-              ) : null}
-            </div>
-          ) : null}
-        </header>
-
-        {activeVoiceChannel && !isViewingJoinedVoiceChannel ? (
-          <div className="voice-session-bar" role="status" aria-live="polite">
-            <div className="voice-session-main">
-              <strong>Voice: ~{activeVoiceChannel.name}</strong>
-              <span className={`voice-session-state ${isVoiceDisconnecting ? 'danger' : ''}`}>
-                {voiceSessionStatus}
-              </span>
-              <small>
-                Voice {activeVoiceBitrateKbps} kbps • Stream {activeStreamBitrateKbps} kbps • {activeRemoteAudioUsers.length} remote stream(s)
-              </small>
-            </div>
-            <button
-              className="ghost-btn danger small"
-              disabled={isVoiceDisconnecting}
-              onClick={() => {
+        },
+        unreadChannelCounts,
+        activeView,
+        onChangeView: setActiveView,
+        onLogout: logout,
+        userId: auth.user.id,
+        username: auth.user.username,
+        isAdmin: auth.user.isAdmin,
+        onCreateChannel: createChannel,
+        onDeleteChannel: deleteChannel,
+        deletingChannelId,
+        activeVoiceChannelId,
+        voiceParticipantCounts,
+        voiceParticipantsByChannel,
+        voiceStreamingUserIdsByChannel,
+        remoteScreenShares,
+        localScreenShareStream,
+        localStreamSource,
+        speakingUserIds,
+        onJoinVoice: joinVoiceChannel,
+        onLeaveVoice: leaveVoiceChannel,
+        isSelfMuted,
+        isSelfDeafened,
+        onToggleMute: toggleSelfMute,
+        onToggleDeafen: toggleSelfDeafen,
+        joiningVoiceChannelId: voiceBusyChannelId,
+        incomingFriendRequests: incomingRequests.length,
+        avatarUrl: auth.user.avatarUrl,
+        ping: ws.ping,
+        state: currentPresenceState,
+      }}
+      activeView={activeView}
+      activeChannelIsVoice={Boolean(activeChannel?.isVoice)}
+      setMobilePane={setMobilePane}
+      panelTitle={panelTitle}
+      error={error}
+      notice={notice}
+      streamStatusBanner={streamStatusBanner}
+      messageSearchInputRef={messageSearchInputRef}
+      messageQuery={messageQuery}
+      onMessageQueryChange={setMessageQuery}
+      onClearMessageQuery={() => setMessageQuery('')}
+      activeVoiceSession={
+        activeVoiceChannel
+          ? {
+              channelName: activeVoiceChannel.name,
+              isViewingJoinedVoiceChannel,
+              isDisconnecting: isVoiceDisconnecting,
+              status: voiceSessionStatus,
+              voiceBitrateKbps: activeVoiceBitrateKbps,
+              streamBitrateKbps: activeStreamBitrateKbps,
+              remoteStreamCount: activeRemoteAudioUsers.length,
+              onDisconnect: () => {
                 void leaveVoiceChannel();
-              }}
-            >
-              {isVoiceDisconnecting ? 'Disconnecting...' : 'Disconnect'}
-            </button>
-          </div>
-        ) : null}
-
-        {activeView === 'chat' ? (
-          <>
-            {activeChannel?.isVoice ? (
-              <VoiceChannelPanel
-                channelName={activeChannel.name}
-                participants={activeVoiceParticipants}
-                currentUserId={auth.user.id}
-                localAudioReady={localAudioReady}
-                remoteAudioUsers={viewedRemoteAudioUsers}
-                voiceBitrateKbps={activeChannel.voiceBitrateKbps ?? 64}
-                streamBitrateKbps={activeChannel.streamBitrateKbps ?? 2500}
-                onVoiceBitrateChange={(nextBitrate) => {
-                  void updateVoiceChannelSettings(activeChannel.id, { voiceBitrateKbps: nextBitrate });
-                }}
-                onStreamBitrateChange={(nextBitrate) => {
-                  void updateVoiceChannelSettings(activeChannel.id, { streamBitrateKbps: nextBitrate });
-                }}
-                canEditChannelBitrate={canEditVoiceSettings}
-                qualityBusy={savingVoiceSettingsChannelId === activeChannel.id}
-                joined={activeVoiceChannelId === activeChannel.id}
-                busy={voiceBusyChannelId === activeChannel.id}
-                wsConnected={ws.connected}
-                isMuted={isSelfMuted || isSelfDeafened}
-                onToggleMute={toggleSelfMute}
-                speakingUserIds={speakingUserIds}
-                showVoiceActivity={preferences.showVoiceActivity}
-                onJoin={() => joinVoiceChannel(activeChannel.id)}
-                onLeave={leaveVoiceChannel}
-                onParticipantContextMenu={(participant, position) =>
-                  openUserAudioMenu(
-                    { id: participant.userId, username: participant.username },
-                    position,
-                  )
-                }
-                getParticipantAudioState={(userId) => getUserAudioState(userId)}
-                localScreenShareStream={localScreenShareStream}
-                localStreamSource={localStreamSource}
-                remoteScreenShares={remoteScreenShares}
-                onToggleVideoShare={toggleVideoShare}
-                streamQualityLabel={streamQualityLabel}
-                onStreamQualityChange={handleStreamQualityChange}
-                showDetailedStats={showDetailedVoiceStats}
-                onToggleDetailedStats={() =>
-                  setShowDetailedVoiceStats((current) => !current)
-                }
-                connectionStats={voiceConnectionStats}
-                statsUpdatedAt={voiceStatsUpdatedAt}
-              />
-            ) : (
-              <>
-                <ChatView
-                  activeChannelId={activeChannelId}
-                  loading={loadingMessages}
-                  messages={filteredMessages}
-                  wsConnected={ws.connected}
-                  currentUserId={auth.user.id}
-                  use24HourClock={preferences.use24HourClock}
-                  showSeconds={preferences.showSeconds}
-                  reducedMotion={preferences.reducedMotion}
-                  onLoadOlder={loadOlder}
-                  onUserClick={setSelectedUser}
-                  onMentionUser={(user) => {
-                    setComposerInsertRequest({
-                      key: Date.now(),
-                      text: `@${user.username}`,
-                    });
-                  }}
-                  onReplyToMessage={(message) => {
-                    setReplyTarget({
-                      id: message.id,
-                      userId: message.userId,
-                      username: message.user.username,
-                      content: message.content,
-                    });
-                  }}
-                  onToggleReaction={toggleMessageReaction}
-                  onEditMessage={editMessage}
-                  onDeleteMessage={deleteMessage}
-                  canManageAllMessages={auth.user.isAdmin}
-                />
-                <MessageComposer
-                  disabled={!activeChannelId}
-                  enterToSend={preferences.enterToSend}
-                  draftScopeKey={activeChannelId}
-                  insertRequest={composerInsertRequest}
-                  replyTo={
-                    replyTarget
-                      ? {
-                        username: replyTarget.username,
-                        content: replyTarget.content,
-                      }
-                      : null
-                  }
-                  replyToMessageId={replyTarget?.id ?? null}
-                  onClearReply={() => setReplyTarget(null)}
-                  onSend={sendMessage}
-                  onUploadAttachment={uploadAttachment}
-                />
-              </>
-            )}
-          </>
-        ) : null}
-
-        {activeView === 'friends' ? (
-          <FriendsPanel
-            friends={friends}
-            incoming={incomingRequests}
-            outgoing={outgoingRequests}
-            loading={loadingFriends}
-            error={friendsError}
-            actionBusyId={friendActionBusyId}
-            submittingRequest={submittingFriendRequest}
-            onRefresh={loadFriendData}
-            onSendRequest={sendFriendRequest}
-            onAccept={acceptFriendRequest}
-            onDecline={declineFriendRequest}
-            onCancel={cancelFriendRequest}
-            onRemove={removeFriend}
-            onStartDm={openDirectMessage}
-            openingDmUserId={openingDmUserId}
-          />
-        ) : null}
-
-        {activeView === 'settings' ? (
-          <SettingsPanel
-            user={auth.user}
-            wsConnected={ws.connected}
-            preferences={preferences}
-            audioInputDevices={audioInputDevices}
-            microphonePermission={microphonePermission}
-            requestingMicrophonePermission={requestingMicrophonePermission}
-            onUpdatePreferences={updatePreferences}
-            onResetPreferences={resetPreferences}
-            onRequestMicrophonePermission={requestMicrophonePermission}
-            onLogout={logout}
-            state={currentPresenceState}
-            onSetState={setPresenceState}
-          />
-        ) : null}
-
-        {activeView === 'admin' && auth.user.isAdmin ? (
-          <AdminSettingsPanel
-            stats={adminStats}
-            settings={adminSettings}
-            settingsLoading={loadingAdminSettings}
-            settingsError={adminSettingsError}
-            savingSettings={savingAdminSettings}
-            loading={loadingAdminStats}
-            error={adminStatsError}
-            onRefresh={loadAdminStats}
-            onRefreshSettings={loadAdminSettings}
-            onSaveSettings={saveAdminSettings}
-            users={adminUsers}
-            usersLoading={loadingAdminUsers}
-            usersError={adminUsersError}
-            updatingUserId={updatingAdminUserId}
-            deletingUserId={deletingAdminUserId}
-            onRefreshUsers={loadAdminUsers}
-            onUpdateUser={updateAdminUser}
-            onDeleteUser={deleteAdminUser}
-            onClearUsersExceptCurrent={clearAdminUsersExceptCurrent}
-            clearingUsersExceptCurrent={clearingAdminUsers}
-            currentUserId={auth.user.id}
-          />
-        ) : null}
-      </section>
-
-      {activeView === 'chat' ? (
-        <UserSidebar
-          users={onlineUsers}
-          onUserClick={(user) => {
-            setSelectedUser(user);
-            setMobilePane('none');
-          }}
-          onUserContextMenu={(user, position) => openUserAudioMenu(user, position)}
-        />
-      ) : null}
-
+              },
+            }
+          : null
+      }
+      voicePanelProps={
+        activeChannel && activeChannel.isVoice
+          ? {
+              channelName: activeChannel.name,
+              participants: activeVoiceParticipants,
+              currentUserId: auth.user.id,
+              localAudioReady,
+              remoteAudioUsers: viewedRemoteAudioUsers,
+              voiceBitrateKbps: activeChannel.voiceBitrateKbps ?? 64,
+              streamBitrateKbps: activeChannel.streamBitrateKbps ?? 2500,
+              onVoiceBitrateChange: (nextBitrate) => {
+                void updateVoiceChannelSettings(activeChannel.id, { voiceBitrateKbps: nextBitrate });
+              },
+              onStreamBitrateChange: (nextBitrate) => {
+                void updateVoiceChannelSettings(activeChannel.id, { streamBitrateKbps: nextBitrate });
+              },
+              canEditChannelBitrate: canEditVoiceSettings,
+              qualityBusy: savingVoiceSettingsChannelId === activeChannel.id,
+              joined: activeVoiceChannelId === activeChannel.id,
+              busy: voiceBusyChannelId === activeChannel.id,
+              wsConnected: ws.connected,
+              isMuted: isSelfMuted || isSelfDeafened,
+              onToggleMute: toggleSelfMute,
+              speakingUserIds,
+              showVoiceActivity: preferences.showVoiceActivity,
+              onJoin: () => joinVoiceChannel(activeChannel.id),
+              onLeave: leaveVoiceChannel,
+              onParticipantContextMenu: (participant, position) =>
+                openUserAudioMenu(
+                  { id: participant.userId, username: participant.username },
+                  position,
+                ),
+              getParticipantAudioState: (userId) => getUserAudioState(userId),
+              localScreenShareStream,
+              localStreamSource,
+              remoteScreenShares,
+              onToggleVideoShare: toggleVideoShare,
+              streamQualityLabel,
+              onStreamQualityChange: handleStreamQualityChange,
+              showDetailedStats: showDetailedVoiceStats,
+              onToggleDetailedStats: () => setShowDetailedVoiceStats((current) => !current),
+              connectionStats: voiceConnectionStats,
+              statsUpdatedAt: voiceStatsUpdatedAt,
+            }
+          : null
+      }
+      chatViewProps={{
+        activeChannelId,
+        loading: loadingMessages,
+        messages: filteredMessages,
+        wsConnected: ws.connected,
+        currentUserId: auth.user.id,
+        use24HourClock: preferences.use24HourClock,
+        showSeconds: preferences.showSeconds,
+        reducedMotion: preferences.reducedMotion,
+        onLoadOlder: loadOlder,
+        onUserClick: setSelectedUser,
+        onMentionUser: (user) => {
+          setComposerInsertRequest({
+            key: Date.now(),
+            text: `@${user.username}`,
+          });
+        },
+        onReplyToMessage: (message) => {
+          setReplyTarget({
+            id: message.id,
+            userId: message.userId,
+            username: message.user.username,
+            content: message.content,
+          });
+        },
+        onToggleReaction: toggleMessageReaction,
+        onEditMessage: editMessage,
+        onDeleteMessage: deleteMessage,
+        canManageAllMessages: auth.user.isAdmin,
+      }}
+      composerProps={{
+        disabled: !activeChannelId,
+        enterToSend: preferences.enterToSend,
+        draftScopeKey: activeChannelId,
+        insertRequest: composerInsertRequest,
+        replyTo: replyTarget
+          ? {
+              username: replyTarget.username,
+              content: replyTarget.content,
+            }
+          : null,
+        replyToMessageId: replyTarget?.id ?? null,
+        onClearReply: () => setReplyTarget(null),
+        onSend: sendMessage,
+        onUploadAttachment: uploadAttachment,
+      }}
+      friendsPanelProps={{
+        friends,
+        incoming: incomingRequests,
+        outgoing: outgoingRequests,
+        loading: loadingFriends,
+        error: friendsError,
+        actionBusyId: friendActionBusyId,
+        submittingRequest: submittingFriendRequest,
+        onRefresh: loadFriendData,
+        onSendRequest: sendFriendRequest,
+        onAccept: acceptFriendRequest,
+        onDecline: declineFriendRequest,
+        onCancel: cancelFriendRequest,
+        onRemove: removeFriend,
+        onStartDm: openDirectMessage,
+        openingDmUserId,
+      }}
+      settingsPanelProps={{
+        user: auth.user,
+        wsConnected: ws.connected,
+        preferences,
+        audioInputDevices,
+        microphonePermission,
+        requestingMicrophonePermission,
+        onUpdatePreferences: updatePreferences,
+        onResetPreferences: resetPreferences,
+        onRequestMicrophonePermission: requestMicrophonePermission,
+        onLogout: logout,
+        state: currentPresenceState,
+        onSetState: setPresenceState,
+      }}
+      adminPanelProps={
+        activeView === 'admin' && auth.user.isAdmin
+          ? {
+              stats: adminStats,
+              settings: adminSettings,
+              settingsLoading: loadingAdminSettings,
+              settingsError: adminSettingsError,
+              savingSettings: savingAdminSettings,
+              loading: loadingAdminStats,
+              error: adminStatsError,
+              onRefresh: loadAdminStats,
+              onRefreshSettings: loadAdminSettings,
+              onSaveSettings: saveAdminSettings,
+              users: adminUsers,
+              usersLoading: loadingAdminUsers,
+              usersError: adminUsersError,
+              updatingUserId: updatingAdminUserId,
+              deletingUserId: deletingAdminUserId,
+              onRefreshUsers: loadAdminUsers,
+              onUpdateUser: updateAdminUser,
+              onDeleteUser: deleteAdminUser,
+              onClearUsersExceptCurrent: clearAdminUsersExceptCurrent,
+              clearingUsersExceptCurrent: clearingAdminUsers,
+              currentUserId: auth.user.id,
+            }
+          : null
+      }
+      userSidebarProps={{
+        users: onlineUsers,
+        onUserClick: (user) => {
+          setSelectedUser(user);
+          setMobilePane('none');
+        },
+        onUserContextMenu: (user, position) => openUserAudioMenu(user, position),
+      }}
+    >
       <div className="voice-audio-sinks" aria-hidden="true">
         {activeRemoteAudioUsers.map((user) => (
           <audio
@@ -3208,9 +3138,17 @@ export function ChatPage() {
           Settings
         </button>
       </nav>
-    </main>
+    </ChatPageShell>
   );
 }
+
+
+
+
+
+
+
+
 
 
 
