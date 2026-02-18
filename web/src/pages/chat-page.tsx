@@ -24,6 +24,7 @@ import { useChatPresenceFeature } from './chat/hooks/use-chat-presence-feature';
 import { useChannelManagementFeature } from './chat/hooks/use-channel-management-feature';
 import { useChatPageEffects } from './chat/hooks/use-chat-page-effects';
 import { usePeerConnectionManager } from './chat/hooks/use-peer-connection-manager';
+import { useVoiceTransport } from './chat/hooks/use-voice-transport';
 import {
   DEFAULT_STREAM_QUALITY,
   clampCameraPreset,
@@ -49,7 +50,6 @@ import { trackTelemetryError } from '../utils/telemetry';
 
 type MainView = 'chat' | 'friends' | 'settings' | 'admin';
 type MobilePane = 'none' | 'channels' | 'users';
-type MicrophonePermissionState = 'granted' | 'denied' | 'prompt' | 'unsupported' | 'unknown';
 type StreamSource = 'screen' | 'camera';
 
 function clampMediaElementVolume(value: number) {
@@ -205,9 +205,6 @@ export function ChatPage() {
   >({});
   const [activeVoiceChannelId, setActiveVoiceChannelId] = useState<string | null>(null);
   const [voiceBusyChannelId, setVoiceBusyChannelId] = useState<string | null>(null);
-  const [localAudioReady, setLocalAudioReady] = useState(false);
-  const [isSelfMuted, setIsSelfMuted] = useState(false);
-  const [isSelfDeafened, setIsSelfDeafened] = useState(false);
   const [remoteAudioStreams, setRemoteAudioStreams] = useState<Record<string, MediaStream>>({});
   const [speakingUserIds, setSpeakingUserIds] = useState<string[]>([]);
   const [remoteScreenShares, setRemoteScreenShares] = useState<Record<string, MediaStream>>({});
@@ -232,12 +229,6 @@ export function ChatPage() {
     text: string;
   } | null>(null);
   const [replyTarget, setReplyTarget] = useState<ReplyTarget | null>(null);
-  const [audioInputDevices, setAudioInputDevices] = useState<
-    Array<{ deviceId: string; label: string }>
-  >([]);
-  const [microphonePermission, setMicrophonePermission] =
-    useState<MicrophonePermissionState>('unknown');
-  const [requestingMicrophonePermission, setRequestingMicrophonePermission] = useState(false);
   const {
     adminStats,
     loadingAdminStats,
@@ -296,28 +287,17 @@ export function ChatPage() {
   const streamStatusBannerTimeoutRef = useRef<number | null>(null);
   const pendingSignaturesRef = useRef(new Set<string>());
   const pendingTimeoutsRef = useRef(new Map<string, number>());
-  const muteStateBeforeDeafenRef = useRef<boolean | null>(null);
-  const localVoiceStreamRef = useRef<MediaStream | null>(null);
-  const localVoiceProcessedStreamRef = useRef<MediaStream | null>(null);
-  const localVoiceGainNodeRef = useRef<GainNode | null>(null);
-  const localVoiceGainContextRef = useRef<AudioContext | null>(null);
-  const voiceInputGainRef = useRef(preferences.voiceInputGain);
   const localScreenStreamRef = useRef<MediaStream | null>(null);
-  const localAnalyserRef = useRef<AnalyserNode | null>(null);
-  const localAnalyserContextRef = useRef<AudioContext | null>(null);
-  const localAnalyserSourceRef = useRef<MediaStreamAudioSourceNode | null>(null);
   const remoteAudioContextRef = useRef<AudioContext | null>(null);
   const remoteAudioSourceByUserRef = useRef<Map<string, MediaElementAudioSourceNode>>(new Map());
   const remoteAudioGainByUserRef = useRef<Map<string, GainNode>>(new Map());
   const remoteAudioElementByUserRef = useRef<Map<string, HTMLAudioElement>>(new Map());
-  const localVoiceInputDeviceIdRef = useRef<string | null>(null);
   const previousRtpSnapshotsRef = useRef<Map<string, { bytes: number; timestamp: number }>>(new Map());
   const voiceParticipantIdsByChannelRef = useRef<Map<string, Set<string>>>(new Map());
   const activeVoiceChannelIdRef = useRef<string | null>(null);
   const voiceBusyChannelIdRef = useRef<string | null>(null);
   const queuedVoiceSignalsRef = useRef<Array<{ channelId: string; fromUserId: string; data: VoiceSignalData }>>([]);
   const drainingVoiceSignalsRef = useRef(false);
-  const localVoiceAcquirePromiseRef = useRef<Promise<MediaStream> | null>(null);
   const getLocalVoiceStreamRef = useRef((() => Promise.reject(new Error('Voice stream not ready'))) as () => Promise<MediaStream>);
   const disconnectRemoteAudioForUserRef = useRef((() => undefined) as (userId: string) => void);
   const voiceTransportEpochRef = useRef(0);
@@ -660,44 +640,6 @@ export function ChatPage() {
     );
   }, [messages, messageQuery]);
 
-  const refreshMicrophonePermission = useCallback(async () => {
-    if (!navigator.mediaDevices?.getUserMedia) {
-      setMicrophonePermission('unsupported');
-      return;
-    }
-    if (!navigator.permissions?.query) {
-      setMicrophonePermission('unknown');
-      return;
-    }
-    try {
-      const result = await navigator.permissions.query({
-        name: 'microphone' as PermissionName,
-      });
-      setMicrophonePermission(result.state as MicrophonePermissionState);
-    } catch {
-      setMicrophonePermission('unknown');
-    }
-  }, []);
-
-  const enumerateAudioInputDevices = useCallback(async () => {
-    if (!navigator.mediaDevices?.enumerateDevices) {
-      setAudioInputDevices([]);
-      return;
-    }
-    try {
-      const devices = await navigator.mediaDevices.enumerateDevices();
-      const inputs = devices
-        .filter((device) => device.kind === 'audioinput')
-        .map((device, index) => ({
-          deviceId: device.deviceId,
-          label: device.label || `Microphone ${index + 1}`,
-        }));
-      setAudioInputDevices(inputs);
-    } catch {
-      setAudioInputDevices([]);
-    }
-  }, []);
-
   const loadMessages = useChannelMessageLoader({
     token: auth.token,
     activeChannelId,
@@ -791,39 +733,6 @@ export function ChatPage() {
     },
     [clearPendingSignature],
   );
-
-  const applyLocalVoiceTrackState = useCallback(
-    (stream: MediaStream | null) => {
-      if (!stream) {
-        return;
-      }
-      const shouldEnableMic = !isSelfMuted && !isSelfDeafened;
-      for (const track of stream.getAudioTracks()) {
-        track.enabled = shouldEnableMic;
-      }
-    },
-    [isSelfMuted, isSelfDeafened],
-  );
-
-  const toggleSelfMute = useCallback(() => {
-    if (isSelfDeafened) {
-      return;
-    }
-    setIsSelfMuted((current) => !current);
-  }, [isSelfDeafened]);
-
-  const toggleSelfDeafen = useCallback(() => {
-    if (!isSelfDeafened) {
-      muteStateBeforeDeafenRef.current = isSelfMuted;
-      setIsSelfMuted(true);
-      setIsSelfDeafened(true);
-      return;
-    }
-    const restoreMutedState = muteStateBeforeDeafenRef.current ?? false;
-    setIsSelfDeafened(false);
-    setIsSelfMuted(restoreMutedState);
-    muteStateBeforeDeafenRef.current = null;
-  }, [isSelfDeafened, isSelfMuted]);
 
   const sendVoiceSignal = useCallback(
     (channelId: string, targetUserId: string, data: VoiceSignalData) =>
@@ -921,27 +830,33 @@ export function ChatPage() {
     logVoiceDebug,
   });
 
+  const {
+    localAudioReady,
+    isSelfMuted,
+    isSelfDeafened,
+    setIsSelfMuted,
+    localVoiceStreamRef,
+    localAnalyserRef,
+    audioInputDevices,
+    microphonePermission,
+    requestingMicrophonePermission,
+    requestMicrophonePermission,
+    applyLocalVoiceTrackState,
+    toggleSelfMute,
+    toggleSelfDeafen,
+    getLocalVoiceStream,
+    teardownLocalVoiceMedia,
+  } = useVoiceTransport({
+    preferences,
+    updatePreferences,
+    setError,
+    replaceAudioTrackAcrossPeers,
+  });
+
   const teardownVoiceTransport = useCallback(() => {
     voiceTransportEpochRef.current += 1;
-    localVoiceAcquirePromiseRef.current = null;
     clearPeerConnections();
     setRemoteAdvertisedVideoSourceByPeer({});
-    if (localVoiceStreamRef.current) {
-      for (const track of localVoiceStreamRef.current.getTracks()) {
-        track.stop();
-      }
-      localVoiceStreamRef.current = null;
-      localVoiceInputDeviceIdRef.current = null;
-    }
-    if (localVoiceGainNodeRef.current) {
-      localVoiceGainNodeRef.current.disconnect();
-      localVoiceGainNodeRef.current = null;
-    }
-    if (localVoiceGainContextRef.current) {
-      void localVoiceGainContextRef.current.close();
-      localVoiceGainContextRef.current = null;
-    }
-    localVoiceProcessedStreamRef.current = null;
     if (localScreenStreamRef.current) {
       for (const track of localScreenStreamRef.current.getTracks()) {
         track.stop();
@@ -950,16 +865,7 @@ export function ChatPage() {
       setLocalScreenShareStream(null);
       setLocalStreamSource(null);
     }
-    if (localAnalyserSourceRef.current) {
-      localAnalyserSourceRef.current.disconnect();
-      localAnalyserSourceRef.current = null;
-    }
-    localAnalyserRef.current = null;
-    if (localAnalyserContextRef.current) {
-      void localAnalyserContextRef.current.close();
-      localAnalyserContextRef.current = null;
-    }
-    setLocalAudioReady(false);
+    teardownLocalVoiceMedia();
     setSpeakingUserIds([]);
     setRemoteAudioStreams({});
     setRemoteScreenShares({});
@@ -976,19 +882,7 @@ export function ChatPage() {
       void remoteAudioContextRef.current.close();
       remoteAudioContextRef.current = null;
     }
-  }, [clearPeerConnections]);
-
-  const resetLocalAnalyser = useCallback(() => {
-    if (localAnalyserSourceRef.current) {
-      localAnalyserSourceRef.current.disconnect();
-      localAnalyserSourceRef.current = null;
-    }
-    localAnalyserRef.current = null;
-    if (localAnalyserContextRef.current) {
-      void localAnalyserContextRef.current.close();
-      localAnalyserContextRef.current = null;
-    }
-  }, []);
+  }, [clearPeerConnections, teardownLocalVoiceMedia]);
 
   const ensureRemoteAudioContext = useCallback(() => {
     if (remoteAudioContextRef.current && remoteAudioContextRef.current.state !== 'closed') {
@@ -1089,172 +983,6 @@ export function ChatPage() {
       return changed ? next : prev;
     });
   }, [remoteScreenShares, peerConnectionsRef, remoteVideoSourceByPeerRef]);
-
-  const initLocalAnalyser = useCallback((stream: MediaStream) => {
-    const AudioContextClass =
-      window.AudioContext ||
-      (window as typeof window & { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
-    if (!AudioContextClass) {
-      return;
-    }
-    resetLocalAnalyser();
-    const analyserContext = new AudioContextClass();
-    if (analyserContext.state === 'suspended') {
-      void analyserContext.resume().catch(() => {
-        // Some browsers require an explicit user gesture to resume.
-      });
-    }
-    const analyser = analyserContext.createAnalyser();
-    analyser.fftSize = 1024;
-    const source = analyserContext.createMediaStreamSource(stream);
-    source.connect(analyser);
-    localAnalyserContextRef.current = analyserContext;
-    localAnalyserSourceRef.current = source;
-    localAnalyserRef.current = analyser;
-  }, [resetLocalAnalyser]);
-
-  const requestMicrophoneStream = useCallback(async () => {
-    if (!navigator.mediaDevices?.getUserMedia) {
-      throw new Error('Voice is not supported in this browser');
-    }
-    const preferredDeviceId = preferences.voiceInputDeviceId || null;
-    let resolvedDeviceId = preferredDeviceId;
-    const buildConstraints = (deviceId: string | null): MediaTrackConstraints => ({
-      echoCancellation: true,
-      noiseSuppression: true,
-      autoGainControl: true,
-      ...(deviceId ? { deviceId: { exact: deviceId } } : {}),
-    });
-
-    try {
-      const stream = await navigator.mediaDevices.getUserMedia({
-        audio: buildConstraints(preferredDeviceId),
-        video: false,
-      });
-      return { stream, resolvedDeviceId };
-    } catch (err) {
-      if (!preferredDeviceId) {
-        throw err;
-      }
-      updatePreferences({ voiceInputDeviceId: null });
-      resolvedDeviceId = null;
-      const stream = await navigator.mediaDevices.getUserMedia({
-        audio: buildConstraints(null),
-        video: false,
-      });
-      return { stream, resolvedDeviceId };
-    }
-  }, [preferences.voiceInputDeviceId, updatePreferences]);
-
-  const getLocalVoiceStream = useCallback(async (forceRefresh = false) => {
-    const preferredDeviceId = preferences.voiceInputDeviceId || null;
-    const currentRawStream = localVoiceStreamRef.current;
-    const currentRawTrack = currentRawStream?.getAudioTracks()[0] ?? null;
-    const canReuseCurrentStream =
-      !forceRefresh &&
-      currentRawStream !== null &&
-      currentRawTrack !== null &&
-      currentRawTrack.readyState === 'live' &&
-      localVoiceInputDeviceIdRef.current === preferredDeviceId;
-
-    if (canReuseCurrentStream) {
-      applyLocalVoiceTrackState(currentRawStream);
-      return localVoiceProcessedStreamRef.current ?? currentRawStream;
-    }
-
-    if (localVoiceAcquirePromiseRef.current) {
-      return localVoiceAcquirePromiseRef.current;
-    }
-
-    const acquirePromise = (async () => {
-      const previousRawStream = localVoiceStreamRef.current;
-      const { stream: rawStream, resolvedDeviceId } = await requestMicrophoneStream();
-      const rawTrack = rawStream.getAudioTracks()[0] ?? null;
-      if (!rawTrack) {
-        for (const track of rawStream.getTracks()) {
-          track.stop();
-        }
-        throw new Error('No microphone track available');
-      }
-
-      if (localVoiceGainNodeRef.current) {
-        localVoiceGainNodeRef.current.disconnect();
-        localVoiceGainNodeRef.current = null;
-      }
-      if (localVoiceGainContextRef.current) {
-        void localVoiceGainContextRef.current.close();
-        localVoiceGainContextRef.current = null;
-      }
-      localVoiceProcessedStreamRef.current = null;
-
-      let processedStream = rawStream;
-      try {
-        const AudioContextClass =
-          window.AudioContext ||
-          (window as typeof window & { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
-        if (AudioContextClass) {
-          const gainContext = new AudioContextClass();
-          if (gainContext.state === 'suspended') {
-            void gainContext.resume().catch(() => {
-              // Some browsers require an explicit user gesture to resume.
-            });
-          }
-          const source = gainContext.createMediaStreamSource(rawStream);
-          const gainNode = gainContext.createGain();
-          gainNode.gain.value = voiceInputGainRef.current / 100;
-          const destination = gainContext.createMediaStreamDestination();
-          source.connect(gainNode);
-          gainNode.connect(destination);
-          localVoiceGainContextRef.current = gainContext;
-          localVoiceGainNodeRef.current = gainNode;
-          localVoiceProcessedStreamRef.current = destination.stream;
-          processedStream = destination.stream;
-        }
-      } catch {
-        processedStream = rawStream;
-      }
-
-      const processedTrack = processedStream.getAudioTracks()[0] ?? rawTrack;
-      localVoiceStreamRef.current = rawStream;
-      localVoiceInputDeviceIdRef.current = resolvedDeviceId;
-
-      await replaceAudioTrackAcrossPeers(processedTrack);
-
-      if (previousRawStream && previousRawStream !== rawStream) {
-        for (const track of previousRawStream.getTracks()) {
-          track.stop();
-        }
-      }
-
-      applyLocalVoiceTrackState(rawStream);
-      initLocalAnalyser(rawStream);
-      void refreshMicrophonePermission();
-      void enumerateAudioInputDevices();
-      setLocalAudioReady(true);
-      return processedStream;
-    })();
-
-    localVoiceAcquirePromiseRef.current = acquirePromise;
-    try {
-      return await acquirePromise;
-    } finally {
-      if (localVoiceAcquirePromiseRef.current === acquirePromise) {
-        localVoiceAcquirePromiseRef.current = null;
-      }
-    }
-  }, [
-    applyLocalVoiceTrackState,
-    enumerateAudioInputDevices,
-    initLocalAnalyser,
-    preferences.voiceInputDeviceId,
-    refreshMicrophonePermission,
-    replaceAudioTrackAcrossPeers,
-    requestMicrophoneStream,
-  ]);
-
-  useEffect(() => {
-    getLocalVoiceStreamRef.current = getLocalVoiceStream;
-  }, [getLocalVoiceStream]);
 
   const canProcessVoiceSignalsForChannel = useCallback((channelId: string) => {
     const activeVoiceChannelId = activeVoiceChannelIdRef.current;
@@ -1697,14 +1425,6 @@ export function ChatPage() {
     void drainQueuedVoiceSignals();
   }, [ws.connected, auth.user, activeVoiceChannelId, voiceBusyChannelId, drainQueuedVoiceSignals]);
 
-  // Live-update the input gain node when the preference changes
-  useEffect(() => {
-    voiceInputGainRef.current = preferences.voiceInputGain;
-    if (localVoiceGainNodeRef.current) {
-      localVoiceGainNodeRef.current.gain.value = preferences.voiceInputGain / 100;
-    }
-  }, [preferences.voiceInputGain]);
-
   useEffect(() => {
     if (activeChannel?.isVoice) {
       return;
@@ -1751,34 +1471,6 @@ export function ChatPage() {
       signatureSet.clear();
     };
   }, []);
-
-  useEffect(() => {
-    void refreshMicrophonePermission();
-    void enumerateAudioInputDevices();
-    if (!navigator.mediaDevices?.addEventListener) {
-      return;
-    }
-    const handleDeviceChange = () => {
-      void enumerateAudioInputDevices();
-    };
-    navigator.mediaDevices.addEventListener('devicechange', handleDeviceChange);
-    return () => {
-      navigator.mediaDevices.removeEventListener('devicechange', handleDeviceChange);
-    };
-  }, [refreshMicrophonePermission, enumerateAudioInputDevices]);
-
-  useEffect(() => {
-    if (!preferences.voiceInputDeviceId) {
-      return;
-    }
-    if (audioInputDevices.length === 0) {
-      return;
-    }
-    if (audioInputDevices.some((device) => device.deviceId === preferences.voiceInputDeviceId)) {
-      return;
-    }
-    updatePreferences({ voiceInputDeviceId: null });
-  }, [audioInputDevices, preferences.voiceInputDeviceId, updatePreferences]);
 
   useEffect(() => {
     try {
@@ -1943,13 +1635,15 @@ export function ChatPage() {
   }, [
     ws.connected,
     activeVoiceChannelId,
-    auth.user,    voiceParticipantsByChannel,
+    auth.user,
+    voiceParticipantsByChannel,
     teardownVoiceTransport,
     getLocalVoiceStream,
     peerConnectionsRef,
     closePeerConnection,
     ensurePeerConnection,
     createOfferForPeer,
+    localVoiceStreamRef,
   ]);
 
   useEffect(() => {
@@ -1962,7 +1656,7 @@ export function ChatPage() {
 
   useEffect(() => {
     applyLocalVoiceTrackState(localVoiceStreamRef.current);
-  }, [applyLocalVoiceTrackState]);
+  }, [applyLocalVoiceTrackState, localVoiceStreamRef]);
 
   useEffect(() => {
     pruneStaleRemoteScreenShares();
@@ -2032,6 +1726,7 @@ export function ChatPage() {
     localAudioReady,
     isSelfMuted,
     isSelfDeafened,
+    localAnalyserRef,
   ]);
 
   useRemoteSpeakingActivity({
@@ -2227,7 +1922,8 @@ export function ChatPage() {
       streamQualityLabel,
       showStreamStatusBanner,
       applyVideoBitrateToConnection,
-      activeStreamBitrateKbps,      createOfferForPeer,
+      activeStreamBitrateKbps,
+      createOfferForPeer,
       getOrCreateVideoSender,
       peerConnectionsRef,
       videoSenderByPeerRef,
@@ -2299,6 +1995,7 @@ export function ChatPage() {
       isSelfDeafened,
       preferences.autoMuteOnJoin,
       getLocalVoiceStream,
+      setIsSelfMuted,
     ],
   );
 
@@ -2321,31 +2018,6 @@ export function ChatPage() {
     },
     [ws, activeVoiceChannelId, playVoiceStateSound],
   );
-
-  const requestMicrophonePermission = useCallback(async () => {
-    if (!navigator.mediaDevices?.getUserMedia) {
-      setMicrophonePermission('unsupported');
-      return;
-    }
-    if (!window.isSecureContext) {
-      setError('Microphone permission requires HTTPS (or localhost).');
-      return;
-    }
-    setRequestingMicrophonePermission(true);
-    try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
-      for (const track of stream.getTracks()) {
-        track.stop();
-      }
-      await Promise.all([refreshMicrophonePermission(), enumerateAudioInputDevices()]);
-      setError(null);
-    } catch (err) {
-      setError(getErrorMessage(err, 'Microphone permission was denied'));
-      await refreshMicrophonePermission();
-    } finally {
-      setRequestingMicrophonePermission(false);
-    }
-  }, [enumerateAudioInputDevices, refreshMicrophonePermission]);
 
   useEffect(() => {
     if (ws.connected) {
@@ -2835,6 +2507,11 @@ export function ChatPage() {
     </ChatPageShell>
   );
 }
+
+
+
+
+
 
 
 
