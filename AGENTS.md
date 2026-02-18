@@ -97,4 +97,4 @@ Behavior changes must update at least one relevant doc in `docs/`:
 
 ## Known Pitfall
 
-The Prisma schema declares PostgreSQL, while `backend/.env.example` still shows a legacy SQLite-style URL. Treat schema + runtime code as canonical until env docs are aligned.
+The repository still includes a legacy SQLite artifact (`backend/prisma/dev.db`). Use PostgreSQL `DATABASE_URL` values (see `backend/.env.example`) as canonical.

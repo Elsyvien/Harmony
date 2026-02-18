@@ -745,6 +745,7 @@ export function ChatPage() {
     closePeerConnection,
     ensurePeerConnection,
     createOfferForPeer,
+    sendRequestOffer,
     replaceAudioTrackAcrossPeers,
     applyVideoBitrateToConnection,
     applyAudioBitrateToAllConnections,
@@ -1546,10 +1547,10 @@ export function ChatPage() {
         return;
       }
       for (const peerUserId of peerConnectionsRef.current.keys()) {
-        void createOfferForPeer(peerUserId, activeVoiceChannelIdRef.current);
+        sendRequestOffer(peerUserId, activeVoiceChannelIdRef.current);
       }
     },
-    [createOfferForPeer, peerConnectionsRef, videoSenderByPeerRef],
+    [sendRequestOffer, peerConnectionsRef, videoSenderByPeerRef],
   );
 
   const toggleVideoShare = useCallback(
@@ -1642,7 +1643,7 @@ export function ChatPage() {
             kind: 'video-source',
             source,
           } satisfies VoiceSignalData);
-          void createOfferForPeer(peerUserId, currentVoiceChannelId);
+          sendRequestOffer(peerUserId, currentVoiceChannelId);
         }
       } catch (err) {
         trackTelemetryError('video_share_start_failed', err, {
@@ -1663,7 +1664,7 @@ export function ChatPage() {
       showStreamStatusBanner,
       applyVideoBitrateToConnection,
       activeStreamBitrateKbps,
-      createOfferForPeer,
+      sendRequestOffer,
       getOrCreateVideoSender,
       peerConnectionsRef,
       videoSenderByPeerRef,

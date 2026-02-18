@@ -161,8 +161,8 @@ Before merging behavior changes:
 
 ## Known Gaps And Pitfalls
 
-- `backend/prisma/schema.prisma` uses PostgreSQL provider, but `backend/.env.example` has a SQLite-style URL (`file:./dev.db`).
-- `backend/prisma/dev.db` exists as a legacy artifact and does not match PostgreSQL provider semantics.
+- `backend/.env.example` now uses PostgreSQL DSN format; set real credentials/host per environment.
+- `backend/prisma/dev.db` exists as a legacy artifact and does not match PostgreSQL runtime semantics.
 - Root `AGENT.md` includes stale statements (for example database and state-library notes); prefer this docs folder.
 - `web/src/pages/chat-page.tsx` is large and coupled. Make isolated changes with careful dependency review.
 

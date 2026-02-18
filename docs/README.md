@@ -87,5 +87,5 @@ When changing behavior, update docs in the same change set:
 ## Important Consistency Notes
 
 - The Prisma schema currently declares `provider = "postgresql"` in `backend/prisma/schema.prisma`.
-- `backend/.env.example` currently uses `DATABASE_URL=file:./dev.db` (legacy SQLite-style URL). This mismatch must be resolved before fresh local setup.
+- `backend/.env.example` uses PostgreSQL DSN format. Set host/credentials for your local environment.
 - `AGENT.md` at repository root contains some stale stack notes (for example, SQLite and Zustand). Use `docs/AI_AGENT_GUIDE.md` + source code as authoritative references.

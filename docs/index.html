@@ -231,8 +231,8 @@
           <h2>Consistency Notes</h2>
           <div class="callout">
             Current Prisma schema uses <code>provider = "postgresql"</code>, while
-            <code>backend/.env.example</code> still contains a SQLite-style URL.
-            Align <code>DATABASE_URL</code> with PostgreSQL for fresh local setup.
+            <code>backend/.env.example</code> uses PostgreSQL DSN format.
+            Set local <code>DATABASE_URL</code> host and credentials for your environment.
           </div>
           <p class="muted">
             If any document conflicts with source code, update the docs &mdash;

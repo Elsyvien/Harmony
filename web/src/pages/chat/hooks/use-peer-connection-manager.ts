@@ -346,8 +346,8 @@ export function usePeerConnectionManager({
         return;
       }
       if (!shouldInitiateOffer(authUserId, peerUserId)) {
-        // Ask the offerer to create a new offer without tearing down the connection.
-        sendVoiceSignal(channelId, peerUserId, { kind: 'request-offer' } satisfies VoiceSignalData);
+        // Non-offerer: the offerer side is responsible for initiating.
+        // If a track change needs renegotiation, use sendRequestOffer() directly.
         return;
       }
       const connection = await ensurePeerConnection(peerUserId, channelId);
@@ -384,6 +384,23 @@ export function usePeerConnectionManager({
       }
     },
     [authUserId, ensurePeerConnection, sendVoiceSignal],
+  );
+
+  /**
+   * Explicitly ask the offerer to send a new offer (used by the non-offerer after
+   * a local track change such as starting/stopping screen share).
+   */
+  const sendRequestOffer = useCallback(
+    (peerUserId: string, channelId: string) => {
+      if (!authUserId) return;
+      if (shouldInitiateOffer(authUserId, peerUserId)) {
+        // We are the offerer — just create the offer directly.
+        void createOfferForPeerRef.current(peerUserId, channelId);
+      } else {
+        sendVoiceSignal(channelId, peerUserId, { kind: 'request-offer' } satisfies VoiceSignalData);
+      }
+    },
+    [authUserId, sendVoiceSignal],
   );
 
   const replaceAudioTrackAcrossPeers = useCallback(async (audioTrack: MediaStreamTrack) => {
@@ -446,6 +463,7 @@ export function usePeerConnectionManager({
     closePeerConnection,
     ensurePeerConnection,
     createOfferForPeer,
+    sendRequestOffer,
     replaceAudioTrackAcrossPeers,
     applyAudioBitrateToConnection,
     applyVideoBitrateToConnection,

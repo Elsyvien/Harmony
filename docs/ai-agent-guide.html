@@ -507,7 +507,7 @@
         <section id="pitfalls" class="section">
           <h2>Known Gaps and Pitfalls</h2>
           <ul class="checklist warn-list">
-            <li><span class="inline-code">schema.prisma</span> uses PostgreSQL provider, but <span class="inline-code">backend/.env.example</span> still has SQLite-style URL.</li>
+            <li><span class="inline-code">backend/.env.example</span> now uses PostgreSQL DSN format; set real credentials/host per environment.</li>
             <li><span class="inline-code">backend/prisma/dev.db</span> exists as a legacy artifact and does not match PostgreSQL semantics.</li>
             <li>Root <span class="inline-code">AGENT.md</span> includes stale statements; prefer docs folder references.</li>
             <li><span class="inline-code">web/src/pages/chat-page.tsx</span> is large and coupled; make isolated changes with careful review.</li>

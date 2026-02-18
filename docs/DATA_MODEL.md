@@ -5,8 +5,8 @@ Source of truth: `backend/prisma/schema.prisma`
 ## Provider And Runtime Notes
 
 - Prisma datasource currently declares `provider = "postgresql"`.
-- Repository also contains `backend/prisma/dev.db` and `.env.example` with `file:./dev.db`, which is a legacy mismatch.
-- For accurate local setup under current schema, use a PostgreSQL `DATABASE_URL`.
+- Repository still contains `backend/prisma/dev.db` as a legacy artifact.
+- `backend/.env.example` uses PostgreSQL DSN format for local setup.
 
 ## Enums
 
