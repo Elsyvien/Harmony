@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { createWriteStream } from 'node:fs';
-import { mkdir } from 'node:fs/promises';
+import { mkdir, unlink } from 'node:fs/promises';
 import path from 'node:path';
 import { pipeline } from 'node:stream/promises';
 import type { FastifyPluginAsync } from 'fastify';
@@ -28,6 +28,15 @@ interface ChannelRoutesOptions {
 
 export const channelRoutes: FastifyPluginAsync<ChannelRoutesOptions> = async (fastify, options) => {
   const uploadsDir = path.resolve(process.cwd(), 'uploads');
+  const deleteFileIfExists = async (filePath: string) => {
+    try {
+      await unlink(filePath);
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== 'ENOENT') {
+        throw error;
+      }
+    }
+  };
 
   const authPreHandler = createAuthGuard();
   const adminAuthPreHandler = createAuthGuard({ requiredRole: 'ADMIN' });
@@ -53,6 +62,7 @@ export const channelRoutes: FastifyPluginAsync<ChannelRoutesOptions> = async (fa
       },
     },
     async (request, reply) => {
+      let filePath: string | null = null;
       try {
         const part = await request.file();
         if (!part) {
@@ -67,7 +77,7 @@ export const channelRoutes: FastifyPluginAsync<ChannelRoutesOptions> = async (fa
           .slice(0, 120);
         const extension = path.extname(cleanedOriginal).slice(0, 12);
         const storedName = `${Date.now()}-${randomUUID()}${extension}`;
-        const filePath = path.join(uploadsDir, storedName);
+        filePath = path.join(uploadsDir, storedName);
 
         let size = 0;
         part.file.on('data', (chunk: Buffer) => {
@@ -89,6 +99,9 @@ export const channelRoutes: FastifyPluginAsync<ChannelRoutesOptions> = async (fa
           },
         });
       } catch (error) {
+        if (filePath) {
+          await deleteFileIfExists(filePath);
+        }
         if (
           error &&
           typeof error === 'object' &&
