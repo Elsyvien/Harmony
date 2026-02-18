@@ -62,7 +62,7 @@ This roadmap reflects current repository behavior as of the latest documentation
 - Expand user moderation actions (suspension UI, audit logs).
 
 4. Frontend maintainability
-- Split `ChatPage` orchestration into domain-specific hooks/modules.
+- Split `ChatPage` orchestration into domain-specific hooks/modules. (In progress: friends/presence/channel/effects hooks + shell extraction landed)
 - Increase component-level and integration test coverage.
 
 ## Mid-Term Priorities
@@ -89,3 +89,4 @@ This roadmap reflects current repository behavior as of the latest documentation
 
 3. Enterprise and reliability
 - Formal observability, auditability, and operational SLO targets.
+

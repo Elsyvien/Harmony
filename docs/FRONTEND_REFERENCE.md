@@ -151,60 +151,44 @@ Responsibilities:
 
 ## `ChatPage` (`web/src/pages/chat-page.tsx`)
 
-`ChatPage` is the central orchestration component.
+`ChatPage` is now a thinner orchestration layer.
 
 ### High-level responsibilities
 
-- Channel list and active channel selection.
-- Message timeline, optimistic send, load older pagination.
-- Realtime updates from WebSocket.
-- Polling fallback when WebSocket is offline.
-- Friend request/friendship workflows.
-- Direct message opening and channel upsert.
-- Admin settings/stats/users workflows.
-- Voice channel join/leave, signaling, and peer transport.
-- User presence list and local per-user audio controls.
-- Mobile pane switching.
+- Wire auth/session state to page-level features.
+- Coordinate channel/message/friend/admin/voice state.
+- Own voice signaling/transport lifecycle and socket event integration.
+- Keep polling fallback active when WebSocket is offline.
 
-### Important helper logic
+### Internal modularization
 
-- `mergeMessages`, `reconcileIncomingMessage`, `mergeServerWithLocal`:
-- maintain stable message list ordering
-- merge optimistic and server messages
+- `web/src/pages/chat/hooks/use-friends-feature.ts`:
+- friend list/request loading and mutation actions.
 
-- Signature logic (`messageSignature`, pending signature maps):
-- prevents duplicate sends during optimistic flow
+- `web/src/pages/chat/hooks/use-chat-presence-feature.ts`:
+- presence state normalization, hidden-unread tracking, and title updates.
 
-- `upsertChannel`:
-- inserts or replaces channel while preserving creation order
+- `web/src/pages/chat/hooks/use-channel-management-feature.ts`:
+- create/delete channel, voice quality updates, attachment upload.
+
+- `web/src/pages/chat/hooks/use-chat-page-effects.ts`:
+- cross-cutting page effects (view resets, polling intervals, keyboard shortcut, notices).
+
+- `web/src/pages/chat/components/chat-page-shell.tsx`:
+- presentational shell for sidebar/panel layout and major view rendering.
 
 ### Realtime and fallback strategy
 
 - Uses `useChatSocket` for live events.
-- When socket disconnected:
-- polls active channel messages every 5 seconds
-
-- Friend/admin views also use periodic refresh intervals while active.
+- Polls active channel messages every 5 seconds when socket is disconnected.
+- Admin and friends views use interval refresh while active.
 
 ### Voice workflow summary
 
-- WebSocket events control voice membership state.
-- WebRTC peer connections are created per participant.
-- SDP and ICE are sent through `sendVoiceSignal`.
-- Local microphone stream and analyser drive speaking indicators.
-- Voice transport is torn down when disconnected/leaving/not present.
-
-### Admin workflow summary
-
-- Active only for admin users and admin view.
-- Polls stats/settings/users every 5 seconds.
-- Supports user role updates and deletion with busy state handling.
-
-### Friend and DM workflow summary
-
-- Friend data loads on auth and periodically in friend view.
-- Friend actions update server then refresh list.
-- Starting DM calls API to get/open direct channel and switches to chat view.
+- WebSocket voice state events drive membership and signaling.
+- Per-peer WebRTC connections are maintained in `ChatPage`.
+- SDP/ICE signaling is relayed through `sendVoiceSignal`.
+- Transport teardown happens on disconnect/leave/not-present transitions.
 
 ## Component Contracts
 
@@ -351,3 +335,4 @@ When changing frontend behavior:
 3. Update `use-chat-socket` parser for new socket events.
 4. Verify fallback polling path still covers non-realtime operation.
 5. Update docs (`docs/FRONTEND_REFERENCE.md` and `docs/API.md` if contract changed).
+
