@@ -734,6 +734,54 @@ export function ChatPage() {
     [],
   );
 
+  // Stable callbacks for usePeerConnectionManager — must not change reference on every render
+  // or they will cause ensurePeerConnection to be recreated and syncVoiceTransport to re-run
+  // constantly, creating an offer/answer loop that prevents connections from establishing.
+  const onRemoteAudioStreamStable = useCallback((peerUserId: string, stream: MediaStream | null) => {
+    setRemoteAudioStreams((prev) => {
+      if (!stream) {
+        if (!prev[peerUserId]) return prev;
+        const next = { ...prev };
+        delete next[peerUserId];
+        return next;
+      }
+      return { ...prev, [peerUserId]: stream };
+    });
+  }, []);
+
+  const onRemoteScreenShareStreamStable = useCallback((peerUserId: string, stream: MediaStream | null) => {
+    setRemoteScreenShares((prev) => {
+      if (!stream) {
+        if (!prev[peerUserId]) return prev;
+        const next = { ...prev };
+        delete next[peerUserId];
+        return next;
+      }
+      return { ...prev, [peerUserId]: stream };
+    });
+  }, []);
+
+  const onRemoteAdvertisedVideoSourceStable = useCallback((peerUserId: string, source: 'screen' | 'camera' | null) => {
+    setRemoteAdvertisedVideoSourceByPeer((prev) => {
+      if (source === null) {
+        if (!(peerUserId in prev)) return prev;
+        const next = { ...prev };
+        delete next[peerUserId];
+        return next;
+      }
+      if (prev[peerUserId] === source) return prev;
+      return { ...prev, [peerUserId]: source };
+    });
+  }, []);
+
+  const onDisconnectRemoteAudioStable = useCallback((peerUserId: string) => {
+    disconnectRemoteAudioForUserRef.current(peerUserId);
+  }, []);
+
+  const onConnectionFailureWithoutTurnStable = useCallback(() => {
+    setError('Voice P2P connection failed (no TURN configured). This usually happens on strict/mobile/company NAT networks.');
+  }, [setError]);
+
   const {
     peerConnectionsRef,
     videoSenderByPeerRef,
@@ -763,65 +811,11 @@ export function ChatPage() {
     activeVoiceChannelIdRef,
     getLocalVoiceStream: () => getLocalVoiceStreamRef.current(),
     sendVoiceSignal,
-    onRemoteAudioStream: (peerUserId, stream) => {
-      setRemoteAudioStreams((prev) => {
-        if (!stream) {
-          if (!prev[peerUserId]) {
-            return prev;
-          }
-          const next = { ...prev };
-          delete next[peerUserId];
-          return next;
-        }
-        return {
-          ...prev,
-          [peerUserId]: stream,
-        };
-      });
-    },
-    onRemoteScreenShareStream: (peerUserId, stream) => {
-      setRemoteScreenShares((prev) => {
-        if (!stream) {
-          if (!prev[peerUserId]) {
-            return prev;
-          }
-          const next = { ...prev };
-          delete next[peerUserId];
-          return next;
-        }
-        return {
-          ...prev,
-          [peerUserId]: stream,
-        };
-      });
-    },
-    onRemoteAdvertisedVideoSource: (peerUserId, source) => {
-      setRemoteAdvertisedVideoSourceByPeer((prev) => {
-        if (source === null) {
-          if (!(peerUserId in prev)) {
-            return prev;
-          }
-          const next = { ...prev };
-          delete next[peerUserId];
-          return next;
-        }
-        if (prev[peerUserId] === source) {
-          return prev;
-        }
-        return {
-          ...prev,
-          [peerUserId]: source,
-        };
-      });
-    },
-    onDisconnectRemoteAudio: (peerUserId) => {
-      disconnectRemoteAudioForUserRef.current(peerUserId);
-    },
-    onConnectionFailureWithoutTurn: () => {
-      setError(
-        'Voice P2P connection failed (no TURN configured). This usually happens on strict/mobile/company NAT networks.',
-      );
-    },
+    onRemoteAudioStream: onRemoteAudioStreamStable,
+    onRemoteScreenShareStream: onRemoteScreenShareStreamStable,
+    onRemoteAdvertisedVideoSource: onRemoteAdvertisedVideoSourceStable,
+    onDisconnectRemoteAudio: onDisconnectRemoteAudioStable,
+    onConnectionFailureWithoutTurn: onConnectionFailureWithoutTurnStable,
     logVoiceDebug,
   });
 
@@ -1361,8 +1355,11 @@ export function ChatPage() {
           if (cancelled || voiceTransportEpochRef.current !== transportEpoch) {
             return;
           }
+          const isNewConnection = !peerConnectionsRef.current.has(peerUserId);
           await ensurePeerConnection(peerUserId, activeVoiceChannelId);
-          await createOfferForPeer(peerUserId, activeVoiceChannelId);
+          if (isNewConnection) {
+            await createOfferForPeer(peerUserId, activeVoiceChannelId);
+          }
         } catch {
           // Best effort: peer transport can recover on next state update.
         }
