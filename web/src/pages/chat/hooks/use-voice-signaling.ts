@@ -20,6 +20,7 @@ type UseVoiceSignalingOptions = {
   ensurePeerConnection: (peerUserId: string, channelId: string) => Promise<RTCPeerConnection>;
   flushPendingIceCandidates: (peerUserId: string, connection: RTCPeerConnection) => Promise<void>;
   createOfferForPeer: (peerUserId: string, channelId: string) => Promise<void>;
+  sendVoiceSignal: (channelId: string, targetUserId: string, data: VoiceSignalData) => boolean;
   peerConnectionsRef: RefObject<Map<string, RTCPeerConnection>>;
   pendingIceRef: RefObject<Map<string, RTCIceCandidateInit[]>>;
   pendingVideoRenegotiationByPeerRef: RefObject<Set<string>>;
@@ -44,6 +45,7 @@ export function useVoiceSignaling({
   ensurePeerConnection,
   flushPendingIceCandidates,
   createOfferForPeer,
+  sendVoiceSignal,
   peerConnectionsRef,
   pendingIceRef,
   pendingVideoRenegotiationByPeerRef,
@@ -115,6 +117,21 @@ export function useVoiceSignaling({
         return;
       }
 
+      if (signal.kind === 'request-offer') {
+        // Soft renegotiation: the non-offerer has replaced a track and asks the
+        // offerer to issue a new offer so SDP reflects the change — no teardown.
+        const localUserId = authUser.id;
+        if (!shouldInitiateOffer(localUserId, payload.fromUserId)) {
+          return;
+        }
+        try {
+          await createOfferForPeer(payload.fromUserId, payload.channelId);
+        } catch {
+          // Best effort.
+        }
+        return;
+      }
+
       if (signal.kind === 'ice') {
         const connection = peerConnectionsRef.current.get(payload.fromUserId);
         if (!connection || !connection.remoteDescription) {
@@ -171,6 +188,10 @@ export function useVoiceSignaling({
         await flushPendingIceCandidates(payload.fromUserId, connection);
         const answer = await connection.createAnswer();
         await connection.setLocalDescription(answer);
+        sendVoiceSignal(payload.channelId, payload.fromUserId, {
+          kind: 'answer',
+          sdp: answer,
+        } satisfies VoiceSignalData);
         return;
       }
 
@@ -212,6 +233,7 @@ export function useVoiceSignaling({
       pendingVideoRenegotiationByPeerRef,
       remoteVideoSourceByPeerRef,
       remoteVideoStreamByPeerRef,
+      sendVoiceSignal,
       setRemoteAdvertisedVideoSourceByPeer,
       setRemoteScreenShares,
     ],

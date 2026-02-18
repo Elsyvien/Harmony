@@ -346,7 +346,8 @@ export function usePeerConnectionManager({
         return;
       }
       if (!shouldInitiateOffer(authUserId, peerUserId)) {
-        sendVoiceSignal(channelId, peerUserId, { kind: 'renegotiate' } satisfies VoiceSignalData);
+        // Ask the offerer to create a new offer without tearing down the connection.
+        sendVoiceSignal(channelId, peerUserId, { kind: 'request-offer' } satisfies VoiceSignalData);
         return;
       }
       const connection = await ensurePeerConnection(peerUserId, channelId);

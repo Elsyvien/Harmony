@@ -5,6 +5,7 @@ export type VoiceSignalData =
   | { kind: 'answer'; sdp: RTCSessionDescriptionInit }
   | { kind: 'ice'; candidate: RTCIceCandidateInit }
   | { kind: 'renegotiate' }
+  | { kind: 'request-offer' }
   | { kind: 'video-source'; source: StreamSource | null };
 
 export function isVoiceSignalData(value: unknown): value is VoiceSignalData {
@@ -18,7 +19,7 @@ export function isVoiceSignalData(value: unknown): value is VoiceSignalData {
   if (kind === 'ice') {
     return Boolean((value as { candidate?: unknown }).candidate);
   }
-  if (kind === 'renegotiate') {
+  if (kind === 'renegotiate' || kind === 'request-offer') {
     return true;
   }
   if (kind === 'video-source') {

@@ -992,6 +992,7 @@ export function ChatPage() {
     ensurePeerConnection,
     flushPendingIceCandidates,
     createOfferForPeer,
+    sendVoiceSignal,
     peerConnectionsRef,
     pendingIceRef,
     pendingVideoRenegotiationByPeerRef,
