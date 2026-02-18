@@ -1,9 +1,10 @@
-import { beforeEach, describe, expect, it } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { randomUUID } from 'node:crypto';
 import type {
   MessageRepository,
   MessageWithAuthor,
 } from '../src/repositories/message.repository.js';
+import type { AdminSettingsService } from '../src/services/admin-settings.service.js';
 import type { ChannelAccessService } from '../src/services/channel.service.js';
 import { MessageService } from '../src/services/message.service.js';
 import { AppError } from '../src/utils/app-error.js';
@@ -237,5 +238,95 @@ describe('MessageService', () => {
     });
     expect(second.reacted).toBe(false);
     expect(second.message.reactions).toEqual([]);
+  });
+
+  it('rejects non-admin messages when read-only mode is enabled', async () => {
+    const adminSettingsService = {
+      getSettings: vi.fn().mockResolvedValue({
+        allowRegistrations: true,
+        readOnlyMode: true,
+        slowModeSeconds: 0,
+        idleTimeoutMinutes: 15,
+      }),
+      getSlowModeRetrySeconds: vi.fn(),
+      markMessageSent: vi.fn(),
+    } as unknown as AdminSettingsService;
+    const guardedService = new MessageService(repo, channelService, 2000, adminSettingsService);
+
+    await expect(
+      guardedService.createMessage({
+        channelId: 'known-channel',
+        userId: 'user-1',
+        content: 'blocked',
+      }),
+    ).rejects.toMatchObject({ code: 'READ_ONLY_MODE' } satisfies Partial<AppError>);
+  });
+
+  it('allows admin messages even when read-only mode is enabled', async () => {
+    const adminSettingsService = {
+      getSettings: vi.fn().mockResolvedValue({
+        allowRegistrations: true,
+        readOnlyMode: true,
+        slowModeSeconds: 0,
+        idleTimeoutMinutes: 15,
+      }),
+      getSlowModeRetrySeconds: vi.fn(),
+      markMessageSent: vi.fn(),
+    } as unknown as AdminSettingsService;
+    const guardedService = new MessageService(repo, channelService, 2000, adminSettingsService);
+
+    const message = await guardedService.createMessage({
+      channelId: 'known-channel',
+      userId: 'admin-user',
+      content: 'allowed',
+      userIsAdmin: true,
+    });
+
+    expect(message.content).toBe('allowed');
+  });
+
+  it('enforces slow mode retry for non-admin users', async () => {
+    const adminSettingsService = {
+      getSettings: vi.fn().mockResolvedValue({
+        allowRegistrations: true,
+        readOnlyMode: false,
+        slowModeSeconds: 10,
+        idleTimeoutMinutes: 15,
+      }),
+      getSlowModeRetrySeconds: vi.fn().mockReturnValue(7),
+      markMessageSent: vi.fn(),
+    } as unknown as AdminSettingsService;
+    const guardedService = new MessageService(repo, channelService, 2000, adminSettingsService);
+
+    await expect(
+      guardedService.createMessage({
+        channelId: 'known-channel',
+        userId: 'user-1',
+        content: 'too fast',
+      }),
+    ).rejects.toMatchObject({ code: 'SLOW_MODE_ACTIVE' } satisfies Partial<AppError>);
+  });
+
+  it('tracks sent message timestamps when slow mode is enabled', async () => {
+    const markMessageSent = vi.fn();
+    const adminSettingsService = {
+      getSettings: vi.fn().mockResolvedValue({
+        allowRegistrations: true,
+        readOnlyMode: false,
+        slowModeSeconds: 10,
+        idleTimeoutMinutes: 15,
+      }),
+      getSlowModeRetrySeconds: vi.fn().mockReturnValue(0),
+      markMessageSent,
+    } as unknown as AdminSettingsService;
+    const guardedService = new MessageService(repo, channelService, 2000, adminSettingsService);
+
+    await guardedService.createMessage({
+      channelId: 'known-channel',
+      userId: 'user-1',
+      content: 'first message',
+    });
+
+    expect(markMessageSent).toHaveBeenCalledWith('user-1', 'known-channel');
   });
 });

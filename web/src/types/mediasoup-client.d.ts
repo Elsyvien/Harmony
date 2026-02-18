@@ -1,10 +1,10 @@
 declare module 'mediasoup-client' {
   export namespace types {
     type AppData = Record<string, unknown>;
-    type RtpCapabilities = unknown;
-    type RtpParameters = unknown;
-    type DtlsParameters = unknown;
-    type IceParameters = unknown;
+    type RtpCapabilities = Record<string, unknown>;
+    type RtpParameters = Record<string, unknown>;
+    type DtlsParameters = Record<string, unknown>;
+    type IceParameters = Record<string, unknown>;
     type ConnectionState = 'new' | 'connecting' | 'connected' | 'failed' | 'disconnected' | 'closed';
 
     type Producer = {
@@ -41,7 +41,25 @@ declare module 'mediasoup-client' {
         appData?: AppData;
       }) => Promise<Producer>;
       restartIce: (params: { iceParameters: IceParameters }) => Promise<void>;
-      on: (event: string, cb: (...args: any[]) => void) => void;
+      on: {
+        (
+          event: 'connect',
+          cb: (
+            params: { dtlsParameters: DtlsParameters },
+            callback: () => void,
+            errback: (error: Error) => void,
+          ) => void,
+        ): void;
+        (event: 'connectionstatechange', cb: (state: ConnectionState) => void): void;
+        (
+          event: 'produce',
+          cb: (
+            params: { kind: 'audio' | 'video'; rtpParameters: RtpParameters; appData: AppData },
+            callback: (args: { id: string }) => void,
+            errback: (error: Error) => void,
+          ) => void,
+        ): void;
+      };
     };
   }
 

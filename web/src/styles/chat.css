@@ -1261,12 +1261,14 @@ body.compact-chat .message-content p {
 }
 
 .checkbox-animated:checked::after {
-  content: "✓";
-  color: white;
-  font-size: 12px;
-  font-weight: 700;
+  content: "";
+  width: 6px;
+  height: 10px;
+  border-right: 2px solid white;
+  border-bottom: 2px solid white;
+  transform: rotate(45deg) translateY(-1px);
   display: block;
-  line-height: 1;
+  box-sizing: border-box;
 }
 
 .checkbox-animated:disabled {
@@ -1414,9 +1416,14 @@ body.theme-light .select-option:hover {
 }
 
 .select-option.selected::after {
-  content: "✓";
-  color: #8fa0ff;
-  font-weight: 700;
+  content: "";
+  width: 6px;
+  height: 10px;
+  border-right: 2px solid #8fa0ff;
+  border-bottom: 2px solid #8fa0ff;
+  transform: rotate(45deg) translateY(-1px);
+  display: inline-block;
+  box-sizing: border-box;
 }
 
 /* Message Actions Toolbar */

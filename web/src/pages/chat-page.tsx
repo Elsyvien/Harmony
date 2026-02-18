@@ -14,26 +14,37 @@ import { useChatSocket } from '../hooks/use-chat-socket';
 import type { PresenceState, PresenceUser, VoiceParticipant, VoiceStatePayload } from '../hooks/use-chat-socket';
 import { useUserPreferences } from '../hooks/use-user-preferences';
 import {
-  mergeMessages,
-  mergeServerWithLocal,
   messageSignature,
   reconcileIncomingMessage,
   useMessageLifecycleFeature,
   type ReplyTarget,
 } from './chat/hooks/use-message-lifecycle-feature';
+import { useChannelMessageLoader } from './chat/hooks/use-channel-message-loader';
 import { upsertChannel, useProfileDmFeature } from './chat/hooks/use-profile-dm-feature';
 import { useReactionsFeature } from './chat/hooks/use-reactions-feature';
+import { useRemoteSpeakingActivity } from './chat/hooks/use-remote-speaking-activity';
+import { useAdminFeature } from './chat/hooks/use-admin-feature';
+import {
+  DEFAULT_STREAM_QUALITY,
+  clampCameraPreset,
+  getCameraCapturePresetLabels,
+  getStreamQualityPreset,
+  isValidStreamQualityLabel,
+  toVideoTrackConstraints,
+} from './chat/utils/stream-quality';
+import {
+  isVoiceSignalData,
+  shouldInitiateOffer,
+  type VoiceSignalData,
+} from './chat/utils/voice-signaling';
+import { getStaleRemoteScreenShareUserIds } from './chat/utils/stale-screen-shares';
 import { useVoiceFeature } from './chat/hooks/use-voice-feature';
 import { useAuth } from '../store/auth-store';
 import type {
-  AdminSettings,
-  AdminStats,
-  AdminUserSummary,
   Channel,
   FriendRequestSummary,
   FriendSummary,
   Message,
-  UserRole,
 } from '../types/api';
 import { getErrorMessage } from '../utils/error-message';
 import { trackTelemetryError } from '../utils/telemetry';
@@ -42,53 +53,6 @@ type MainView = 'chat' | 'friends' | 'settings' | 'admin';
 type MobilePane = 'none' | 'channels' | 'users';
 type MicrophonePermissionState = 'granted' | 'denied' | 'prompt' | 'unsupported' | 'unknown';
 type StreamSource = 'screen' | 'camera';
-const DEFAULT_STREAM_QUALITY = '720p 30fps';
-
-const STREAM_QUALITY_CONSTRAINTS: Record<string, { width: number; height: number; frameRate: number }> = {
-  '360p 15fps': { width: 640, height: 360, frameRate: 15 },
-  '360p 30fps': { width: 640, height: 360, frameRate: 30 },
-  '480p 15fps': { width: 854, height: 480, frameRate: 15 },
-  '480p 30fps': { width: 854, height: 480, frameRate: 30 },
-  '720p 15fps': { width: 1280, height: 720, frameRate: 15 },
-  '720p 30fps': { width: 1280, height: 720, frameRate: 30 },
-  '720p 60fps': { width: 1280, height: 720, frameRate: 60 },
-  '900p 30fps': { width: 1600, height: 900, frameRate: 30 },
-  '1080p 30fps': { width: 1920, height: 1080, frameRate: 30 },
-  '1080p 60fps': { width: 1920, height: 1080, frameRate: 60 },
-  '1440p 30fps': { width: 2560, height: 1440, frameRate: 30 },
-  '1440p 60fps': { width: 2560, height: 1440, frameRate: 60 },
-  '2160p 30fps': { width: 3840, height: 2160, frameRate: 30 },
-};
-
-const CAMERA_MAX_CAPTURE_CONSTRAINTS = {
-  width: 1920,
-  height: 1080,
-  frameRate: 30,
-} as const;
-
-const CAMERA_FALLBACK_QUALITY_LABELS = [
-  '1080p 30fps',
-  '720p 30fps',
-  '720p 15fps',
-  '480p 30fps',
-  '480p 15fps',
-  '360p 30fps',
-  '360p 15fps',
-] as const;
-
-type StreamQualityPreset = { width: number; height: number; frameRate: number };
-
-function getStreamQualityPreset(label: string): StreamQualityPreset {
-  return STREAM_QUALITY_CONSTRAINTS[label] ?? STREAM_QUALITY_CONSTRAINTS[DEFAULT_STREAM_QUALITY];
-}
-
-function toVideoTrackConstraints(preset: StreamQualityPreset): MediaTrackConstraints {
-  return {
-    width: { ideal: preset.width, max: preset.width },
-    height: { ideal: preset.height, max: preset.height },
-    frameRate: { ideal: preset.frameRate, max: preset.frameRate },
-  };
-}
 
 function clampMediaElementVolume(value: number) {
   if (!Number.isFinite(value)) {
@@ -96,26 +60,6 @@ function clampMediaElementVolume(value: number) {
   }
   return Math.min(1, Math.max(0, value));
 }
-
-function clampCameraPreset(preset: StreamQualityPreset): StreamQualityPreset {
-  return {
-    width: Math.min(preset.width, CAMERA_MAX_CAPTURE_CONSTRAINTS.width),
-    height: Math.min(preset.height, CAMERA_MAX_CAPTURE_CONSTRAINTS.height),
-    frameRate: Math.min(preset.frameRate, CAMERA_MAX_CAPTURE_CONSTRAINTS.frameRate),
-  };
-}
-
-function getCameraCapturePresetLabels(preferredLabel: string): string[] {
-  const labels = [preferredLabel, ...CAMERA_FALLBACK_QUALITY_LABELS, DEFAULT_STREAM_QUALITY];
-  return [...new Set(labels.filter((label) => Boolean(STREAM_QUALITY_CONSTRAINTS[label])))];
-}
-
-type VoiceSignalData =
-  | { kind: 'offer'; sdp: RTCSessionDescriptionInit }
-  | { kind: 'answer'; sdp: RTCSessionDescriptionInit }
-  | { kind: 'ice'; candidate: RTCIceCandidateInit }
-  | { kind: 'renegotiate' }
-  | { kind: 'video-source'; source: StreamSource | null };
 
 type VoiceDetailedMediaStats = {
   bitrateKbps: number | null;
@@ -182,27 +126,6 @@ function accumulateMediaStats(
   }
 }
 
-function isVoiceSignalData(value: unknown): value is VoiceSignalData {
-  if (!value || typeof value !== 'object' || !('kind' in value)) {
-    return false;
-  }
-  const kind = (value as { kind?: unknown }).kind;
-  if (kind === 'offer' || kind === 'answer') {
-    return Boolean((value as { sdp?: unknown }).sdp);
-  }
-  if (kind === 'ice') {
-    return Boolean((value as { candidate?: unknown }).candidate);
-  }
-  if (kind === 'renegotiate') {
-    return true;
-  }
-  if (kind === 'video-source') {
-    const source = (value as { source?: unknown }).source;
-    return source === 'screen' || source === 'camera' || source === null;
-  }
-  return false;
-}
-
 function createDefaultVoiceIceConfig(): RTCConfiguration {
   return {
     iceServers: [{ urls: ['stun:stun.l.google.com:19302'] }],
@@ -264,10 +187,6 @@ function hasTurnRelayInIceConfig(config: RTCConfiguration) {
   return false;
 }
 
-function shouldInitiateOffer(localUserId: string, remoteUserId: string) {
-  return localUserId < remoteUserId;
-}
-
 export function ChatPage() {
   const auth = useAuth();
   const { preferences, updatePreferences, resetPreferences } = useUserPreferences();
@@ -281,20 +200,6 @@ export function ChatPage() {
   const [notice, setNotice] = useState<string | null>(null);
   const [activeView, setActiveView] = useState<MainView>('chat');
   const [mobilePane, setMobilePane] = useState<MobilePane>('none');
-
-  const [adminStats, setAdminStats] = useState<AdminStats | null>(null);
-  const [loadingAdminStats, setLoadingAdminStats] = useState(false);
-  const [adminStatsError, setAdminStatsError] = useState<string | null>(null);
-  const [adminSettings, setAdminSettings] = useState<AdminSettings | null>(null);
-  const [loadingAdminSettings, setLoadingAdminSettings] = useState(false);
-  const [adminSettingsError, setAdminSettingsError] = useState<string | null>(null);
-  const [savingAdminSettings, setSavingAdminSettings] = useState(false);
-  const [adminUsers, setAdminUsers] = useState<AdminUserSummary[]>([]);
-  const [loadingAdminUsers, setLoadingAdminUsers] = useState(false);
-  const [adminUsersError, setAdminUsersError] = useState<string | null>(null);
-  const [updatingAdminUserId, setUpdatingAdminUserId] = useState<string | null>(null);
-  const [deletingAdminUserId, setDeletingAdminUserId] = useState<string | null>(null);
-  const [clearingAdminUsers, setClearingAdminUsers] = useState(false);
 
   const [friends, setFriends] = useState<FriendSummary[]>([]);
   const [incomingRequests, setIncomingRequests] = useState<FriendRequestSummary[]>([]);
@@ -323,8 +228,6 @@ export function ChatPage() {
   const [localStreamSource, setLocalStreamSource] = useState<StreamSource | null>(null);
   const [streamQualityLabel, setStreamQualityLabel] = useState(DEFAULT_STREAM_QUALITY);
   const [showDetailedVoiceStats, setShowDetailedVoiceStats] = useState(false);
-  const [protectVoiceEnabled, setProtectVoiceEnabled] = useState(false);
-  const [protectVoiceStatus] = useState<'stable' | 'mild' | 'severe'>('stable');
   const [voiceConnectionStats, setVoiceConnectionStats] = useState<VoiceDetailedConnectionStats[]>([]);
   const [voiceStatsUpdatedAt, setVoiceStatsUpdatedAt] = useState<number | null>(null);
   const [voiceIceConfig, setVoiceIceConfig] = useState<RTCConfiguration>(() =>
@@ -348,6 +251,33 @@ export function ChatPage() {
     useState<MicrophonePermissionState>('unknown');
   const [requestingMicrophonePermission, setRequestingMicrophonePermission] = useState(false);
   const [hiddenUnreadCount, setHiddenUnreadCount] = useState(0);
+  const {
+    adminStats,
+    loadingAdminStats,
+    adminStatsError,
+    adminSettings,
+    loadingAdminSettings,
+    adminSettingsError,
+    savingAdminSettings,
+    adminUsers,
+    loadingAdminUsers,
+    adminUsersError,
+    updatingAdminUserId,
+    deletingAdminUserId,
+    clearingAdminUsers,
+    loadAdminStats,
+    loadAdminSettings,
+    saveAdminSettings,
+    loadAdminUsers,
+    updateAdminUser,
+    deleteAdminUser,
+    clearAdminUsersExceptCurrent,
+  } = useAdminFeature({
+    authToken: auth.token,
+    isAdmin: auth.user?.isAdmin,
+    currentUserId: auth.user?.id,
+    onNotice: setNotice,
+  });
   const previousIncomingRequestCountRef = useRef<number | null>(null);
   const streamStatusBannerTimeoutRef = useRef<number | null>(null);
   const pendingSignaturesRef = useRef(new Set<string>());
@@ -389,9 +319,6 @@ export function ChatPage() {
   const createOfferForPeerRef = useRef((() => Promise.resolve()) as (peerUserId: string, channelId: string) => Promise<void>);
   const leaveVoiceRef = useRef((() => false) as (channelId?: string) => boolean);
   const messageSearchInputRef = useRef<HTMLInputElement | null>(null);
-  const isMountedRef = useRef(true);
-  const activeChannelIdRef = useRef<string | null>(null);
-  const pendingMessageLoadsRef = useRef(0);
   const hasTurnRelayConfigured = useMemo(() => hasTurnRelayInIceConfig(voiceIceConfig), [voiceIceConfig]);
 
   const logVoiceDebug = useCallback((event: string, details?: Record<string, unknown>) => {
@@ -418,16 +345,6 @@ export function ChatPage() {
     () => channels.find((channel) => channel.id === activeChannelId) ?? null,
     [channels, activeChannelId],
   );
-
-  useEffect(() => {
-    activeChannelIdRef.current = activeChannelId;
-  }, [activeChannelId]);
-
-  useEffect(() => {
-    return () => {
-      isMountedRef.current = false;
-    };
-  }, []);
 
   const handleDirectChannelOpened = useCallback((channel: Channel) => {
     setChannels((prev) => upsertChannel(prev, channel));
@@ -751,36 +668,12 @@ export function ChatPage() {
     }
   }, []);
 
-  const loadMessages = useCallback(
-    async (channelId: string, before?: string, prepend = false) => {
-      if (!auth.token) {
-        return;
-      }
-      pendingMessageLoadsRef.current += 1;
-      if (isMountedRef.current) {
-        setLoadingMessages(true);
-      }
-      try {
-        const response = await chatApi.messages(auth.token, channelId, { before, limit: 50 });
-        if (!isMountedRef.current || activeChannelIdRef.current !== channelId) {
-          return;
-        }
-        setMessages((prev) => {
-          if (prepend) {
-            return mergeMessages(response.messages, prev);
-          }
-          const localPending = prev.filter((item) => item.optimistic || item.failed);
-          return mergeServerWithLocal(response.messages, localPending);
-        });
-      } finally {
-        pendingMessageLoadsRef.current = Math.max(0, pendingMessageLoadsRef.current - 1);
-        if (isMountedRef.current && pendingMessageLoadsRef.current === 0) {
-          setLoadingMessages(false);
-        }
-      }
-    },
-    [auth.token],
-  );
+  const loadMessages = useChannelMessageLoader({
+    token: auth.token,
+    activeChannelId,
+    setMessages,
+    setLoadingMessages,
+  });
 
   const loadFriendData = useCallback(async () => {
     if (!auth.token) {
@@ -1139,17 +1032,11 @@ export function ChatPage() {
   }, [activeRemoteAudioUsers, disconnectRemoteAudioForUser]);
 
   const pruneStaleRemoteScreenShares = useCallback(() => {
-    const staleUserIds: string[] = [];
-    for (const [userId, stream] of Object.entries(remoteScreenShares)) {
-      const source = remoteVideoSourceByPeerRef.current.get(userId) ?? null;
-      const peerConnection = peerConnectionsRef.current.get(userId);
-      const videoTracks = stream.getVideoTracks();
-      const hasLiveVideoTrack = videoTracks.some((track) => track.readyState === 'live');
-      const isPeerClosed = !peerConnection || peerConnection.connectionState === 'closed';
-      if (source === null || !hasLiveVideoTrack || isPeerClosed) {
-        staleUserIds.push(userId);
-      }
-    }
+    const staleUserIds = getStaleRemoteScreenShareUserIds({
+      remoteScreenShares,
+      remoteVideoSourceByPeer: remoteVideoSourceByPeerRef.current,
+      peerConnectionsByUser: peerConnectionsRef.current,
+    });
     if (staleUserIds.length === 0) {
       return;
     }
@@ -1176,6 +1063,11 @@ export function ChatPage() {
     }
     resetLocalAnalyser();
     const analyserContext = new AudioContextClass();
+    if (analyserContext.state === 'suspended') {
+      void analyserContext.resume().catch(() => {
+        // Some browsers require an explicit user gesture to resume.
+      });
+    }
     const analyser = analyserContext.createAnalyser();
     analyser.fftSize = 1024;
     const source = analyserContext.createMediaStreamSource(stream);
@@ -1281,6 +1173,11 @@ export function ChatPage() {
           (window as typeof window & { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
         if (AudioContextClass) {
           const gainContext = new AudioContextClass();
+          if (gainContext.state === 'suspended') {
+            void gainContext.resume().catch(() => {
+              // Some browsers require an explicit user gesture to resume.
+            });
+          }
           const source = gainContext.createMediaStreamSource(rawStream);
           const gainNode = gainContext.createGain();
           gainNode.gain.value = voiceInputGainRef.current / 100;
@@ -2471,26 +2368,13 @@ export function ChatPage() {
     isSelfDeafened,
   ]);
 
-  // Speaking detection – remote audio
-  useEffect(() => {
-    if (!preferences.showVoiceActivity) {
-      setSpeakingUserIds((prev) => prev.filter((id) => id === auth.user?.id));
-      return;
-    }
-
-    const nextRemoteSpeaking = viewedRemoteAudioUsers
-      .filter(({ stream }) => stream.active)
-      .map(({ userId }) => userId);
-
-    setSpeakingUserIds((prev) => {
-      const localSelf = prev.filter((id) => id === auth.user?.id);
-      const merged = [...new Set([...localSelf, ...nextRemoteSpeaking])];
-      if (merged.length === prev.length && merged.every((id, index) => id === prev[index])) {
-        return prev;
-      }
-      return merged;
-    });
-  }, [preferences.showVoiceActivity, viewedRemoteAudioUsers, auth.user?.id]);
+  useRemoteSpeakingActivity({
+    enabled: preferences.showVoiceActivity,
+    sensitivity: preferences.voiceInputSensitivity,
+    currentUserId: auth.user?.id,
+    remoteAudioUsers: viewedRemoteAudioUsers,
+    setSpeakingUserIds,
+  });
 
   const applyStreamQualityToStream = useCallback((
     stream: MediaStream,
@@ -2685,7 +2569,7 @@ export function ChatPage() {
 
   const handleStreamQualityChange = useCallback(
     (value: string) => {
-      if (!STREAM_QUALITY_CONSTRAINTS[value]) {
+      if (!isValidStreamQualityLabel(value)) {
         return;
       }
       setStreamQualityLabel(value);
@@ -2697,140 +2581,6 @@ export function ChatPage() {
     },
     [applyStreamQualityToStream, localStreamSource],
   );
-
-  const loadAdminStats = useCallback(async () => {
-    if (!auth.token || !auth.user?.isAdmin) {
-      return;
-    }
-    setLoadingAdminStats(true);
-    try {
-      const response = await chatApi.adminStats(auth.token);
-      setAdminStats(response.stats);
-      setAdminStatsError(null);
-    } catch (err) {
-      setAdminStatsError(getErrorMessage(err, 'Could not load admin stats'));
-    } finally {
-      setLoadingAdminStats(false);
-    }
-  }, [auth.token, auth.user?.isAdmin]);
-
-  const loadAdminSettings = useCallback(async () => {
-    if (!auth.token || !auth.user?.isAdmin) {
-      return;
-    }
-    setLoadingAdminSettings(true);
-    try {
-      const response = await chatApi.adminSettings(auth.token);
-      setAdminSettings(response.settings);
-      setAdminSettingsError(null);
-    } catch (err) {
-      setAdminSettingsError(getErrorMessage(err, 'Could not load admin settings'));
-    } finally {
-      setLoadingAdminSettings(false);
-    }
-  }, [auth.token, auth.user?.isAdmin]);
-
-  const saveAdminSettings = useCallback(
-    async (next: AdminSettings) => {
-      if (!auth.token || !auth.user?.isAdmin) {
-        return;
-      }
-      setSavingAdminSettings(true);
-      try {
-        const response = await chatApi.updateAdminSettings(auth.token, next);
-        setAdminSettings(response.settings);
-        setAdminSettingsError(null);
-      } catch (err) {
-        setAdminSettingsError(getErrorMessage(err, 'Could not save admin settings'));
-      } finally {
-        setSavingAdminSettings(false);
-      }
-    },
-    [auth.token, auth.user?.isAdmin],
-  );
-
-  const loadAdminUsers = useCallback(async () => {
-    if (!auth.token || !auth.user?.isAdmin) {
-      return;
-    }
-    setLoadingAdminUsers(true);
-    try {
-      const response = await chatApi.adminUsers(auth.token);
-      setAdminUsers(response.users);
-      setAdminUsersError(null);
-    } catch (err) {
-      setAdminUsersError(getErrorMessage(err, 'Could not load users'));
-    } finally {
-      setLoadingAdminUsers(false);
-    }
-  }, [auth.token, auth.user?.isAdmin]);
-
-  const updateAdminUser = useCallback(
-    async (
-      userId: string,
-      input: Partial<{
-        role: UserRole;
-        avatarUrl: string | null;
-        isSuspended: boolean;
-        suspensionHours: number;
-      }>,
-    ) => {
-      if (!auth.token || !auth.user?.isAdmin) {
-        return;
-      }
-      setUpdatingAdminUserId(userId);
-      try {
-        const response = await chatApi.updateAdminUser(auth.token, userId, input);
-        setAdminUsers((prev) => prev.map((user) => (user.id === userId ? response.user : user)));
-        setAdminUsersError(null);
-      } catch (err) {
-        setAdminUsersError(getErrorMessage(err, 'Could not update user'));
-      } finally {
-        setUpdatingAdminUserId(null);
-      }
-    },
-    [auth.token, auth.user?.isAdmin],
-  );
-
-  const deleteAdminUser = useCallback(
-    async (userId: string) => {
-      if (!auth.token || !auth.user?.isAdmin) {
-        return;
-      }
-      setDeletingAdminUserId(userId);
-      try {
-        await chatApi.deleteAdminUser(auth.token, userId);
-        setAdminUsers((prev) => prev.filter((user) => user.id !== userId));
-        setAdminUsersError(null);
-      } catch (err) {
-        setAdminUsersError(getErrorMessage(err, 'Could not delete user'));
-      } finally {
-        setDeletingAdminUserId(null);
-      }
-    },
-    [auth.token, auth.user?.isAdmin],
-  );
-
-  const clearAdminUsersExceptCurrent = useCallback(async () => {
-    if (!auth.token || !auth.user?.isAdmin) {
-      return;
-    }
-    setClearingAdminUsers(true);
-    try {
-      const response = await chatApi.clearAdminUsersExceptSelf(auth.token);
-      setAdminUsers((prev) => prev.filter((user) => user.id === auth.user?.id));
-      setAdminUsersError(null);
-      setNotice(
-        response.deletedCount === 1
-          ? 'Deleted 1 user. Your account was kept.'
-          : `Deleted ${response.deletedCount} users. Your account was kept.`,
-      );
-    } catch (err) {
-      setAdminUsersError(getErrorMessage(err, 'Could not clear users'));
-    } finally {
-      setClearingAdminUsers(false);
-    }
-  }, [auth.token, auth.user?.id, auth.user?.isAdmin]);
 
   const sendFriendRequest = useCallback(
     async (username: string) => {
@@ -2947,6 +2697,10 @@ export function ChatPage() {
         if (isSelfMuted !== joinMuted) {
           setIsSelfMuted(joinMuted);
         }
+        // Pre-warm voice capture on the user gesture path so browser audio contexts can unlock.
+        void getLocalVoiceStream().catch(() => {
+          // Join flow still continues; sync phase will surface actionable errors.
+        });
         if (activeVoiceChannelId && activeVoiceChannelId !== channelId) {
           ws.leaveVoice(activeVoiceChannelId);
         }
@@ -2967,7 +2721,16 @@ export function ChatPage() {
         setVoiceBusyChannelId(null);
       }
     },
-    [auth.token, ws, activeVoiceChannelId, playVoiceStateSound, isSelfMuted, isSelfDeafened, preferences.autoMuteOnJoin],
+    [
+      auth.token,
+      ws,
+      activeVoiceChannelId,
+      playVoiceStateSound,
+      isSelfMuted,
+      isSelfDeafened,
+      preferences.autoMuteOnJoin,
+      getLocalVoiceStream,
+    ],
   );
 
   const leaveVoiceChannel = useCallback(
@@ -3468,11 +3231,6 @@ export function ChatPage() {
                 }
                 connectionStats={voiceConnectionStats}
                 statsUpdatedAt={voiceStatsUpdatedAt}
-                protectVoiceEnabled={protectVoiceEnabled}
-                protectVoiceStatus={protectVoiceStatus}
-                onToggleProtectVoice={() =>
-                  setProtectVoiceEnabled((current) => !current)
-                }
               />
             ) : (
               <>
