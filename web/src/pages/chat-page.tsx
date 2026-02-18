@@ -6,7 +6,7 @@ import { UserProfile } from '../components/user-profile';
 
 import { ChatPageShell } from './chat/components/chat-page-shell';
 import { useChatSocket } from '../hooks/use-chat-socket';
-import type { PresenceUser, VoiceParticipant, VoiceStatePayload } from '../hooks/use-chat-socket';
+import type { PresenceUser, VoiceParticipant } from '../hooks/use-chat-socket';
 import { useUserPreferences } from '../hooks/use-user-preferences';
 import {
   messageSignature,
@@ -25,6 +25,7 @@ import { useChannelManagementFeature } from './chat/hooks/use-channel-management
 import { useChatPageEffects } from './chat/hooks/use-chat-page-effects';
 import { usePeerConnectionManager } from './chat/hooks/use-peer-connection-manager';
 import { useVoiceTransport } from './chat/hooks/use-voice-transport';
+import { useVoiceSignaling } from './chat/hooks/use-voice-signaling';
 import {
   DEFAULT_STREAM_QUALITY,
   clampCameraPreset,
@@ -33,11 +34,7 @@ import {
   isValidStreamQualityLabel,
   toVideoTrackConstraints,
 } from './chat/utils/stream-quality';
-import {
-  isVoiceSignalData,
-  shouldInitiateOffer,
-  type VoiceSignalData,
-} from './chat/utils/voice-signaling';
+import { type VoiceSignalData } from './chat/utils/voice-signaling';
 import { getStaleRemoteScreenShareUserIds } from './chat/utils/stale-screen-shares';
 import { useVoiceFeature } from './chat/hooks/use-voice-feature';
 import { useAuth } from '../store/auth-store';
@@ -293,11 +290,8 @@ export function ChatPage() {
   const remoteAudioGainByUserRef = useRef<Map<string, GainNode>>(new Map());
   const remoteAudioElementByUserRef = useRef<Map<string, HTMLAudioElement>>(new Map());
   const previousRtpSnapshotsRef = useRef<Map<string, { bytes: number; timestamp: number }>>(new Map());
-  const voiceParticipantIdsByChannelRef = useRef<Map<string, Set<string>>>(new Map());
   const activeVoiceChannelIdRef = useRef<string | null>(null);
   const voiceBusyChannelIdRef = useRef<string | null>(null);
-  const queuedVoiceSignalsRef = useRef<Array<{ channelId: string; fromUserId: string; data: VoiceSignalData }>>([]);
-  const drainingVoiceSignalsRef = useRef(false);
   const getLocalVoiceStreamRef = useRef((() => Promise.reject(new Error('Voice stream not ready'))) as () => Promise<MediaStream>);
   const disconnectRemoteAudioForUserRef = useRef((() => undefined) as (userId: string) => void);
   const voiceTransportEpochRef = useRef(0);
@@ -984,285 +978,32 @@ export function ChatPage() {
     });
   }, [remoteScreenShares, peerConnectionsRef, remoteVideoSourceByPeerRef]);
 
-  const canProcessVoiceSignalsForChannel = useCallback((channelId: string) => {
-    const activeVoiceChannelId = activeVoiceChannelIdRef.current;
-    const busyVoiceChannelId = voiceBusyChannelIdRef.current;
-    return activeVoiceChannelId === channelId || busyVoiceChannelId === channelId;
-  }, []);
-
-  const processVoiceSignal = useCallback(
-    async (payload: { channelId: string; fromUserId: string; data: VoiceSignalData }) => {
-      if (!auth.user || payload.fromUserId === auth.user.id) {
-        return;
-      }
-
-      const signal = payload.data;
-      if (signal.kind === 'video-source') {
-        remoteVideoSourceByPeerRef.current.set(payload.fromUserId, signal.source);
-        setRemoteAdvertisedVideoSourceByPeer((prev) => ({
-          ...prev,
-          [payload.fromUserId]: signal.source,
-        }));
-        if (signal.source === 'screen' || signal.source === 'camera') {
-          const stream = remoteVideoStreamByPeerRef.current.get(payload.fromUserId);
-          if (stream) {
-            setRemoteScreenShares((prev) => ({
-              ...prev,
-              [payload.fromUserId]: stream,
-            }));
-          }
-        } else {
-          setRemoteScreenShares((prev) => {
-            if (!prev[payload.fromUserId]) {
-              return prev;
-            }
-            const next = { ...prev };
-            delete next[payload.fromUserId];
-            return next;
-          });
-        }
-        return;
-      }
-
-      if (signal.kind === 'renegotiate') {
-        const localUserId = auth.user.id;
-        if (!shouldInitiateOffer(localUserId, payload.fromUserId)) {
-          return;
-        }
-        closePeerConnection(payload.fromUserId);
-        try {
-          await ensurePeerConnection(payload.fromUserId, payload.channelId);
-          await createOfferForPeerRef.current(payload.fromUserId, payload.channelId);
-        } catch {
-          // Best effort. Next sync cycle can recover.
-        }
-        return;
-      }
-
-      if (signal.kind === 'ice') {
-        const connection = peerConnectionsRef.current.get(payload.fromUserId);
-        if (!connection || !connection.remoteDescription) {
-          const queue = pendingIceRef.current.get(payload.fromUserId) ?? [];
-          queue.push(signal.candidate);
-          pendingIceRef.current.set(payload.fromUserId, queue);
-          return;
-        }
-        try {
-          await connection.addIceCandidate(signal.candidate);
-        } catch {
-          // Ignore invalid/stale ICE candidates.
-        }
-        return;
-      }
-
-      const connection = await ensurePeerConnection(payload.fromUserId, payload.channelId);
-      const localUserId = auth.user.id;
-
-      if (signal.kind === 'offer') {
-        if (shouldInitiateOffer(localUserId, payload.fromUserId)) {
-          // Deterministic initiator should not receive offers in steady state.
-          return;
-        }
-
-        if (connection.signalingState === 'have-local-offer') {
-          try {
-            await connection.setLocalDescription({ type: 'rollback' });
-          } catch {
-            pendingVideoRenegotiationByPeerRef.current.add(payload.fromUserId);
-            return;
-          }
-        } else if (connection.signalingState !== 'stable') {
-          return;
-        }
-
-        try {
-          await connection.setRemoteDescription(signal.sdp);
-        } catch (err) {
-          trackTelemetryError('voice_signal_offer_remote_description_failed', err, {
-            peerUserId: payload.fromUserId,
-            channelId: payload.channelId,
-            signalingState: connection.signalingState,
-          });
-          closePeerConnection(payload.fromUserId);
-          try {
-            await ensurePeerConnection(payload.fromUserId, payload.channelId);
-            await createOfferForPeerRef.current(payload.fromUserId, payload.channelId);
-          } catch {
-            // Best effort. Next voice sync can recover.
-          }
-          return;
-        }
-        await flushPendingIceCandidates(payload.fromUserId, connection);
-        const answer = await connection.createAnswer();
-        await connection.setLocalDescription(answer);
-        sendVoiceSignalRef.current(payload.channelId, payload.fromUserId, {
-          kind: 'answer',
-          sdp: answer,
-        } satisfies VoiceSignalData);
-        return;
-      }
-
-      if (!shouldInitiateOffer(localUserId, payload.fromUserId)) {
-        return;
-      }
-
-      if (connection.signalingState !== 'have-local-offer') {
-        return;
-      }
-
-      try {
-        await connection.setRemoteDescription(signal.sdp);
-      } catch (err) {
-        trackTelemetryError('voice_signal_answer_remote_description_failed', err, {
-          peerUserId: payload.fromUserId,
-          channelId: payload.channelId,
-          signalingState: connection.signalingState,
-        });
-        closePeerConnection(payload.fromUserId);
-        try {
-          await ensurePeerConnection(payload.fromUserId, payload.channelId);
-          await createOfferForPeerRef.current(payload.fromUserId, payload.channelId);
-        } catch {
-          // Best effort. Next voice sync can recover.
-        }
-        return;
-      }
-      await flushPendingIceCandidates(payload.fromUserId, connection);
-    },
-    [auth.user, closePeerConnection, ensurePeerConnection, flushPendingIceCandidates, peerConnectionsRef, pendingIceRef, pendingVideoRenegotiationByPeerRef, remoteVideoSourceByPeerRef, remoteVideoStreamByPeerRef],
-  );
-
-  const drainQueuedVoiceSignals = useCallback(async () => {
-    if (drainingVoiceSignalsRef.current || !auth.user) {
-      return;
-    }
-    drainingVoiceSignalsRef.current = true;
-    try {
-      let loopGuard = 0;
-      while (queuedVoiceSignalsRef.current.length > 0 && loopGuard < 400) {
-        loopGuard += 1;
-        const pending = queuedVoiceSignalsRef.current;
-        queuedVoiceSignalsRef.current = [];
-        const deferred: Array<{ channelId: string; fromUserId: string; data: VoiceSignalData }> = [];
-
-        for (const signal of pending) {
-          if (!canProcessVoiceSignalsForChannel(signal.channelId)) {
-            deferred.push(signal);
-            continue;
-          }
-          await processVoiceSignal(signal);
-        }
-
-        if (deferred.length > 0) {
-          queuedVoiceSignalsRef.current = deferred;
-          break;
-        }
-      }
-    } finally {
-      drainingVoiceSignalsRef.current = false;
-    }
-  }, [auth.user, canProcessVoiceSignalsForChannel, processVoiceSignal]);
-
-  const handleVoiceSignal = useCallback(
-    async (payload: { channelId: string; fromUserId: string; data: unknown }) => {
-      if (!auth.user || payload.fromUserId === auth.user.id) {
-        return;
-      }
-      if (!isVoiceSignalData(payload.data)) {
-        return;
-      }
-
-      const normalizedPayload = {
-        channelId: payload.channelId,
-        fromUserId: payload.fromUserId,
-        data: payload.data,
-      };
-
-      if (!canProcessVoiceSignalsForChannel(payload.channelId)) {
-        const queue = queuedVoiceSignalsRef.current;
-        queue.push(normalizedPayload);
-        logVoiceDebug('voice_signal_queued', {
-          fromUserId: payload.fromUserId,
-          channelId: payload.channelId,
-          kind: payload.data.kind,
-          queueSize: queue.length,
-        });
-        if (queue.length > 300) {
-          queue.splice(0, queue.length - 300);
-        }
-        return;
-      }
-
-      logVoiceDebug('voice_signal_process', {
-        fromUserId: payload.fromUserId,
-        channelId: payload.channelId,
-        kind: payload.data.kind,
-      });
-      await processVoiceSignal(normalizedPayload);
-      await drainQueuedVoiceSignals();
-    },
-    [auth.user, canProcessVoiceSignalsForChannel, drainQueuedVoiceSignals, logVoiceDebug, processVoiceSignal],
-  );
-
-  const handleVoiceState = useCallback(
-    (payload: VoiceStatePayload) => {
-      const nextParticipantIds = new Set(payload.participants.map((participant) => participant.userId));
-      const hadPreviousState = voiceParticipantIdsByChannelRef.current.has(payload.channelId);
-      const previousParticipantIds = voiceParticipantIdsByChannelRef.current.get(payload.channelId) ?? new Set<string>();
-      const isCurrentVoiceChannel = activeVoiceChannelIdRef.current === payload.channelId;
-      if (auth.user && hadPreviousState && isCurrentVoiceChannel) {
-        const selfUserId = auth.user.id;
-        const someoneElseJoined = [...nextParticipantIds].some(
-          (participantId) =>
-            participantId !== selfUserId && !previousParticipantIds.has(participantId),
-        );
-        const someoneElseLeft = [...previousParticipantIds].some(
-          (participantId) =>
-            participantId !== selfUserId && !nextParticipantIds.has(participantId),
-        );
-
-        if (someoneElseJoined) {
-          playVoiceStateSound('join');
-        }
-        if (someoneElseLeft) {
-          playVoiceStateSound('leave');
-        }
-      }
-      voiceParticipantIdsByChannelRef.current.set(payload.channelId, nextParticipantIds);
-
-      setVoiceParticipantsByChannel((prev) => ({
-        ...prev,
-        [payload.channelId]: payload.participants,
-      }));
-
-      if (!auth.user) {
-        return;
-      }
-
-      const selfPresent = payload.participants.some((participant) => participant.userId === auth.user?.id);
-      if (selfPresent) {
-        activeVoiceChannelIdRef.current = payload.channelId;
-        setActiveVoiceChannelId(payload.channelId);
-        setVoiceBusyChannelId((current) => (current === payload.channelId ? null : current));
-        return;
-      }
-
-      setActiveVoiceChannelId((current) => {
-        if (current !== payload.channelId) {
-          return current;
-        }
-        if (voiceBusyChannelId === payload.channelId) {
-          return current;
-        }
-        activeVoiceChannelIdRef.current = null;
-        return null;
-      });
-      if (voiceBusyChannelId !== payload.channelId) {
-        setVoiceBusyChannelId((current) => (current === payload.channelId ? null : current));
-      }
-    },
-    [auth.user, voiceBusyChannelId, playVoiceStateSound],
-  );
+  const {
+    handleVoiceSignal,
+    handleVoiceState,
+    resetVoiceSignalingState,
+  } = useVoiceSignaling({
+    authUser: auth.user ? { id: auth.user.id } : null,
+    activeVoiceChannelIdRef,
+    voiceBusyChannelIdRef,
+    voiceBusyChannelId,
+    playVoiceStateSound,
+    closePeerConnection,
+    ensurePeerConnection,
+    flushPendingIceCandidates,
+    createOfferForPeer,
+    peerConnectionsRef,
+    pendingIceRef,
+    pendingVideoRenegotiationByPeerRef,
+    remoteVideoSourceByPeerRef,
+    remoteVideoStreamByPeerRef,
+    setRemoteAdvertisedVideoSourceByPeer,
+    setRemoteScreenShares,
+    setVoiceParticipantsByChannel,
+    setActiveVoiceChannelId,
+    setVoiceBusyChannelId,
+    logVoiceDebug,
+  });
 
   const ws = useChatSocket({
     token: auth.token,
@@ -1419,13 +1160,6 @@ export function ChatPage() {
   }, [voiceBusyChannelId]);
 
   useEffect(() => {
-    if (!ws.connected || !auth.user) {
-      return;
-    }
-    void drainQueuedVoiceSignals();
-  }, [ws.connected, auth.user, activeVoiceChannelId, voiceBusyChannelId, drainQueuedVoiceSignals]);
-
-  useEffect(() => {
     if (activeChannel?.isVoice) {
       return;
     }
@@ -1507,9 +1241,7 @@ export function ChatPage() {
       setOnlineUsers([]);
       setUnreadChannelCounts({});
       setVoiceParticipantsByChannel({});
-      voiceParticipantIdsByChannelRef.current.clear();
-      queuedVoiceSignalsRef.current = [];
-      drainingVoiceSignalsRef.current = false;
+      resetVoiceSignalingState();
       activeVoiceChannelIdRef.current = null;
       voiceBusyChannelIdRef.current = null;
       setActiveVoiceChannelId(null);
@@ -1537,7 +1269,7 @@ export function ChatPage() {
     return () => {
       disposed = true;
     };
-  }, [auth.token, teardownVoiceTransport]);
+  }, [auth.token, teardownVoiceTransport, resetVoiceSignalingState]);
 
   useEffect(() => {
     if (!auth.token) {
@@ -2023,11 +1755,11 @@ export function ChatPage() {
     if (ws.connected) {
       return;
     }
-    voiceParticipantIdsByChannelRef.current.clear();
+    resetVoiceSignalingState();
     setActiveVoiceChannelId(null);
     setVoiceBusyChannelId(null);
     teardownVoiceTransport();
-  }, [ws.connected, teardownVoiceTransport]);
+  }, [ws.connected, teardownVoiceTransport, resetVoiceSignalingState]);
 
   const { toggleMessageReaction } = useReactionsFeature({
     authToken: auth.token,
@@ -2507,6 +2239,9 @@ export function ChatPage() {
     </ChatPageShell>
   );
 }
+
+
+
 
 
 
