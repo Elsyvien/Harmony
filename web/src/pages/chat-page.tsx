@@ -11,7 +11,7 @@ import { UserProfile } from '../components/user-profile';
 import { UserSidebar } from '../components/user-sidebar';
 import { VoiceChannelPanel } from '../components/voice-channel-panel';
 import { useChatSocket } from '../hooks/use-chat-socket';
-import type { PresenceState, PresenceUser, VoiceParticipant, VoiceStatePayload } from '../hooks/use-chat-socket';
+import type { PresenceUser, VoiceParticipant, VoiceStatePayload } from '../hooks/use-chat-socket';
 import { useUserPreferences } from '../hooks/use-user-preferences';
 import {
   messageSignature,
@@ -23,8 +23,10 @@ import { useChannelMessageLoader } from './chat/hooks/use-channel-message-loader
 import { upsertChannel, useProfileDmFeature } from './chat/hooks/use-profile-dm-feature';
 import { useReactionsFeature } from './chat/hooks/use-reactions-feature';
 import { useRemoteSpeakingActivity } from './chat/hooks/use-remote-speaking-activity';
-import { useAdminFeature } from './chat/hooks/use-admin-feature';
+
 import { useFriendsFeature } from './chat/hooks/use-friends-feature';
+
+import { useChatPresenceFeature } from './chat/hooks/use-chat-presence-feature';
 import {
   DEFAULT_STREAM_QUALITY,
   clampCameraPreset,
@@ -243,7 +245,6 @@ export function ChatPage() {
   const [microphonePermission, setMicrophonePermission] =
     useState<MicrophonePermissionState>('unknown');
   const [requestingMicrophonePermission, setRequestingMicrophonePermission] = useState(false);
-  const [hiddenUnreadCount, setHiddenUnreadCount] = useState(0);
   const {
     adminStats,
     loadingAdminStats,
@@ -289,6 +290,14 @@ export function ChatPage() {
   } = useFriendsFeature({
     authToken: auth.token,
     onNotice: setNotice,
+  });
+  const {    currentPresenceState,
+    setPresenceStateLocal,
+    incrementHiddenUnread,
+  } = useChatPresenceFeature({
+    currentUserId: auth.user?.id ?? null,
+    onlineUsers,
+    setOnlineUsers,
   });
   const previousIncomingRequestCountRef = useRef<number | null>(null);
   const streamStatusBannerTimeoutRef = useRef<number | null>(null);
@@ -1833,7 +1842,7 @@ export function ChatPage() {
         }
       }
       if (document.hidden && !isOwnMessage) {
-        setHiddenUnreadCount((count) => count + 1);
+        incrementHiddenUnread();
       }
       if (message.channelId !== activeChannelId) {
         return;
@@ -1883,7 +1892,7 @@ export function ChatPage() {
       }
       setNotice(`New DM from @${payload.from.username}`);
       if (document.hidden) {
-        setHiddenUnreadCount((count) => count + 1);
+        incrementHiddenUnread();
       }
     },
     onChannelUpdated: (channel) => {
@@ -2000,24 +2009,6 @@ export function ChatPage() {
       signatureSet.clear();
     };
   }, []);
-
-  useEffect(() => {
-    const handleVisibility = () => {
-      if (!document.hidden) {
-        setHiddenUnreadCount(0);
-      }
-    };
-    document.addEventListener('visibilitychange', handleVisibility);
-    window.addEventListener('focus', handleVisibility);
-    return () => {
-      document.removeEventListener('visibilitychange', handleVisibility);
-      window.removeEventListener('focus', handleVisibility);
-    };
-  }, []);
-
-  useEffect(() => {
-    document.title = hiddenUnreadCount > 0 ? `(${hiddenUnreadCount}) Harmony` : 'Harmony';
-  }, [hiddenUnreadCount]);
 
   useEffect(() => {
     void refreshMicrophonePermission();
@@ -2931,28 +2922,11 @@ export function ChatPage() {
   ]
     .filter(Boolean)
     .join(' ');
-  const currentUserId = auth.user?.id ?? '';
-  const currentPresenceState: PresenceState =
-    onlineUsers.find((user) => user.id === currentUserId)?.state ?? 'online';
   const setPresenceState = (nextState: string) => {
-    if (!currentUserId) {
+    const normalizedState = setPresenceStateLocal(nextState);
+    if (!normalizedState) {
       return;
     }
-    const normalizedState: PresenceState =
-      nextState === 'dnd' || nextState === 'idle' ? nextState : 'online';
-    setOnlineUsers((prev) => {
-      const currentUserIndex = prev.findIndex((user) => user.id === currentUserId);
-      if (currentUserIndex < 0) {
-        return prev;
-      }
-      const currentUser = prev[currentUserIndex];
-      if (currentUser.state === normalizedState) {
-        return prev;
-      }
-      const next = [...prev];
-      next[currentUserIndex] = { ...currentUser, state: normalizedState };
-      return next;
-    });
     ws.sendPresence(normalizedState);
   };
 
@@ -3398,4 +3372,7 @@ export function ChatPage() {
     </main>
   );
 }
+
+
+
 
