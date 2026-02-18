@@ -26,7 +26,8 @@ import { useRemoteSpeakingActivity } from './chat/hooks/use-remote-speaking-acti
 
 import { useFriendsFeature } from './chat/hooks/use-friends-feature';
 
-import { useChatPresenceFeature } from './chat/hooks/use-chat-presence-feature';
+
+import { useChannelManagementFeature } from './chat/hooks/use-channel-management-feature';
 import {
   DEFAULT_STREAM_QUALITY,
   clampCameraPreset,
@@ -201,9 +202,6 @@ export function ChatPage() {
   const [notice, setNotice] = useState<string | null>(null);
   const [activeView, setActiveView] = useState<MainView>('chat');
   const [mobilePane, setMobilePane] = useState<MobilePane>('none');
-
-
-  const [deletingChannelId, setDeletingChannelId] = useState<string | null>(null);
   const [unreadChannelCounts, setUnreadChannelCounts] = useState<Record<string, number>>({});
   const [onlineUsers, setOnlineUsers] = useState<PresenceUser[]>([]);
   const [voiceParticipantsByChannel, setVoiceParticipantsByChannel] = useState<
@@ -228,7 +226,6 @@ export function ChatPage() {
   const [voiceIceConfig, setVoiceIceConfig] = useState<RTCConfiguration>(() =>
     createDefaultVoiceIceConfig(),
   );
-  const [savingVoiceSettingsChannelId, setSavingVoiceSettingsChannelId] = useState<string | null>(null);
   const [streamStatusBanner, setStreamStatusBanner] = useState<{
     type: 'error' | 'info';
     message: string;
@@ -418,6 +415,28 @@ export function ChatPage() {
     localStreamSource,
     authUserId: auth.user?.id,
     authUserRole: auth.user?.role,
+  });
+  const {
+    deletingChannelId,
+    savingVoiceSettingsChannelId,
+    createChannel,
+    updateVoiceChannelSettings,
+    uploadAttachment,
+    deleteChannel,
+  } = useChannelManagementFeature({
+    authToken: auth.token,
+    isAdmin: auth.user?.isAdmin,
+    canEditVoiceSettings,
+    activeChannelId,
+    activeVoiceChannelId,
+    leaveVoice: (channelId) => leaveVoiceRef.current(channelId),
+    setChannels,
+    setActiveChannelId,
+    setActiveView,
+    setVoiceParticipantsByChannel,
+    setUnreadChannelCounts,
+    setActiveVoiceChannelId,
+    setError,
   });
 
   const subscribedChannelIds = useMemo(() => channels.map((channel) => channel.id), [channels]);
@@ -2797,97 +2816,6 @@ export function ChatPage() {
     auth.clearAuth();
   };
 
-  const createChannel = async (name: string, type: 'TEXT' | 'VOICE') => {
-    if (!auth.token || !auth.user?.isAdmin) {
-      return;
-    }
-    try {
-      const response = await chatApi.createChannel(auth.token, name, type);
-      setChannels((prev) => {
-        const exists = prev.some((channel) => channel.id === response.channel.id);
-        return exists ? prev : [...prev, response.channel];
-      });
-      setActiveChannelId(response.channel.id);
-      setActiveView('chat');
-      setError(null);
-    } catch (err) {
-      setError(getErrorMessage(err, 'Could not create channel'));
-    }
-  };
-
-  const updateVoiceChannelSettings = async (
-    channelId: string,
-    input: { voiceBitrateKbps?: number; streamBitrateKbps?: number },
-  ) => {
-    if (!auth.token || !canEditVoiceSettings) {
-      return;
-    }
-    setSavingVoiceSettingsChannelId(channelId);
-    try {
-      const response = await chatApi.updateVoiceChannelSettings(auth.token, channelId, input);
-      setChannels((prev) => upsertChannel(prev, response.channel));
-      setError(null);
-    } catch (err) {
-      setError(getErrorMessage(err, 'Could not update voice quality'));
-    } finally {
-      setSavingVoiceSettingsChannelId((current) => (current === channelId ? null : current));
-    }
-  };
-
-  const uploadAttachment = async (file: File) => {
-    if (!auth.token) {
-      throw new Error('Not authenticated');
-    }
-    try {
-      const response = await chatApi.uploadAttachment(auth.token, file);
-      setError(null);
-      return response.attachment;
-    } catch (err) {
-      setError(getErrorMessage(err, 'Could not upload attachment'));
-      throw err;
-    }
-  };
-
-  const deleteChannel = async (channelId: string) => {
-    if (!auth.token || !auth.user?.isAdmin) {
-      return;
-    }
-    setDeletingChannelId(channelId);
-    try {
-      if (activeVoiceChannelId === channelId) {
-        ws.leaveVoice(channelId);
-        setActiveVoiceChannelId(null);
-      }
-      await chatApi.deleteChannel(auth.token, channelId);
-      setChannels((prev) => {
-        const nextChannels = prev.filter((channel) => channel.id !== channelId);
-        if (activeChannelId === channelId) {
-          const fallback = nextChannels.find((channel) => !channel.isDirect) ?? nextChannels[0] ?? null;
-          setActiveChannelId(fallback?.id ?? null);
-        }
-        return nextChannels;
-      });
-      setVoiceParticipantsByChannel((prev) => {
-        const next = { ...prev };
-        delete next[channelId];
-        return next;
-      });
-      setUnreadChannelCounts((prev) => {
-        if (!prev[channelId]) {
-          return prev;
-        }
-        const next = { ...prev };
-        delete next[channelId];
-        return next;
-      });
-      setError(null);
-    } catch (err) {
-      setError(getErrorMessage(err, 'Could not delete channel'));
-    } finally {
-      setDeletingChannelId(null);
-    }
-  };
-
   const panelTitle =
     activeView === 'chat'
       ? activeChannel
@@ -3372,6 +3300,7 @@ export function ChatPage() {
     </main>
   );
 }
+
 
 
 
