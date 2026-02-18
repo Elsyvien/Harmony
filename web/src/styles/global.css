@@ -263,10 +263,10 @@ body.theme-light select optgroup {
   max-width: 420px;
   padding: 34px 32px 28px;
   background: var(--bg-dark);
-  border: 1px solid var(--panel-border);
-  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.4);
+  border: 2px solid var(--panel-border);
+  box-shadow: 6px 6px 0px 0px rgba(0, 0, 0, 0.4);
   color: var(--text-normal);
-  border-radius: var(--radius-soft);
+  border-radius: var(--radius-sharp);
   animation: scaleUp 0.3s ease-out;
   display: grid;
   gap: 14px;
@@ -529,8 +529,19 @@ button {
 }
 
 .name-tag .user-id {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   font-size: 11px;
   color: var(--text-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.name-tag .username {
+  font-size: 13px;
+  color: var(--text-header);
+  font-weight: 600;
+  line-height: 1.1;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -670,14 +681,17 @@ body.theme-light .role-pill {
   justify-content: space-between;
   gap: 12px;
   padding: 10px 14px;
-  border: 1px solid var(--panel-border);
-  border-radius: var(--radius-soft);
+  border: 2px solid var(--panel-border);
+  border-radius: var(--radius-sharp);
   background-color: var(--bg-darker);
-  transition: background-color 0.1s;
+  transition: transform 0.1s;
+  box-shadow: 3px 3px 0px 0px rgba(0, 0, 0, 0.2);
 }
 
 .friend-card:hover {
   background-color: var(--bg-hover);
+  transform: translate(-1px, -1px);
+  box-shadow: 4px 4px 0px 0px rgba(0, 0, 0, 0.3);
 }
 
 .friend-card strong {
@@ -706,9 +720,10 @@ body.theme-light .role-pill {
 
 .setting-card {
   background-color: var(--bg-darker);
-  border: 1px solid var(--panel-border);
-  border-radius: var(--radius-soft);
+  border: 2px solid var(--panel-border);
+  border-radius: var(--radius-sharp);
   padding: 12px;
+  box-shadow: 4px 4px 0px 0px rgba(0, 0, 0, 0.2);
 }
 
 .setting-card h3 {

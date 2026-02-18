@@ -204,3 +204,4 @@ Scope:
 - `web/dist/*` - frontend build output (may exist locally).
 - `web/tsconfig.*.tsbuildinfo` - TypeScript incremental cache files.
 - local `.env` files - environment-specific and not fully tracked in all cases.
+

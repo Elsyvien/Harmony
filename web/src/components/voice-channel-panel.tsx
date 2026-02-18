@@ -127,6 +127,37 @@ function formatStreamBitrateOption(bitrateKbps: number) {
   return `${bitrateKbps} kbps`;
 }
 
+const SignalStrength = ({ quality }: { quality: 'good' | 'fair' | 'bad' | 'pending' }) => {
+  const bars = [
+    { height: 4, opacity: quality === 'pending' ? 0.3 : 1 },
+    { height: 7, opacity: quality === 'bad' || quality === 'pending' ? 0.3 : 1 },
+    { height: 10, opacity: quality === 'bad' || quality === 'fair' || quality === 'pending' ? 0.3 : 1 },
+    { height: 13, opacity: quality !== 'good' ? 0.3 : 1 },
+  ];
+
+  if (quality === 'fair') {
+    bars[1].opacity = 1;
+    bars[2].opacity = 1;
+  }
+
+  return (
+    <svg width="16" height="14" viewBox="0 0 16 14" fill="none" style={{ display: 'block' }}>
+      {bars.map((bar, i) => (
+        <rect
+          key={i}
+          x={1 + i * 4}
+          y={14 - bar.height}
+          width="2.5"
+          height={bar.height}
+          fill="currentColor"
+          fillOpacity={bar.opacity}
+          rx="0.5"
+        />
+      ))}
+    </svg>
+  );
+};
+
 const ScreenShareItem = memo(function ScreenShareItem({
   stream,
   label,
@@ -333,14 +364,14 @@ export function VoiceChannelPanel(props: VoiceChannelPanelProps) {
             disabled={!props.joined}
             onClick={props.onToggleMute}
           >
-            {props.isMuted ? '🔇 Unmute' : '🎤 Mute'}
+            {props.isMuted ? 'Unmute' : 'Mute'}
           </button>
           <button
             className={`voice-action-btn ${props.joined ? 'danger' : 'primary'}`}
             disabled={props.busy || !props.wsConnected}
             onClick={() => props.joined ? void props.onLeave() : void props.onJoin()}
           >
-            {props.busy ? '⌛ ...' : props.joined ? '🚪 Leave' : '🔊 Join Voice'}
+            {props.busy ? '...' : props.joined ? 'Leave' : 'Join Voice'}
           </button>
         </div>
       </header>
@@ -350,11 +381,11 @@ export function VoiceChannelPanel(props: VoiceChannelPanelProps) {
           {props.wsConnected ? '● Connected' : '○ Disconnected'}
         </span>
         <span className="voice-overview-chip">
-          👥 {props.participants.length} Participants
+          Participants ({props.participants.length})
         </span>
         {hasScreenShares && (
           <span className="voice-overview-chip ok">
-            📡 {visibleRemoteScreenShares.length + (hasLocalShare ? 1 : 0)} Live
+            Live ({visibleRemoteScreenShares.length + (hasLocalShare ? 1 : 0)})
           </span>
         )}
         <button 
@@ -362,7 +393,7 @@ export function VoiceChannelPanel(props: VoiceChannelPanelProps) {
           onClick={props.onToggleDetailedStats}
           style={{ cursor: 'pointer' }}
         >
-          📊 Stats
+          Stats
         </button>
       </div>
 
@@ -480,15 +511,14 @@ export function VoiceChannelPanel(props: VoiceChannelPanelProps) {
 
       {props.joined && !hasScreenShares && (
         <div className="voice-stream-empty-state">
-          <div className="voice-stream-empty-icon">📺</div>
           <strong>No one is streaming</strong>
           <p>Share your screen or camera to start a live broadcast in this channel.</p>
           <div className="voice-panel-header-actions" style={{ justifyContent: 'center' }}>
             <button className="voice-action-btn" onClick={() => props.onToggleVideoShare('screen')}>
-              🖥️ Share Screen
+              Share Screen
             </button>
             <button className="voice-action-btn" onClick={() => props.onToggleVideoShare('camera')}>
-              📷 Share Camera
+              Share Camera
             </button>
           </div>
         </div>
@@ -498,15 +528,15 @@ export function VoiceChannelPanel(props: VoiceChannelPanelProps) {
         <div className="voice-panel-header-actions" style={{ justifyContent: 'center', marginTop: 4 }}>
           {hasLocalShare ? (
             <button className="voice-action-btn danger" onClick={() => props.onToggleVideoShare(props.localStreamSource ?? 'screen')}>
-              ⏹️ Stop Sharing
+              Stop Sharing
             </button>
           ) : (
             <>
               <button className="voice-action-btn" onClick={() => props.onToggleVideoShare('screen')}>
-                🖥️ Share Screen
+                Share Screen
               </button>
               <button className="voice-action-btn" onClick={() => props.onToggleVideoShare('camera')}>
-                📷 Share Camera
+                Share Camera
               </button>
             </>
           )}
@@ -556,7 +586,6 @@ export function VoiceChannelPanel(props: VoiceChannelPanelProps) {
           const connState = stats?.connectionState || (props.joined && !isSelf ? 'connecting' : 'new');
           const iceState = stats?.iceConnectionState;
           
-          const signalIcon = '📶';
           let signalClass = 'good';
           if (connState === 'connecting' || connState === 'new' || iceState === 'checking') {
             signalClass = 'pending';
@@ -612,10 +641,18 @@ export function VoiceChannelPanel(props: VoiceChannelPanelProps) {
                   className={`voice-status-icon signal ${signalClass}`} 
                   title={rtt !== undefined && rtt !== null ? `Ping: ${Math.round(rtt)}ms` : 'Signal details unavailable'}
                 >
-                  {signalIcon}
+                  <SignalStrength quality={signalClass as any} />
                 </span>
-                {participant.muted && <span className="voice-status-icon muted">🔇</span>}
-                {participant.deafened && <span className="voice-status-icon deafened">🎧</span>}
+                {participant.muted && (
+                  <span className="voice-status-icon muted">
+                    <svg width="14" height="14" viewBox="0 0 24 24"><path fill="currentColor" d="M16.5 12c0-1.77-1.02-3.29-2.5-4.03v2.21l2.45 2.45c.03-.2.05-.41.05-.63zm2.5 0c0 .94-.2 1.82-.54 2.64l1.51 1.51C20.63 14.91 21 13.5 21 12c0-4.28-2.99-7.86-7-8.77v2.06c2.89.86 5 3.54 5 6.71zM4.27 3L3 4.27 7.73 9H3v6h4l5 5v-6.73l4.25 4.25c-.67.52-1.42.93-2.25 1.18v2.06c1.38-.31 2.63-.95 3.69-1.81L19.73 21 21 19.73l-9-9L4.27 3zM12 4L9.91 6.09 12 8.18V4z"></path></svg>
+                  </span>
+                )}
+                {participant.deafened && (
+                  <span className="voice-status-icon deafened">
+                    <svg width="14" height="14" viewBox="0 0 24 24"><path fill="currentColor" d="M12 3a9 9 0 0 0-9 9v7c0 1.1.9 2 2 2h4v-8H5v-1c0-3.87 3.13-7 7-7s7 3.13 7 7v1h-4v8h4c1.1 0 2-.9 2-2v-7a9 9 0 0 0-9-9z"></path></svg>
+                  </span>
+                )}
               </div>
             </div>
           );
