@@ -37,16 +37,18 @@ describe('stale remote screen shares', () => {
       ['missingSource', null],
       ['endedTrack', 'camera'],
       ['closedPeer', 'screen'],
+      ['keepCamera', 'camera'],
     ]);
     const peerConnectionsByUser = new Map<string, RTCPeerConnection>([
       ['keep', createConnection('connected')],
       ['missingSource', createConnection('connected')],
       ['endedTrack', createConnection('connected')],
       ['closedPeer', createConnection('closed')],
+      ['keepCamera', createConnection('connected')],
     ]);
 
     const stale = getStaleRemoteScreenShareUserIds({
-      remoteScreenShares,
+      remoteScreenShares: { ...remoteScreenShares, keepCamera: createStream('live') },
       remoteVideoSourceByPeer,
       peerConnectionsByUser,
     });
