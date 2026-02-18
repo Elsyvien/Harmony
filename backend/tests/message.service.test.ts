@@ -225,16 +225,16 @@ describe('MessageService', () => {
       channelId: 'known-channel',
       messageId: created.id,
       userId: 'user-2',
-      emoji: 'thumbs_up',
+      emoji: '👍',
     });
     expect(first.reacted).toBe(true);
-    expect(first.message.reactions).toEqual([{ emoji: 'thumbs_up', userIds: ['user-2'] }]);
+    expect(first.message.reactions).toEqual([{ emoji: '👍', userIds: ['user-2'] }]);
 
     const second = await service.toggleReaction({
       channelId: 'known-channel',
       messageId: created.id,
       userId: 'user-2',
-      emoji: 'thumbs_up',
+      emoji: '👍',
     });
     expect(second.reacted).toBe(false);
     expect(second.message.reactions).toEqual([]);
