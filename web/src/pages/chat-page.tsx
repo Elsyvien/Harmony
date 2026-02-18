@@ -24,6 +24,7 @@ import { upsertChannel, useProfileDmFeature } from './chat/hooks/use-profile-dm-
 import { useReactionsFeature } from './chat/hooks/use-reactions-feature';
 import { useRemoteSpeakingActivity } from './chat/hooks/use-remote-speaking-activity';
 import { useAdminFeature } from './chat/hooks/use-admin-feature';
+import { useFriendsFeature } from './chat/hooks/use-friends-feature';
 import {
   DEFAULT_STREAM_QUALITY,
   clampCameraPreset,
@@ -42,8 +43,6 @@ import { useVoiceFeature } from './chat/hooks/use-voice-feature';
 import { useAuth } from '../store/auth-store';
 import type {
   Channel,
-  FriendRequestSummary,
-  FriendSummary,
   Message,
 } from '../types/api';
 import { getErrorMessage } from '../utils/error-message';
@@ -201,13 +200,7 @@ export function ChatPage() {
   const [activeView, setActiveView] = useState<MainView>('chat');
   const [mobilePane, setMobilePane] = useState<MobilePane>('none');
 
-  const [friends, setFriends] = useState<FriendSummary[]>([]);
-  const [incomingRequests, setIncomingRequests] = useState<FriendRequestSummary[]>([]);
-  const [outgoingRequests, setOutgoingRequests] = useState<FriendRequestSummary[]>([]);
-  const [loadingFriends, setLoadingFriends] = useState(false);
-  const [friendsError, setFriendsError] = useState<string | null>(null);
-  const [friendActionBusyId, setFriendActionBusyId] = useState<string | null>(null);
-  const [submittingFriendRequest, setSubmittingFriendRequest] = useState(false);
+
   const [deletingChannelId, setDeletingChannelId] = useState<string | null>(null);
   const [unreadChannelCounts, setUnreadChannelCounts] = useState<Record<string, number>>({});
   const [onlineUsers, setOnlineUsers] = useState<PresenceUser[]>([]);
@@ -276,6 +269,25 @@ export function ChatPage() {
     authToken: auth.token,
     isAdmin: auth.user?.isAdmin,
     currentUserId: auth.user?.id,
+    onNotice: setNotice,
+  });
+  const {
+    friends,
+    incomingRequests,
+    outgoingRequests,
+    loadingFriends,
+    friendsError,
+    friendActionBusyId,
+    submittingFriendRequest,
+    setFriendsError,
+    loadFriendData,
+    sendFriendRequest,
+    acceptFriendRequest,
+    declineFriendRequest,
+    cancelFriendRequest,
+    removeFriend,
+  } = useFriendsFeature({
+    authToken: auth.token,
     onNotice: setNotice,
   });
   const previousIncomingRequestCountRef = useRef<number | null>(null);
@@ -675,26 +687,6 @@ export function ChatPage() {
     setLoadingMessages,
   });
 
-  const loadFriendData = useCallback(async () => {
-    if (!auth.token) {
-      return;
-    }
-    setLoadingFriends(true);
-    try {
-      const [friendsResponse, requestResponse] = await Promise.all([
-        chatApi.friends(auth.token),
-        chatApi.friendRequests(auth.token),
-      ]);
-      setFriends(friendsResponse.friends);
-      setIncomingRequests(requestResponse.incoming);
-      setOutgoingRequests(requestResponse.outgoing);
-      setFriendsError(null);
-    } catch (err) {
-      setFriendsError(getErrorMessage(err, 'Could not load friends'));
-    } finally {
-      setLoadingFriends(false);
-    }
-  }, [auth.token]);
 
   const playIncomingMessageSound = useCallback(() => {
     if (!preferences.playMessageSound) {
@@ -2582,104 +2574,6 @@ export function ChatPage() {
     [applyStreamQualityToStream, localStreamSource],
   );
 
-  const sendFriendRequest = useCallback(
-    async (username: string) => {
-      if (!auth.token) {
-        return false;
-      }
-      const normalizedUsername = username.trim().replace(/^@/, '');
-      if (!normalizedUsername) {
-        return false;
-      }
-      setSubmittingFriendRequest(true);
-      try {
-        await chatApi.sendFriendRequest(auth.token, normalizedUsername);
-        await loadFriendData();
-        setFriendsError(null);
-        setNotice(`Friend request sent to ${normalizedUsername}.`);
-        return true;
-      } catch (err) {
-        setFriendsError(getErrorMessage(err, 'Could not send friend request'));
-        setNotice(null);
-        return false;
-      } finally {
-        setSubmittingFriendRequest(false);
-      }
-    },
-    [auth.token, loadFriendData],
-  );
-
-  const acceptFriendRequest = useCallback(
-    async (requestId: string) => {
-      if (!auth.token) {
-        return;
-      }
-      setFriendActionBusyId(requestId);
-      try {
-        await chatApi.acceptFriendRequest(auth.token, requestId);
-        await loadFriendData();
-      } catch (err) {
-        setFriendsError(getErrorMessage(err, 'Could not accept request'));
-      } finally {
-        setFriendActionBusyId(null);
-      }
-    },
-    [auth.token, loadFriendData],
-  );
-
-  const declineFriendRequest = useCallback(
-    async (requestId: string) => {
-      if (!auth.token) {
-        return;
-      }
-      setFriendActionBusyId(requestId);
-      try {
-        await chatApi.declineFriendRequest(auth.token, requestId);
-        await loadFriendData();
-      } catch (err) {
-        setFriendsError(getErrorMessage(err, 'Could not decline request'));
-      } finally {
-        setFriendActionBusyId(null);
-      }
-    },
-    [auth.token, loadFriendData],
-  );
-
-  const cancelFriendRequest = useCallback(
-    async (requestId: string) => {
-      if (!auth.token) {
-        return;
-      }
-      setFriendActionBusyId(requestId);
-      try {
-        await chatApi.cancelFriendRequest(auth.token, requestId);
-        await loadFriendData();
-      } catch (err) {
-        setFriendsError(getErrorMessage(err, 'Could not cancel request'));
-      } finally {
-        setFriendActionBusyId(null);
-      }
-    },
-    [auth.token, loadFriendData],
-  );
-
-  const removeFriend = useCallback(
-    async (friendshipId: string) => {
-      if (!auth.token) {
-        return;
-      }
-      setFriendActionBusyId(friendshipId);
-      try {
-        await chatApi.removeFriend(auth.token, friendshipId);
-        await loadFriendData();
-      } catch (err) {
-        setFriendsError(getErrorMessage(err, 'Could not remove friend'));
-      } finally {
-        setFriendActionBusyId(null);
-      }
-    },
-    [auth.token, loadFriendData],
-  );
 
   const joinVoiceChannel = useCallback(
     async (channelId: string) => {
@@ -3504,3 +3398,4 @@ export function ChatPage() {
     </main>
   );
 }
+
