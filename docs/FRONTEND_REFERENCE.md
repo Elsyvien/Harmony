@@ -63,6 +63,7 @@ Public API:
 - Adds JSON `Content-Type` automatically unless body is `FormData`.
 - Adds `Authorization: Bearer <token>` when token provided.
 - On non-OK responses, parses API error payload.
+- Retries idempotent requests (`GET`/`HEAD`/`OPTIONS`) up to 3 attempts for `429`, `502`, `503`, and `504`, honoring `Retry-After` when present.
 - On `401` with token, clears auth localStorage and redirects to `/login`.
 
 ### `chatApi` (`web/src/api/chat-api.ts`)
@@ -180,8 +181,8 @@ Responsibilities:
 ### Realtime and fallback strategy
 
 - Uses `useChatSocket` for live events.
-- Polls active channel messages every 5 seconds when socket is disconnected.
-- Admin and friends views use interval refresh while active.
+- Polls active channel messages on a non-overlapping ~5s loop (with small jitter) when socket is disconnected.
+- Admin and friends views use non-overlapping refresh loops while active.
 
 ### Voice workflow summary
 
@@ -335,4 +336,3 @@ When changing frontend behavior:
 3. Update `use-chat-socket` parser for new socket events.
 4. Verify fallback polling path still covers non-realtime operation.
 5. Update docs (`docs/FRONTEND_REFERENCE.md` and `docs/API.md` if contract changed).
-

@@ -29,6 +29,63 @@ type UseChatPageEffectsOptions = {
   messageSearchInputRef: RefObject<HTMLInputElement | null>;
 };
 
+type PollingLoopOptions = {
+  task: () => Promise<void>;
+  intervalMs: number;
+  immediate?: boolean;
+  jitterMs?: number;
+};
+
+function startPollingLoop({
+  task,
+  intervalMs,
+  immediate = false,
+  jitterMs = 0,
+}: PollingLoopOptions): () => void {
+  let disposed = false;
+  let timeoutId: number | null = null;
+  let inFlight = false;
+
+  const scheduleNext = () => {
+    if (disposed) {
+      return;
+    }
+    const jitter = jitterMs > 0 ? Math.floor(Math.random() * jitterMs) : 0;
+    timeoutId = window.setTimeout(() => {
+      void runTask();
+    }, intervalMs + jitter);
+  };
+
+  const runTask = async () => {
+    if (disposed || inFlight) {
+      return;
+    }
+    inFlight = true;
+    try {
+      await task();
+    } catch {
+      // Best-effort polling. Errors are already surfaced by each feature loader.
+    } finally {
+      inFlight = false;
+      scheduleNext();
+    }
+  };
+
+  if (immediate) {
+    void runTask();
+  } else {
+    scheduleNext();
+  }
+
+  return () => {
+    disposed = true;
+    if (timeoutId !== null) {
+      window.clearTimeout(timeoutId);
+      timeoutId = null;
+    }
+  };
+}
+
 export function useChatPageEffects({
   notice,
   setNotice,
@@ -102,41 +159,44 @@ export function useChatPageEffects({
     if (activeView !== 'admin' || !isAdminUser) {
       return;
     }
-    void loadAdminStats();
-    void loadAdminSettings();
-    void loadAdminUsers();
-    const interval = window.setInterval(() => {
-      void loadAdminStats();
-      void loadAdminSettings();
-      void loadAdminUsers();
-    }, 5000);
-    return () => {
-      window.clearInterval(interval);
-    };
+
+    return startPollingLoop({
+      intervalMs: 5000,
+      jitterMs: 500,
+      immediate: true,
+      task: async () => {
+        await Promise.allSettled([loadAdminStats(), loadAdminSettings(), loadAdminUsers()]);
+      },
+    });
   }, [activeView, isAdminUser, loadAdminStats, loadAdminSettings, loadAdminUsers]);
 
   useEffect(() => {
     if (activeView !== 'friends' || !authToken) {
       return;
     }
-    const interval = window.setInterval(() => {
-      void loadFriendData();
-    }, 8000);
-    return () => {
-      window.clearInterval(interval);
-    };
+
+    return startPollingLoop({
+      intervalMs: 8000,
+      jitterMs: 1200,
+      task: async () => {
+        await loadFriendData();
+      },
+    });
   }, [activeView, authToken, loadFriendData]);
 
   useEffect(() => {
     if (!authToken || !activeChannelId || wsConnected) {
       return;
     }
-    const interval = window.setInterval(() => {
-      void loadMessages(activeChannelId);
-    }, 5000);
-    return () => {
-      window.clearInterval(interval);
-    };
+
+    return startPollingLoop({
+      intervalMs: 5000,
+      jitterMs: 600,
+      immediate: true,
+      task: async () => {
+        await loadMessages(activeChannelId);
+      },
+    });
   }, [authToken, activeChannelId, loadMessages, wsConnected]);
 
   useEffect(() => {

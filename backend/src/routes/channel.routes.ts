@@ -46,6 +46,9 @@ export const channelRoutes: FastifyPluginAsync<ChannelRoutesOptions> = async (fa
     '/channels',
     {
       preHandler: [authPreHandler],
+      config: {
+        rateLimit: { max: 120, timeWindow: 60_000 },
+      },
     },
     async (request) => {
       const channels = await options.channelService.listChannels(request.user.userId);
@@ -194,6 +197,9 @@ export const channelRoutes: FastifyPluginAsync<ChannelRoutesOptions> = async (fa
     '/channels/:id/messages',
     {
       preHandler: [authPreHandler],
+      config: {
+        rateLimit: { max: 120, timeWindow: 60_000 },
+      },
     },
     async (request) => {
       const { id: channelId } = channelIdParamsSchema.parse(request.params);

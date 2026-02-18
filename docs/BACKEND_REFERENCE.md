@@ -118,13 +118,13 @@ Auth prehandler for this group:
 
 | Method | Path | Role | Rate Limit | Request Schema | Response |
 |---|---|---|---|---|---|
-| `GET` | `/channels` | user | global | none | `{ channels }` |
+| `GET` | `/channels` | user | `120/min` | none | `{ channels }` |
 | `POST` | `/uploads` | user | `30/min` | multipart file | `201 { attachment }` |
 | `POST` | `/channels` | admin | `10/min` | `createChannelBodySchema` | `201 { channel }` |
 | `DELETE` | `/channels/:id` | admin | `20/min` | `channelIdParamsSchema` | `{ deletedChannelId }` |
 | `PATCH` | `/channels/:id/voice-settings` | admin | `30/min` | params + `updateVoiceSettingsBodySchema` | `{ channel }` |
 | `POST` | `/channels/direct/:userId` | user | `30/min` | `directChannelParamsSchema` | `{ channel }` |
-| `GET` | `/channels/:id/messages` | user | global | params + `listMessagesQuerySchema` | `{ messages }` |
+| `GET` | `/channels/:id/messages` | user | `120/min` | params + `listMessagesQuerySchema` | `{ messages }` |
 | `POST` | `/channels/:id/messages` | user | `30/min` | params + `createMessageBodySchema` | `201 { message }` |
 | `PATCH` | `/channels/:id/messages/:messageId` | user/owner/admin | `30/min` | params + `updateMessageBodySchema` | `{ message }` |
 | `DELETE` | `/channels/:id/messages/:messageId` | user/owner/admin | `30/min` | params | `{ message }` |
