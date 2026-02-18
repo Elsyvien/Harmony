@@ -166,6 +166,7 @@ Open returned URL and navigate to `index.html`.
 3. Configure persistent uploads strategy if local filesystem is ephemeral.
 4. Use proper DB migration workflow for production (see Prisma migrate commands).
 5. Verify CORS and WebSocket endpoints match frontend env.
+6. Keep Fastify proxy-aware (`trustProxy`) behind managed platforms/load balancers so per-IP rate limiting uses real client IPs.
 
 ## Operational Checks
 

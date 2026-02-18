@@ -47,6 +47,7 @@ export async function buildApp() {
   );
 
   const app = Fastify({
+    trustProxy: true,
     logger: {
       level: env.NODE_ENV === 'development' ? 'debug' : 'info',
       redact: ['req.headers.authorization', 'req.body.password', 'req.body.token'],

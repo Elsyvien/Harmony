@@ -1237,22 +1237,29 @@ export function ChatPage() {
   }, []);
 
   useEffect(() => {
+    if (auth.token) {
+      return;
+    }
+    setOnlineUsers([]);
+    setUnreadChannelCounts({});
+    setVoiceParticipantsByChannel({});
+    resetVoiceSignalingState();
+    activeVoiceChannelIdRef.current = null;
+    voiceBusyChannelIdRef.current = null;
+    setActiveVoiceChannelId(null);
+    setVoiceBusyChannelId(null);
+    teardownVoiceTransport();
+  }, [auth.token, teardownVoiceTransport, resetVoiceSignalingState]);
+
+  useEffect(() => {
     if (!auth.token) {
-      setOnlineUsers([]);
-      setUnreadChannelCounts({});
-      setVoiceParticipantsByChannel({});
-      resetVoiceSignalingState();
-      activeVoiceChannelIdRef.current = null;
-      voiceBusyChannelIdRef.current = null;
-      setActiveVoiceChannelId(null);
-      setVoiceBusyChannelId(null);
-      teardownVoiceTransport();
       return;
     }
     let disposed = false;
+    const token = auth.token;
     const load = async () => {
       try {
-        const response = await chatApi.channels(auth.token as string);
+        const response = await chatApi.channels(token);
         if (disposed) {
           return;
         }
@@ -1269,7 +1276,7 @@ export function ChatPage() {
     return () => {
       disposed = true;
     };
-  }, [auth.token, teardownVoiceTransport, resetVoiceSignalingState]);
+  }, [auth.token]);
 
   useEffect(() => {
     if (!auth.token) {
