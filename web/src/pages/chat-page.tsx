@@ -23,6 +23,7 @@ import { useFriendsFeature } from './chat/hooks/use-friends-feature';
 import { useChatPresenceFeature } from './chat/hooks/use-chat-presence-feature';
 import { useChannelManagementFeature } from './chat/hooks/use-channel-management-feature';
 import { useChatPageEffects } from './chat/hooks/use-chat-page-effects';
+import { usePeerConnectionManager } from './chat/hooks/use-peer-connection-manager';
 import {
   DEFAULT_STREAM_QUALITY,
   clampCameraPreset,
@@ -310,15 +311,6 @@ export function ChatPage() {
   const remoteAudioGainByUserRef = useRef<Map<string, GainNode>>(new Map());
   const remoteAudioElementByUserRef = useRef<Map<string, HTMLAudioElement>>(new Map());
   const localVoiceInputDeviceIdRef = useRef<string | null>(null);
-  const peerConnectionsRef = useRef<Map<string, RTCPeerConnection>>(new Map());
-  const videoSenderByPeerRef = useRef<Map<string, RTCRtpSender>>(new Map());
-  const pendingVideoRenegotiationByPeerRef = useRef<Set<string>>(new Set());
-  const makingOfferByPeerRef = useRef<Map<string, boolean>>(new Map());
-  const ignoreOfferByPeerRef = useRef<Map<string, boolean>>(new Map());
-  const remoteVideoSourceByPeerRef = useRef<Map<string, StreamSource | null>>(new Map());
-  const remoteVideoStreamByPeerRef = useRef<Map<string, MediaStream>>(new Map());
-  const pendingIceRef = useRef<Map<string, RTCIceCandidateInit[]>>(new Map());
-  const disconnectTimeoutByPeerRef = useRef<Map<string, number>>(new Map());
   const previousRtpSnapshotsRef = useRef<Map<string, { bytes: number; timestamp: number }>>(new Map());
   const voiceParticipantIdsByChannelRef = useRef<Map<string, Set<string>>>(new Map());
   const activeVoiceChannelIdRef = useRef<string | null>(null);
@@ -326,6 +318,8 @@ export function ChatPage() {
   const queuedVoiceSignalsRef = useRef<Array<{ channelId: string; fromUserId: string; data: VoiceSignalData }>>([]);
   const drainingVoiceSignalsRef = useRef(false);
   const localVoiceAcquirePromiseRef = useRef<Promise<MediaStream> | null>(null);
+  const getLocalVoiceStreamRef = useRef((() => Promise.reject(new Error('Voice stream not ready'))) as () => Promise<MediaStream>);
+  const disconnectRemoteAudioForUserRef = useRef((() => undefined) as (userId: string) => void);
   const voiceTransportEpochRef = useRef(0);
   const voiceDebugEnabledRef = useRef(false);
   const sendVoiceSignalRef = useRef((() => false) as (channelId: string, targetUserId: string, data: unknown) => boolean);
@@ -617,6 +611,7 @@ export function ChatPage() {
     nextStats.sort((a, b) => a.username.localeCompare(b.username));
     setVoiceConnectionStats(nextStats);
     setVoiceStatsUpdatedAt(Date.now());
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [computeKbpsFromSnapshot, joinedVoiceParticipants]);
 
   const activeRemoteAudioUsers = useMemo(() => {
@@ -830,84 +825,107 @@ export function ChatPage() {
     muteStateBeforeDeafenRef.current = null;
   }, [isSelfDeafened, isSelfMuted]);
 
-  const closePeerConnection = useCallback((peerUserId: string) => {
-    const disconnectTimeout = disconnectTimeoutByPeerRef.current.get(peerUserId);
-    if (disconnectTimeout) {
-      window.clearTimeout(disconnectTimeout);
-      disconnectTimeoutByPeerRef.current.delete(peerUserId);
-    }
-    const connection = peerConnectionsRef.current.get(peerUserId);
-    if (connection) {
-      connection.onicecandidate = null;
-      connection.ontrack = null;
-      connection.onsignalingstatechange = null;
-      connection.onconnectionstatechange = null;
-      connection.close();
-      peerConnectionsRef.current.delete(peerUserId);
-    }
-    videoSenderByPeerRef.current.delete(peerUserId);
-    pendingVideoRenegotiationByPeerRef.current.delete(peerUserId);
-    makingOfferByPeerRef.current.delete(peerUserId);
-    ignoreOfferByPeerRef.current.delete(peerUserId);
-    remoteVideoSourceByPeerRef.current.delete(peerUserId);
-    setRemoteAdvertisedVideoSourceByPeer((prev) => {
-      if (!(peerUserId in prev)) {
-        return prev;
-      }
-      const next = { ...prev };
-      delete next[peerUserId];
-      return next;
-    });
-    remoteVideoStreamByPeerRef.current.delete(peerUserId);
-    pendingIceRef.current.delete(peerUserId);
-    const remoteAudioSource = remoteAudioSourceByUserRef.current.get(peerUserId);
-    if (remoteAudioSource) {
-      remoteAudioSource.disconnect();
-      remoteAudioSourceByUserRef.current.delete(peerUserId);
-    }
-    const remoteAudioGain = remoteAudioGainByUserRef.current.get(peerUserId);
-    if (remoteAudioGain) {
-      remoteAudioGain.disconnect();
-      remoteAudioGainByUserRef.current.delete(peerUserId);
-    }
-    remoteAudioElementByUserRef.current.delete(peerUserId);
-    setRemoteAudioStreams((prev) => {
-      if (!prev[peerUserId]) {
-        return prev;
-      }
-      const next = { ...prev };
-      delete next[peerUserId];
-      return next;
-    });
-    setRemoteScreenShares((prev) => {
-      if (!prev[peerUserId]) {
-        return prev;
-      }
-      const next = { ...prev };
-      delete next[peerUserId];
-      return next;
-    });
-  }, []);
+  const sendVoiceSignal = useCallback(
+    (channelId: string, targetUserId: string, data: VoiceSignalData) =>
+      sendVoiceSignalRef.current(channelId, targetUserId, data),
+    [],
+  );
+
+  const {
+    peerConnectionsRef,
+    videoSenderByPeerRef,
+    pendingVideoRenegotiationByPeerRef,
+    remoteVideoSourceByPeerRef,
+    remoteVideoStreamByPeerRef,
+    pendingIceRef,
+    flushPendingIceCandidates,
+    closePeerConnection,
+    ensurePeerConnection,
+    createOfferForPeer,
+    replaceAudioTrackAcrossPeers,
+    applyVideoBitrateToConnection,
+    applyAudioBitrateToAllConnections,
+    applyVideoBitrateToAllConnections,
+    getOrCreateVideoSender,
+    clearPeerConnections,
+  } = usePeerConnectionManager({
+    authUserId: auth.user?.id ?? null,
+    activeVoiceBitrateKbps,
+    activeStreamBitrateKbps,
+    voiceIceConfig,
+    hasTurnRelayConfigured,
+    localStreamSource,
+    localScreenStreamRef,
+    activeVoiceChannelIdRef,
+    getLocalVoiceStream: () => getLocalVoiceStreamRef.current(),
+    sendVoiceSignal,
+    onRemoteAudioStream: (peerUserId, stream) => {
+      setRemoteAudioStreams((prev) => {
+        if (!stream) {
+          if (!prev[peerUserId]) {
+            return prev;
+          }
+          const next = { ...prev };
+          delete next[peerUserId];
+          return next;
+        }
+        return {
+          ...prev,
+          [peerUserId]: stream,
+        };
+      });
+    },
+    onRemoteScreenShareStream: (peerUserId, stream) => {
+      setRemoteScreenShares((prev) => {
+        if (!stream) {
+          if (!prev[peerUserId]) {
+            return prev;
+          }
+          const next = { ...prev };
+          delete next[peerUserId];
+          return next;
+        }
+        return {
+          ...prev,
+          [peerUserId]: stream,
+        };
+      });
+    },
+    onRemoteAdvertisedVideoSource: (peerUserId, source) => {
+      setRemoteAdvertisedVideoSourceByPeer((prev) => {
+        if (source === null) {
+          if (!(peerUserId in prev)) {
+            return prev;
+          }
+          const next = { ...prev };
+          delete next[peerUserId];
+          return next;
+        }
+        if (prev[peerUserId] === source) {
+          return prev;
+        }
+        return {
+          ...prev,
+          [peerUserId]: source,
+        };
+      });
+    },
+    onDisconnectRemoteAudio: (peerUserId) => {
+      disconnectRemoteAudioForUserRef.current(peerUserId);
+    },
+    onConnectionFailureWithoutTurn: () => {
+      setError(
+        'Voice P2P connection failed (no TURN configured). This usually happens on strict/mobile/company NAT networks.',
+      );
+    },
+    logVoiceDebug,
+  });
 
   const teardownVoiceTransport = useCallback(() => {
     voiceTransportEpochRef.current += 1;
     localVoiceAcquirePromiseRef.current = null;
-    for (const peerUserId of peerConnectionsRef.current.keys()) {
-      closePeerConnection(peerUserId);
-    }
-    peerConnectionsRef.current.clear();
-    videoSenderByPeerRef.current.clear();
-    pendingVideoRenegotiationByPeerRef.current.clear();
-    makingOfferByPeerRef.current.clear();
-    ignoreOfferByPeerRef.current.clear();
-    remoteVideoSourceByPeerRef.current.clear();
+    clearPeerConnections();
     setRemoteAdvertisedVideoSourceByPeer({});
-    remoteVideoStreamByPeerRef.current.clear();
-    pendingIceRef.current.clear();
-    for (const timeoutId of disconnectTimeoutByPeerRef.current.values()) {
-      window.clearTimeout(timeoutId);
-    }
-    disconnectTimeoutByPeerRef.current.clear();
     if (localVoiceStreamRef.current) {
       for (const track of localVoiceStreamRef.current.getTracks()) {
         track.stop();
@@ -958,7 +976,7 @@ export function ChatPage() {
       void remoteAudioContextRef.current.close();
       remoteAudioContextRef.current = null;
     }
-  }, [closePeerConnection]);
+  }, [clearPeerConnections]);
 
   const resetLocalAnalyser = useCallback(() => {
     if (localAnalyserSourceRef.current) {
@@ -1000,6 +1018,10 @@ export function ChatPage() {
     }
     remoteAudioElementByUserRef.current.delete(userId);
   }, []);
+
+  useEffect(() => {
+    disconnectRemoteAudioForUserRef.current = disconnectRemoteAudioForUser;
+  }, [disconnectRemoteAudioForUser]);
 
   const applyRemoteAudioGain = useCallback(
     (userId: string, element: HTMLAudioElement, gainValue: number) => {
@@ -1066,7 +1088,7 @@ export function ChatPage() {
       }
       return changed ? next : prev;
     });
-  }, [remoteScreenShares]);
+  }, [remoteScreenShares, peerConnectionsRef, remoteVideoSourceByPeerRef]);
 
   const initLocalAnalyser = useCallback((stream: MediaStream) => {
     const AudioContextClass =
@@ -1090,21 +1112,6 @@ export function ChatPage() {
     localAnalyserSourceRef.current = source;
     localAnalyserRef.current = analyser;
   }, [resetLocalAnalyser]);
-
-  const replaceAudioTrackAcrossPeers = useCallback(async (audioTrack: MediaStreamTrack) => {
-    for (const connection of peerConnectionsRef.current.values()) {
-      for (const sender of connection.getSenders()) {
-        if (sender.track?.kind !== 'audio') {
-          continue;
-        }
-        try {
-          await sender.replaceTrack(audioTrack);
-        } catch {
-          // Ignore replacement errors; next renegotiation can recover.
-        }
-      }
-    }
-  }, []);
 
   const requestMicrophoneStream = useCallback(async () => {
     if (!navigator.mediaDevices?.getUserMedia) {
@@ -1245,311 +1252,9 @@ export function ChatPage() {
     requestMicrophoneStream,
   ]);
 
-  const applyAudioBitrateToConnection = useCallback(
-    async (connection: RTCPeerConnection, bitrateKbps: number) => {
-      const bitrateBps = Math.max(8, bitrateKbps) * 1000;
-      for (const sender of connection.getSenders()) {
-        if (!sender.track || sender.track.kind !== 'audio') {
-          continue;
-        }
-        try {
-          const parameters = sender.getParameters();
-          const existingEncodings =
-            parameters.encodings && parameters.encodings.length > 0
-              ? parameters.encodings
-              : [{}];
-          parameters.encodings = existingEncodings.map((encoding) => ({
-            ...encoding,
-            maxBitrate: bitrateBps,
-          }));
-          await sender.setParameters(parameters);
-        } catch {
-          // Browser may not allow dynamic sender parameter updates.
-        }
-      }
-    },
-    [],
-  );
-
-  const applyVideoBitrateToConnection = useCallback(
-    async (connection: RTCPeerConnection, bitrateKbps: number) => {
-      const bitrateBps = Math.max(128, bitrateKbps) * 1000;
-      for (const sender of connection.getSenders()) {
-        if (!sender.track || sender.track.kind !== 'video') {
-          continue;
-        }
-        try {
-          const parameters = sender.getParameters();
-          const existingEncodings =
-            parameters.encodings && parameters.encodings.length > 0
-              ? parameters.encodings
-              : [{}];
-          parameters.encodings = existingEncodings.map((encoding) => ({
-            ...encoding,
-            maxBitrate: bitrateBps,
-          }));
-          await sender.setParameters(parameters);
-        } catch {
-          // Browser may not allow dynamic sender parameter updates.
-        }
-      }
-    },
-    [],
-  );
-
-  const getOrCreateVideoSender = useCallback((connection: RTCPeerConnection) => {
-    const fromVideoTransceiver = connection
-      .getTransceivers()
-      .find((transceiver) => transceiver.receiver.track?.kind === 'video')
-      ?.sender;
-    if (fromVideoTransceiver) {
-      return fromVideoTransceiver;
-    }
-
-    const existingVideoSender =
-      connection.getSenders().find((candidate) => candidate.track?.kind === 'video') ?? null;
-    if (existingVideoSender) {
-      return existingVideoSender;
-    }
-
-    return connection.addTransceiver('video', { direction: 'sendrecv' }).sender;
-  }, []);
-
-  const flushPendingIceCandidates = useCallback(async (peerUserId: string, connection: RTCPeerConnection) => {
-    const queued = pendingIceRef.current.get(peerUserId);
-    if (!queued?.length || !connection.remoteDescription) {
-      return;
-    }
-    pendingIceRef.current.delete(peerUserId);
-    for (const candidate of queued) {
-      try {
-        await connection.addIceCandidate(candidate);
-      } catch {
-        // Ignore invalid/stale ICE candidates.
-      }
-    }
-  }, []);
-
-  const ensurePeerConnection = useCallback(
-    async (peerUserId: string, channelId: string) => {
-      const existing = peerConnectionsRef.current.get(peerUserId);
-      if (existing) {
-        logVoiceDebug('peer_connection_reuse', { peerUserId, channelId });
-        return existing;
-      }
-
-      const stream = await getLocalVoiceStream();
-      const connection = new RTCPeerConnection({
-        ...voiceIceConfig,
-      });
-      logVoiceDebug('peer_connection_create', {
-        peerUserId,
-        channelId,
-        hasTurnRelayConfigured,
-        iceTransportPolicy: voiceIceConfig.iceTransportPolicy ?? 'all',
-      });
-
-      for (const track of stream.getTracks()) {
-        connection.addTrack(track, stream);
-      }
-      const videoSender = getOrCreateVideoSender(connection);
-      videoSenderByPeerRef.current.set(peerUserId, videoSender);
-      const localVideoTrack = localScreenStreamRef.current?.getVideoTracks()[0] ?? null;
-      if (localVideoTrack) {
-        try {
-          await videoSender.replaceTrack(localVideoTrack);
-        } catch {
-          // Keep empty sender and continue. Next renegotiation can recover.
-        }
-      }
-      await applyAudioBitrateToConnection(connection, activeVoiceBitrateKbps);
-      await applyVideoBitrateToConnection(connection, activeStreamBitrateKbps);
-
-      connection.onicecandidate = (event) => {
-        if (!event.candidate) {
-          return;
-        }
-        sendVoiceSignalRef.current(channelId, peerUserId, {
-          kind: 'ice',
-          candidate: event.candidate.toJSON(),
-        } satisfies VoiceSignalData);
-      };
-
-      sendVoiceSignalRef.current(channelId, peerUserId, {
-        kind: 'video-source',
-        source: localStreamSource,
-      } satisfies VoiceSignalData);
-
-      connection.ontrack = (event) => {
-        const streamFromTrack = event.streams[0] ?? new MediaStream([event.track]);
-        if (event.track.kind === 'audio') {
-          setRemoteAudioStreams((prev) => ({
-            ...prev,
-            [peerUserId]: streamFromTrack,
-          }));
-        } else if (event.track.kind === 'video') {
-          remoteVideoStreamByPeerRef.current.set(peerUserId, streamFromTrack);
-          const setRemoteVideoVisible = () => {
-            const currentSource = remoteVideoSourceByPeerRef.current.get(peerUserId) ?? null;
-            if (currentSource === null) {
-              return;
-            }
-            setRemoteScreenShares((prev) => ({
-              ...prev,
-              [peerUserId]: streamFromTrack,
-            }));
-          };
-          const clearRemoteVideo = () => {
-            setRemoteScreenShares((prev) => {
-              if (!prev[peerUserId]) {
-                return prev;
-              }
-              const next = { ...prev };
-              delete next[peerUserId];
-              return next;
-            });
-          };
-          setRemoteVideoVisible();
-          event.track.onmute = clearRemoteVideo;
-          event.track.onunmute = setRemoteVideoVisible;
-          event.track.onended = () => {
-            remoteVideoStreamByPeerRef.current.delete(peerUserId);
-            clearRemoteVideo();
-          };
-        }
-      };
-
-      connection.onsignalingstatechange = () => {
-        if (connection.signalingState !== 'stable') {
-          return;
-        }
-        if (!pendingVideoRenegotiationByPeerRef.current.has(peerUserId)) {
-          return;
-        }
-        const activeChannelId = activeVoiceChannelIdRef.current;
-        if (!activeChannelId) {
-          pendingVideoRenegotiationByPeerRef.current.delete(peerUserId);
-          return;
-        }
-        pendingVideoRenegotiationByPeerRef.current.delete(peerUserId);
-        void createOfferForPeerRef.current(peerUserId, activeChannelId);
-      };
-
-      connection.onconnectionstatechange = () => {
-        const existingDisconnectTimeout = disconnectTimeoutByPeerRef.current.get(peerUserId);
-        if (existingDisconnectTimeout && connection.connectionState !== 'disconnected') {
-          window.clearTimeout(existingDisconnectTimeout);
-          disconnectTimeoutByPeerRef.current.delete(peerUserId);
-        }
-        logVoiceDebug('peer_connection_state', {
-          peerUserId,
-          channelId,
-          connectionState: connection.connectionState,
-          iceConnectionState: connection.iceConnectionState,
-          signalingState: connection.signalingState,
-        });
-        if (connection.connectionState === 'closed') {
-          closePeerConnection(peerUserId);
-          return;
-        }
-        if (connection.connectionState === 'failed') {
-          if (!hasTurnRelayConfigured) {
-            setError(
-              'Voice P2P connection failed (no TURN configured). This usually happens on strict/mobile/company NAT networks.',
-            );
-          }
-          const activeChannelId = activeVoiceChannelIdRef.current;
-          if (activeChannelId) {
-            sendVoiceSignalRef.current(activeChannelId, peerUserId, { kind: 'renegotiate' } satisfies VoiceSignalData);
-          }
-          closePeerConnection(peerUserId);
-          if (activeChannelId) {
-            void createOfferForPeerRef.current(peerUserId, activeChannelId);
-          }
-          return;
-        }
-
-        if (connection.connectionState === 'disconnected') {
-          if (disconnectTimeoutByPeerRef.current.has(peerUserId)) {
-            return;
-          }
-          const timeoutId = window.setTimeout(() => {
-            disconnectTimeoutByPeerRef.current.delete(peerUserId);
-            const activeChannelId = activeVoiceChannelIdRef.current;
-            if (!activeChannelId) {
-              closePeerConnection(peerUserId);
-              return;
-            }
-            sendVoiceSignalRef.current(activeChannelId, peerUserId, { kind: 'renegotiate' } satisfies VoiceSignalData);
-            closePeerConnection(peerUserId);
-            void createOfferForPeerRef.current(peerUserId, activeChannelId);
-          }, 3500);
-          disconnectTimeoutByPeerRef.current.set(peerUserId, timeoutId);
-        }
-      };
-
-      peerConnectionsRef.current.set(peerUserId, connection);
-      return connection;
-    },
-    [
-      applyAudioBitrateToConnection,
-      applyVideoBitrateToConnection,
-      closePeerConnection,
-      getLocalVoiceStream,
-      activeVoiceBitrateKbps,
-      activeStreamBitrateKbps,
-      getOrCreateVideoSender,
-      localStreamSource,
-      voiceIceConfig,
-      hasTurnRelayConfigured,
-      logVoiceDebug,
-    ],
-  );
-
-  const createOfferForPeer = useCallback(
-    async (peerUserId: string, channelId: string) => {
-      if (!auth.user) {
-        return;
-      }
-      if (!shouldInitiateOffer(auth.user.id, peerUserId)) {
-        sendVoiceSignalRef.current(channelId, peerUserId, { kind: 'renegotiate' } satisfies VoiceSignalData);
-        return;
-      }
-      const connection = await ensurePeerConnection(peerUserId, channelId);
-      if (makingOfferByPeerRef.current.get(peerUserId)) {
-        pendingVideoRenegotiationByPeerRef.current.add(peerUserId);
-        return;
-      }
-      if (connection.signalingState !== 'stable') {
-        pendingVideoRenegotiationByPeerRef.current.add(peerUserId);
-        return;
-      }
-      pendingVideoRenegotiationByPeerRef.current.delete(peerUserId);
-      makingOfferByPeerRef.current.set(peerUserId, true);
-      try {
-        const offer = await connection.createOffer();
-        if (connection.signalingState !== 'stable') {
-          pendingVideoRenegotiationByPeerRef.current.add(peerUserId);
-          return;
-        }
-        await connection.setLocalDescription(offer);
-        const localDescription = connection.localDescription;
-        if (!localDescription || localDescription.type !== 'offer') {
-          pendingVideoRenegotiationByPeerRef.current.add(peerUserId);
-          return;
-        }
-        sendVoiceSignalRef.current(channelId, peerUserId, {
-          kind: 'offer',
-          sdp: localDescription,
-        } satisfies VoiceSignalData);
-      } catch {
-        pendingVideoRenegotiationByPeerRef.current.add(peerUserId);
-      } finally {
-        makingOfferByPeerRef.current.delete(peerUserId);
-      }
-    },
-    [auth.user, ensurePeerConnection],
-  );
+  useEffect(() => {
+    getLocalVoiceStreamRef.current = getLocalVoiceStream;
+  }, [getLocalVoiceStream]);
 
   const canProcessVoiceSignalsForChannel = useCallback((channelId: string) => {
     const activeVoiceChannelId = activeVoiceChannelIdRef.current;
@@ -1696,7 +1401,7 @@ export function ChatPage() {
       }
       await flushPendingIceCandidates(payload.fromUserId, connection);
     },
-    [auth.user, closePeerConnection, ensurePeerConnection, flushPendingIceCandidates],
+    [auth.user, closePeerConnection, ensurePeerConnection, flushPendingIceCandidates, peerConnectionsRef, pendingIceRef, pendingVideoRenegotiationByPeerRef, remoteVideoSourceByPeerRef, remoteVideoStreamByPeerRef],
   );
 
   const drainQueuedVoiceSignals = useCallback(async () => {
@@ -1971,7 +1676,7 @@ export function ChatPage() {
 
   useEffect(() => {
     createOfferForPeerRef.current = createOfferForPeer;
-  }, [createOfferForPeer]);
+  }, [createOfferForPeer, peerConnectionsRef, videoSenderByPeerRef]);
 
   useEffect(() => {
     leaveVoiceRef.current = ws.leaveVoice;
@@ -2238,34 +1943,22 @@ export function ChatPage() {
   }, [
     ws.connected,
     activeVoiceChannelId,
-    auth.user,
-    voiceParticipantsByChannel,
+    auth.user,    voiceParticipantsByChannel,
     teardownVoiceTransport,
     getLocalVoiceStream,
+    peerConnectionsRef,
     closePeerConnection,
     ensurePeerConnection,
     createOfferForPeer,
   ]);
 
   useEffect(() => {
-    const connections = Array.from(peerConnectionsRef.current.values());
-    if (connections.length === 0) {
-      return;
-    }
-    for (const connection of connections) {
-      void applyAudioBitrateToConnection(connection, activeVoiceBitrateKbps);
-    }
-  }, [applyAudioBitrateToConnection, activeVoiceBitrateKbps]);
+    applyAudioBitrateToAllConnections();
+  }, [applyAudioBitrateToAllConnections]);
 
   useEffect(() => {
-    const connections = Array.from(peerConnectionsRef.current.values());
-    if (connections.length === 0) {
-      return;
-    }
-    for (const connection of connections) {
-      void applyVideoBitrateToConnection(connection, activeStreamBitrateKbps);
-    }
-  }, [applyVideoBitrateToConnection, activeStreamBitrateKbps]);
+    applyVideoBitrateToAllConnections();
+  }, [applyVideoBitrateToAllConnections]);
 
   useEffect(() => {
     applyLocalVoiceTrackState(localVoiceStreamRef.current);
@@ -2421,7 +2114,7 @@ export function ChatPage() {
         void createOfferForPeer(peerUserId, activeVoiceChannelIdRef.current);
       }
     },
-    [createOfferForPeer],
+    [createOfferForPeer, peerConnectionsRef, videoSenderByPeerRef],
   );
 
   const toggleVideoShare = useCallback(
@@ -2534,9 +2227,10 @@ export function ChatPage() {
       streamQualityLabel,
       showStreamStatusBanner,
       applyVideoBitrateToConnection,
-      activeStreamBitrateKbps,
-      createOfferForPeer,
+      activeStreamBitrateKbps,      createOfferForPeer,
       getOrCreateVideoSender,
+      peerConnectionsRef,
+      videoSenderByPeerRef,
     ],
   );
 
@@ -3141,6 +2835,12 @@ export function ChatPage() {
     </ChatPageShell>
   );
 }
+
+
+
+
+
+
 
 
 

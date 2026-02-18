@@ -437,6 +437,7 @@ export function usePeerConnectionManager({
   return {
     peerConnectionsRef,
     videoSenderByPeerRef,
+    pendingVideoRenegotiationByPeerRef,
     remoteVideoSourceByPeerRef,
     remoteVideoStreamByPeerRef,
     pendingIceRef,
@@ -453,3 +454,4 @@ export function usePeerConnectionManager({
     clearPeerConnections,
   };
 }
+
