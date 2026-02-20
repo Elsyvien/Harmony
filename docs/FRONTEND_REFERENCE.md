@@ -96,6 +96,7 @@ File: `web/src/hooks/use-chat-socket.ts`
 - `onPresenceUpdate`
 - `onVoiceState`
 - `onVoiceSignal`
+- `onError`
 
 ### Internal behavior
 
@@ -105,6 +106,7 @@ File: `web/src/hooks/use-chat-socket.ts`
 - joins all subscribed channels
 
 - Handles server events and forwards parsed payloads via callbacks.
+- Forwards server `error` events to `onError` so realtime failures can be surfaced in UI.
 - Reconnects after 2 seconds on close.
 - Maintains join/leave diffs when `subscribedChannelIds` changes.
 
@@ -190,6 +192,8 @@ Responsibilities:
 - Per-peer WebRTC connections are maintained in `ChatPage`.
 - SDP/ICE signaling is relayed through `sendVoiceSignal`.
 - Transport teardown happens on disconnect/leave/not-present transitions.
+- Voice reconnect intent is preserved across transient websocket drops and auto-rejoin is attempted when the socket reconnects.
+- ICE config normalization keeps all configured TURN/STUN URLs per server entry (instead of truncating to one URL).
 
 ## Component Contracts
 

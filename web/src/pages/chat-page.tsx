@@ -6,7 +6,7 @@ import { UserProfile } from '../components/user-profile';
 
 import { ChatPageShell } from './chat/components/chat-page-shell';
 import { useChatSocket } from '../hooks/use-chat-socket';
-import type { PresenceUser, VoiceParticipant } from '../hooks/use-chat-socket';
+import type { PresenceUser, RealtimeErrorPayload, VoiceParticipant } from '../hooks/use-chat-socket';
 import { useUserPreferences } from '../hooks/use-user-preferences';
 import {
   messageSignature,
@@ -48,6 +48,11 @@ import { trackTelemetryError } from '../utils/telemetry';
 type MainView = 'chat' | 'friends' | 'settings' | 'admin';
 type MobilePane = 'none' | 'channels' | 'users';
 type StreamSource = 'screen' | 'camera';
+type VoiceReconnectIntent = {
+  channelId: string;
+  muted: boolean;
+  deafened: boolean;
+};
 
 function clampMediaElementVolume(value: number) {
   if (!Number.isFinite(value)) {
@@ -152,7 +157,7 @@ function normalizeVoiceIceConfig(value: unknown): RTCConfiguration {
       continue;
     }
     parsedServers.push({
-      urls: urls.slice(0, 1),
+      urls,
       ...(server.username ? { username: server.username } : {}),
       ...(server.credential ? { credential: server.credential } : {}),
     });
@@ -299,6 +304,7 @@ export function ChatPage() {
   const sendVoiceSignalRef = useRef((() => false) as (channelId: string, targetUserId: string, data: unknown) => boolean);
   const createOfferForPeerRef = useRef((() => Promise.resolve()) as (peerUserId: string, channelId: string) => Promise<void>);
   const leaveVoiceRef = useRef((() => false) as (channelId?: string) => boolean);
+  const reconnectVoiceIntentRef = useRef<VoiceReconnectIntent | null>(null);
   const messageSearchInputRef = useRef<HTMLInputElement | null>(null);
   const hasTurnRelayConfigured = useMemo(() => hasTurnRelayInIceConfig(voiceIceConfig), [voiceIceConfig]);
 
@@ -1089,6 +1095,21 @@ export function ChatPage() {
     onVoiceSignal: (payload) => {
       void handleVoiceSignal(payload);
     },
+    onError: (payload: RealtimeErrorPayload) => {
+      const code = payload.code ?? 'WS_ERROR';
+      const message = payload.message ?? 'Realtime event failed';
+      if (code === 'VOICE_SIGNAL_RATE_LIMITED') {
+        setNotice(message);
+        return;
+      }
+      if (code.startsWith('VOICE_') || code.startsWith('SFU_')) {
+        logVoiceDebug('voice_socket_error', {
+          code,
+          message,
+        });
+        setError(message);
+      }
+    },
   });
 
   useChatPageEffects({
@@ -1236,6 +1257,7 @@ export function ChatPage() {
     if (auth.token) {
       return;
     }
+    reconnectVoiceIntentRef.current = null;
     setOnlineUsers([]);
     setUnreadChannelCounts({});
     setVoiceParticipantsByChannel({});
@@ -1714,6 +1736,11 @@ export function ChatPage() {
         if (!sent) {
           throw new Error('VOICE_JOIN_FAILED');
         }
+        reconnectVoiceIntentRef.current = {
+          channelId,
+          muted: joinMuted,
+          deafened: isSelfDeafened,
+        };
         activeVoiceChannelIdRef.current = channelId;
         setActiveVoiceChannelId(channelId);
         playVoiceStateSound('join');
@@ -1742,6 +1769,7 @@ export function ChatPage() {
       if (!activeVoiceChannelId) {
         return;
       }
+      reconnectVoiceIntentRef.current = null;
       const leavingChannelId = activeVoiceChannelId;
       voiceBusyChannelIdRef.current = leavingChannelId;
       setVoiceBusyChannelId(leavingChannelId);
@@ -1761,11 +1789,56 @@ export function ChatPage() {
     if (ws.connected) {
       return;
     }
+    const reconnectChannelId = activeVoiceChannelIdRef.current ?? activeVoiceChannelId;
+    if (reconnectChannelId) {
+      reconnectVoiceIntentRef.current = {
+        channelId: reconnectChannelId,
+        muted: isSelfMuted || isSelfDeafened,
+        deafened: isSelfDeafened,
+      };
+    }
     resetVoiceSignalingState();
     setActiveVoiceChannelId(null);
     setVoiceBusyChannelId(null);
     teardownVoiceTransport();
-  }, [ws.connected, teardownVoiceTransport, resetVoiceSignalingState]);
+  }, [
+    ws.connected,
+    activeVoiceChannelId,
+    isSelfMuted,
+    isSelfDeafened,
+    teardownVoiceTransport,
+    resetVoiceSignalingState,
+  ]);
+
+  useEffect(() => {
+    if (!ws.connected || activeVoiceChannelId || voiceBusyChannelId) {
+      return;
+    }
+    const reconnectIntent = reconnectVoiceIntentRef.current;
+    if (!reconnectIntent) {
+      return;
+    }
+    const reconnectChannel = channels.find((channel) => channel.id === reconnectIntent.channelId);
+    if (!reconnectChannel?.isVoice) {
+      reconnectVoiceIntentRef.current = null;
+      return;
+    }
+    voiceBusyChannelIdRef.current = reconnectIntent.channelId;
+    setVoiceBusyChannelId(reconnectIntent.channelId);
+    const sent = ws.joinVoice(reconnectIntent.channelId, {
+      muted: reconnectIntent.muted,
+      deafened: reconnectIntent.deafened,
+    });
+    if (!sent) {
+      reconnectVoiceIntentRef.current = null;
+      setVoiceBusyChannelId(null);
+      setError('Could not restore voice channel after reconnect');
+      return;
+    }
+    activeVoiceChannelIdRef.current = reconnectIntent.channelId;
+    setActiveVoiceChannelId(reconnectIntent.channelId);
+    setError(null);
+  }, [ws, ws.connected, ws.joinVoice, channels, activeVoiceChannelId, voiceBusyChannelId]);
 
   const { toggleMessageReaction } = useReactionsFeature({
     authToken: auth.token,

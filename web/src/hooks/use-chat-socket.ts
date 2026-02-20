@@ -44,6 +44,11 @@ export interface VoiceSignalPayload {
   data: unknown;
 }
 
+export interface RealtimeErrorPayload {
+  code?: string;
+  message?: string;
+}
+
 export type VoiceSfuRequestAction =
   | 'get-rtp-capabilities'
   | 'create-transport'
@@ -95,6 +100,7 @@ export function useChatSocket(params: {
   onVoiceState?: (payload: VoiceStatePayload) => void;
   onVoiceSignal?: (payload: VoiceSignalPayload) => void;
   onVoiceSfuEvent?: (payload: VoiceSfuEventPayload) => void;
+  onError?: (payload: RealtimeErrorPayload) => void;
 }) {
   const socketRef = useRef<WebSocket | null>(null);
   const reconnectTimerRef = useRef<number | null>(null);
@@ -122,6 +128,7 @@ export function useChatSocket(params: {
   const onVoiceStateRef = useRef(params.onVoiceState);
   const onVoiceSignalRef = useRef(params.onVoiceSignal);
   const onVoiceSfuEventRef = useRef(params.onVoiceSfuEvent);
+  const onErrorRef = useRef(params.onError);
   const [connected, setConnected] = useState(false);
 
   onMessageNewRef.current = params.onMessageNew;
@@ -135,6 +142,7 @@ export function useChatSocket(params: {
   onVoiceStateRef.current = params.onVoiceState;
   onVoiceSignalRef.current = params.onVoiceSignal;
   onVoiceSfuEventRef.current = params.onVoiceSfuEvent;
+  onErrorRef.current = params.onError;
   subscribedChannelIdsRef.current = params.subscribedChannelIds;
 
   const sendEvent = useCallback((type: string, payload: unknown) => {
@@ -298,6 +306,15 @@ export function useChatSocket(params: {
             );
             return;
           }
+
+          if (parsed.type === 'error') {
+            const payload = parsed.payload as RealtimeErrorPayload | undefined;
+            if (typeof payload?.code === 'string' || typeof payload?.message === 'string') {
+              onErrorRef.current?.(payload);
+            }
+            return;
+          }
+
           if (parsed.type === 'pong') {
             const payload = parsed.payload as { start: number };
             if (payload?.start) {
