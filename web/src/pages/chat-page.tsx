@@ -38,6 +38,7 @@ import {
 import { type VoiceSignalData } from './chat/utils/voice-signaling';
 import { getStaleRemoteScreenShareUserIds } from './chat/utils/stale-screen-shares';
 import { useVoiceFeature } from './chat/hooks/use-voice-feature';
+import { useVoiceChannel } from './chat/hooks/use-voice-channel';
 import { useAuth } from '../store/auth-store';
 import type {
   Channel,
