@@ -100,7 +100,7 @@ interface SfuRoom {
 
 // ─── Audio & Video Codecs ────────────────────────────────────────────
 
-const AUDIO_CODECS: mediasoupTypes.RtpCodecCapability[] = [
+const AUDIO_CODECS: mediasoupTypes.RouterRtpCodecCapability[] = [
   {
     kind: 'audio',
     mimeType: 'audio/opus',
@@ -109,7 +109,7 @@ const AUDIO_CODECS: mediasoupTypes.RtpCodecCapability[] = [
   },
 ];
 
-const VIDEO_CODECS: mediasoupTypes.RtpCodecCapability[] = [
+const VIDEO_CODECS: mediasoupTypes.RouterRtpCodecCapability[] = [
   {
     kind: 'video',
     mimeType: 'video/VP8',
@@ -545,7 +545,7 @@ export class VoiceSfuService extends EventEmitter {
 
   // ─── Private Helpers ─────────────────────────────────────────────
 
-  private getMediaCodecs(): mediasoupTypes.RtpCodecCapability[] {
+  private getMediaCodecs(): mediasoupTypes.RouterRtpCodecCapability[] {
     return this.config.audioOnly ? [...AUDIO_CODECS] : [...AUDIO_CODECS, ...VIDEO_CODECS];
   }
 
