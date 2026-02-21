@@ -1395,8 +1395,14 @@ export function ChatPage() {
             callbacks: {
               onRemoteAudio: onRemoteAudioStreamStable,
               onRemoteAudioRemoved: (userId) => onRemoteAudioStreamStable(userId, null),
-              onRemoteVideo: (userId, stream) => onRemoteScreenShareStreamStable(userId, stream),
-              onRemoteVideoRemoved: (userId) => onRemoteScreenShareStreamStable(userId, null),
+              onRemoteVideo: (userId, stream, source) => {
+                onRemoteScreenShareStreamStable(userId, stream);
+                onRemoteAdvertisedVideoSourceStable(userId, source);
+              },
+              onRemoteVideoRemoved: (userId) => {
+                onRemoteScreenShareStreamStable(userId, null);
+                onRemoteAdvertisedVideoSourceStable(userId, null);
+              },
               onStateChange: (state) => {
                 logVoiceDebug('sfu_state_change', { state });
               },

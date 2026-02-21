@@ -32,7 +32,7 @@ type VoiceSfuTransportStats = {
 type VoiceSfuCallbacks = {
   onRemoteAudio: (userId: string, stream: MediaStream) => void;
   onRemoteAudioRemoved: (userId: string) => void;
-  onRemoteVideo?: (userId: string, stream: MediaStream) => void;
+  onRemoteVideo?: (userId: string, stream: MediaStream, source: 'screen' | 'camera') => void;
   onRemoteVideoRemoved?: (userId: string) => void;
   onStateChange?: (state: mediasoupTypes.ConnectionState) => void;
   onReconnecting?: () => void;
@@ -591,8 +591,13 @@ export class VoiceSfuClient {
       this.remoteAudioStreamByUserId.set(userId, stream);
       this.callbacks.onRemoteAudio(userId, stream);
     } else {
+      let source: 'screen' | 'camera' = 'camera';
+      const consumerAppData = (consumer as any).appData as Record<string, unknown> | undefined;
+      if (consumerAppData && typeof consumerAppData.source === 'string') {
+        source = consumerAppData.source as 'screen' | 'camera';
+      }
       this.remoteVideoStreamByUserId.set(userId, stream);
-      this.callbacks.onRemoteVideo?.(userId, stream);
+      this.callbacks.onRemoteVideo?.(userId, stream, source);
     }
   }
 
