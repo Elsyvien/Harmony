@@ -23,6 +23,7 @@ import { useFriendsFeature } from './chat/hooks/use-friends-feature';
 import { useChatPresenceFeature } from './chat/hooks/use-chat-presence-feature';
 import { useChannelManagementFeature } from './chat/hooks/use-channel-management-feature';
 import { useChatPageEffects } from './chat/hooks/use-chat-page-effects';
+import { VoiceSfuClient } from './chat/voice-sfu-client';
 import { usePeerConnectionManager } from './chat/hooks/use-peer-connection-manager';
 import { useVoiceTransport } from './chat/hooks/use-voice-transport';
 import { useVoiceSignaling } from './chat/hooks/use-voice-signaling';
@@ -221,6 +222,8 @@ export function ChatPage() {
   const [voiceIceConfig, setVoiceIceConfig] = useState<RTCConfiguration>(() =>
     createDefaultVoiceIceConfig(),
   );
+  const [voiceSfuEnabled, setVoiceSfuEnabled] = useState(false);
+  const voiceSfuClientRef = useRef<VoiceSfuClient | null>(null);
   const [streamStatusBanner, setStreamStatusBanner] = useState<{
     type: 'error' | 'info';
     message: string;
@@ -277,7 +280,8 @@ export function ChatPage() {
     authToken: auth.token,
     onNotice: setNotice,
   });
-  const {    currentPresenceState,
+  const {
+    currentPresenceState,
     setPresenceStateLocal,
     incrementHiddenUnread,
   } = useChatPresenceFeature({
@@ -591,7 +595,7 @@ export function ChatPage() {
     nextStats.sort((a, b) => a.username.localeCompare(b.username));
     setVoiceConnectionStats(nextStats);
     setVoiceStatsUpdatedAt(Date.now());
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [computeKbpsFromSnapshot, joinedVoiceParticipants]);
 
   const activeRemoteAudioUsers = useMemo(() => {
@@ -851,6 +855,11 @@ export function ChatPage() {
   const teardownVoiceTransport = useCallback(() => {
     voiceTransportEpochRef.current += 1;
     clearPeerConnections();
+    if (voiceSfuClientRef.current) {
+      voiceSfuClientRef.current.stop();
+      voiceSfuClientRef.current = null;
+    }
+    setVoiceConnectionStats([]);
     setRemoteAdvertisedVideoSourceByPeer({});
     if (localScreenStreamRef.current) {
       for (const track of localScreenStreamRef.current.getTracks()) {
@@ -1095,6 +1104,9 @@ export function ChatPage() {
     onVoiceSignal: (payload) => {
       void handleVoiceSignal(payload);
     },
+    onVoiceSfuEvent: (payload) => {
+      void voiceSfuClientRef.current?.handleSfuEvent(payload);
+    },
     onError: (payload: RealtimeErrorPayload) => {
       const code = payload.code ?? 'WS_ERROR';
       const message = payload.message ?? 'Realtime event failed';
@@ -1241,9 +1253,11 @@ export function ChatPage() {
           return;
         }
         setVoiceIceConfig(normalizeVoiceIceConfig(response.rtc));
+        setVoiceSfuEnabled(Boolean(response.sfu?.enabled));
       } catch {
         if (!disposed) {
           setVoiceIceConfig(createDefaultVoiceIceConfig());
+          setVoiceSfuEnabled(false);
         }
       }
     };
@@ -1371,19 +1385,49 @@ export function ChatPage() {
         }
       }
 
-      const sortedPeerUserIds = Array.from(desiredPeerUserIds).sort();
-      for (const peerUserId of sortedPeerUserIds) {
-        try {
-          if (cancelled || voiceTransportEpochRef.current !== transportEpoch) {
-            return;
+      if (voiceSfuEnabled) {
+        if (!voiceSfuClientRef.current) {
+          logVoiceDebug('sfu_init', { channelId: activeVoiceChannelId });
+          voiceSfuClientRef.current = new VoiceSfuClient({
+            selfUserId: auth.user!.id,
+            request: (action, data, timeoutMs) =>
+              ws.requestVoiceSfu(activeVoiceChannelId, action, data, timeoutMs),
+            callbacks: {
+              onRemoteAudio: onRemoteAudioStreamStable,
+              onRemoteAudioRemoved: (userId) => onRemoteAudioStreamStable(userId, null),
+              onRemoteVideo: (userId, stream) => onRemoteScreenShareStreamStable(userId, stream),
+              onRemoteVideoRemoved: (userId) => onRemoteScreenShareStreamStable(userId, null),
+              onStateChange: (state) => {
+                logVoiceDebug('sfu_state_change', { state });
+              },
+            },
+          });
+          const rawTrack = localVoiceStreamRef.current?.getAudioTracks()[0] ?? null;
+          try {
+            await voiceSfuClientRef.current.start(rawTrack);
+          } catch (err) {
+            logVoiceDebug('sfu_start_error', { err });
+            voiceSfuClientRef.current?.stop();
+            voiceSfuClientRef.current = null;
           }
-          const isNewConnection = !peerConnectionsRef.current.has(peerUserId);
-          await ensurePeerConnection(peerUserId, activeVoiceChannelId);
-          if (isNewConnection) {
-            await createOfferForPeer(peerUserId, activeVoiceChannelId);
+        } else {
+          void voiceSfuClientRef.current.syncProducers();
+        }
+      } else {
+        const sortedPeerUserIds = Array.from(desiredPeerUserIds).sort();
+        for (const peerUserId of sortedPeerUserIds) {
+          try {
+            if (cancelled || voiceTransportEpochRef.current !== transportEpoch) {
+              return;
+            }
+            const isNewConnection = !peerConnectionsRef.current.has(peerUserId);
+            await ensurePeerConnection(peerUserId, activeVoiceChannelId);
+            if (isNewConnection) {
+              await createOfferForPeer(peerUserId, activeVoiceChannelId);
+            }
+          } catch {
+            // Best effort: peer transport can recover on next state update.
           }
-        } catch {
-          // Best effort: peer transport can recover on next state update.
         }
       }
     };
@@ -1416,7 +1460,11 @@ export function ChatPage() {
 
   useEffect(() => {
     applyLocalVoiceTrackState(localVoiceStreamRef.current);
-  }, [applyLocalVoiceTrackState, localVoiceStreamRef]);
+    if (voiceSfuClientRef.current && ws.connected) {
+      const track = localVoiceStreamRef.current?.getAudioTracks()[0] ?? null;
+      void voiceSfuClientRef.current.replaceLocalAudioTrack(track);
+    }
+  }, [applyLocalVoiceTrackState, localVoiceStreamRef, ws.connected]);
 
   useEffect(() => {
     pruneStaleRemoteScreenShares();
@@ -1537,6 +1585,10 @@ export function ChatPage() {
         return;
       }
 
+      if (voiceSfuClientRef.current) {
+        void voiceSfuClientRef.current.replaceLocalVideoTrack(null, null);
+      }
+
       const currentVoiceChannelId = activeVoiceChannelIdRef.current;
       for (const [peerUserId] of peerConnectionsRef.current) {
         const sender = videoSenderByPeerRef.current.get(peerUserId);
@@ -1634,6 +1686,9 @@ export function ChatPage() {
         );
 
         const videoTrack = stream.getVideoTracks()[0];
+        if (voiceSfuClientRef.current && videoTrack) {
+          void voiceSfuClientRef.current.replaceLocalVideoTrack(videoTrack, source);
+        }
         if (videoTrack) {
           videoTrack.onended = () => {
             if (localScreenStreamRef.current === stream) {
@@ -2004,63 +2059,63 @@ export function ChatPage() {
       activeVoiceSession={
         activeVoiceChannel
           ? {
-              channelName: activeVoiceChannel.name,
-              isViewingJoinedVoiceChannel,
-              isDisconnecting: isVoiceDisconnecting,
-              status: voiceSessionStatus,
-              voiceBitrateKbps: activeVoiceBitrateKbps,
-              streamBitrateKbps: activeStreamBitrateKbps,
-              remoteStreamCount: activeRemoteAudioUsers.length,
-              onDisconnect: () => {
-                void leaveVoiceChannel();
-              },
-            }
+            channelName: activeVoiceChannel.name,
+            isViewingJoinedVoiceChannel,
+            isDisconnecting: isVoiceDisconnecting,
+            status: voiceSessionStatus,
+            voiceBitrateKbps: activeVoiceBitrateKbps,
+            streamBitrateKbps: activeStreamBitrateKbps,
+            remoteStreamCount: activeRemoteAudioUsers.length,
+            onDisconnect: () => {
+              void leaveVoiceChannel();
+            },
+          }
           : null
       }
       voicePanelProps={
         activeChannel && activeChannel.isVoice
           ? {
-              channelName: activeChannel.name,
-              participants: activeVoiceParticipants,
-              currentUserId: auth.user.id,
-              localAudioReady,
-              remoteAudioUsers: viewedRemoteAudioUsers,
-              voiceBitrateKbps: activeChannel.voiceBitrateKbps ?? 64,
-              streamBitrateKbps: activeChannel.streamBitrateKbps ?? 2500,
-              onVoiceBitrateChange: (nextBitrate) => {
-                void updateVoiceChannelSettings(activeChannel.id, { voiceBitrateKbps: nextBitrate });
-              },
-              onStreamBitrateChange: (nextBitrate) => {
-                void updateVoiceChannelSettings(activeChannel.id, { streamBitrateKbps: nextBitrate });
-              },
-              canEditChannelBitrate: canEditVoiceSettings,
-              qualityBusy: savingVoiceSettingsChannelId === activeChannel.id,
-              joined: activeVoiceChannelId === activeChannel.id,
-              busy: voiceBusyChannelId === activeChannel.id,
-              wsConnected: ws.connected,
-              isMuted: isSelfMuted || isSelfDeafened,
-              onToggleMute: toggleSelfMute,
-              speakingUserIds,
-              showVoiceActivity: preferences.showVoiceActivity,
-              onJoin: () => joinVoiceChannel(activeChannel.id),
-              onLeave: leaveVoiceChannel,
-              onParticipantContextMenu: (participant, position) =>
-                openUserAudioMenu(
-                  { id: participant.userId, username: participant.username },
-                  position,
-                ),
-              getParticipantAudioState: (userId) => getUserAudioState(userId),
-              localScreenShareStream,
-              localStreamSource,
-              remoteScreenShares,
-              onToggleVideoShare: toggleVideoShare,
-              streamQualityLabel,
-              onStreamQualityChange: handleStreamQualityChange,
-              showDetailedStats: showDetailedVoiceStats,
-              onToggleDetailedStats: () => setShowDetailedVoiceStats((current) => !current),
-              connectionStats: voiceConnectionStats,
-              statsUpdatedAt: voiceStatsUpdatedAt,
-            }
+            channelName: activeChannel.name,
+            participants: activeVoiceParticipants,
+            currentUserId: auth.user.id,
+            localAudioReady,
+            remoteAudioUsers: viewedRemoteAudioUsers,
+            voiceBitrateKbps: activeChannel.voiceBitrateKbps ?? 64,
+            streamBitrateKbps: activeChannel.streamBitrateKbps ?? 2500,
+            onVoiceBitrateChange: (nextBitrate) => {
+              void updateVoiceChannelSettings(activeChannel.id, { voiceBitrateKbps: nextBitrate });
+            },
+            onStreamBitrateChange: (nextBitrate) => {
+              void updateVoiceChannelSettings(activeChannel.id, { streamBitrateKbps: nextBitrate });
+            },
+            canEditChannelBitrate: canEditVoiceSettings,
+            qualityBusy: savingVoiceSettingsChannelId === activeChannel.id,
+            joined: activeVoiceChannelId === activeChannel.id,
+            busy: voiceBusyChannelId === activeChannel.id,
+            wsConnected: ws.connected,
+            isMuted: isSelfMuted || isSelfDeafened,
+            onToggleMute: toggleSelfMute,
+            speakingUserIds,
+            showVoiceActivity: preferences.showVoiceActivity,
+            onJoin: () => joinVoiceChannel(activeChannel.id),
+            onLeave: leaveVoiceChannel,
+            onParticipantContextMenu: (participant, position) =>
+              openUserAudioMenu(
+                { id: participant.userId, username: participant.username },
+                position,
+              ),
+            getParticipantAudioState: (userId) => getUserAudioState(userId),
+            localScreenShareStream,
+            localStreamSource,
+            remoteScreenShares,
+            onToggleVideoShare: toggleVideoShare,
+            streamQualityLabel,
+            onStreamQualityChange: handleStreamQualityChange,
+            showDetailedStats: showDetailedVoiceStats,
+            onToggleDetailedStats: () => setShowDetailedVoiceStats((current) => !current),
+            connectionStats: voiceConnectionStats,
+            statsUpdatedAt: voiceStatsUpdatedAt,
+          }
           : null
       }
       chatViewProps={{
@@ -2100,9 +2155,9 @@ export function ChatPage() {
         insertRequest: composerInsertRequest,
         replyTo: replyTarget
           ? {
-              username: replyTarget.username,
-              content: replyTarget.content,
-            }
+            username: replyTarget.username,
+            content: replyTarget.content,
+          }
           : null,
         replyToMessageId: replyTarget?.id ?? null,
         onClearReply: () => setReplyTarget(null),
@@ -2143,28 +2198,28 @@ export function ChatPage() {
       adminPanelProps={
         activeView === 'admin' && auth.user.isAdmin
           ? {
-              stats: adminStats,
-              settings: adminSettings,
-              settingsLoading: loadingAdminSettings,
-              settingsError: adminSettingsError,
-              savingSettings: savingAdminSettings,
-              loading: loadingAdminStats,
-              error: adminStatsError,
-              onRefresh: loadAdminStats,
-              onRefreshSettings: loadAdminSettings,
-              onSaveSettings: saveAdminSettings,
-              users: adminUsers,
-              usersLoading: loadingAdminUsers,
-              usersError: adminUsersError,
-              updatingUserId: updatingAdminUserId,
-              deletingUserId: deletingAdminUserId,
-              onRefreshUsers: loadAdminUsers,
-              onUpdateUser: updateAdminUser,
-              onDeleteUser: deleteAdminUser,
-              onClearUsersExceptCurrent: clearAdminUsersExceptCurrent,
-              clearingUsersExceptCurrent: clearingAdminUsers,
-              currentUserId: auth.user.id,
-            }
+            stats: adminStats,
+            settings: adminSettings,
+            settingsLoading: loadingAdminSettings,
+            settingsError: adminSettingsError,
+            savingSettings: savingAdminSettings,
+            loading: loadingAdminStats,
+            error: adminStatsError,
+            onRefresh: loadAdminStats,
+            onRefreshSettings: loadAdminSettings,
+            onSaveSettings: saveAdminSettings,
+            users: adminUsers,
+            usersLoading: loadingAdminUsers,
+            usersError: adminUsersError,
+            updatingUserId: updatingAdminUserId,
+            deletingUserId: deletingAdminUserId,
+            onRefreshUsers: loadAdminUsers,
+            onUpdateUser: updateAdminUser,
+            onDeleteUser: deleteAdminUser,
+            onClearUsersExceptCurrent: clearAdminUsersExceptCurrent,
+            clearingUsersExceptCurrent: clearingAdminUsers,
+            currentUserId: auth.user.id,
+          }
           : null
       }
       userSidebarProps={{
@@ -2221,13 +2276,13 @@ export function ChatPage() {
           </header>
           <label className="audio-context-volume">
             <span>Volume</span>
-                <input
-                  type="range"
-                  min={0}
-                  max={200}
-                  step={1}
-                  value={getUserAudioState(audioContextMenu.userId).volume}
-                onChange={(event) => {
+            <input
+              type="range"
+              min={0}
+              max={200}
+              step={1}
+              value={getUserAudioState(audioContextMenu.userId).volume}
+              onChange={(event) => {
                 setUserVolume(audioContextMenu.userId, Number(event.target.value));
               }}
             />

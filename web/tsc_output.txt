@@ -1,0 +1,6 @@
+src/pages/chat/voice-sfu-client.ts(191,7): error TS2353: Object literal may only specify known properties, and 'encodings' does not exist in type '{ track: MediaStreamTrack; codecOptions?: Record<string, unknown> | undefined; appData?: AppData | undefined; }'.
+src/pages/chat/voice-sfu-client.ts(445,28): error TS2339: Property 'appData' does not exist on type 'Producer'.
+src/pages/chat/voice-sfu-client.ts(480,11): error TS2353: Object literal may only specify known properties, and 'encodings' does not exist in type '{ track: MediaStreamTrack; codecOptions?: Record<string, unknown> | undefined; appData?: AppData | undefined; }'.
+src/pages/chat/voice-sfu-client.ts(590,18): error TS2339: Property 'kind' does not exist on type 'Consumer'.
+src/pages/chat/voice-sfu-client.ts(601,28): error TS2339: Property 'kind' does not exist on type 'Consumer'.
+src/pages/chat/voice-sfu-client.ts(613,86): error TS2339: Property 'kind' does not exist on type 'Consumer'.

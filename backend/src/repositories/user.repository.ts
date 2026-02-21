@@ -22,10 +22,7 @@ export class PrismaUserRepository implements UserRepository {
   findByEmail(email: string) {
     return prisma.user.findFirst({
       where: {
-        email: {
-          equals: email,
-          mode: 'insensitive',
-        },
+        email: email,
       },
     });
   }
@@ -33,10 +30,7 @@ export class PrismaUserRepository implements UserRepository {
   findByUsername(username: string) {
     return prisma.user.findFirst({
       where: {
-        username: {
-          equals: username,
-          mode: 'insensitive',
-        },
+        username: username,
       },
     });
   }

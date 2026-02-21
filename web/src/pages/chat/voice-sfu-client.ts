@@ -32,6 +32,8 @@ type VoiceSfuTransportStats = {
 type VoiceSfuCallbacks = {
   onRemoteAudio: (userId: string, stream: MediaStream) => void;
   onRemoteAudioRemoved: (userId: string) => void;
+  onRemoteVideo?: (userId: string, stream: MediaStream) => void;
+  onRemoteVideoRemoved?: (userId: string) => void;
   onStateChange?: (state: mediasoupTypes.ConnectionState) => void;
   onReconnecting?: () => void;
   onReconnected?: () => void;
@@ -46,14 +48,18 @@ export class VoiceSfuClient {
   private sendTransport: mediasoupTypes.Transport | null = null;
   private recvTransport: mediasoupTypes.Transport | null = null;
   private audioProducer: mediasoupTypes.Producer | null = null;
+  private videoProducer: mediasoupTypes.Producer | null = null;
   private closed = false;
 
   private readonly consumerByProducerId = new Map<string, mediasoupTypes.Consumer>();
   private readonly producerOwnerById = new Map<string, string>();
-  private readonly remoteStreamByUserId = new Map<string, MediaStream>();
+  private readonly remoteAudioStreamByUserId = new Map<string, MediaStream>();
+  private readonly remoteVideoStreamByUserId = new Map<string, MediaStream>();
 
   /** Pending local audio track while reconnecting */
   private pendingLocalAudioTrack: MediaStreamTrack | null = null;
+  private pendingLocalVideoTrack: MediaStreamTrack | null = null;
+  private pendingLocalVideoTrackSource: 'screen' | 'camera' | null = null;
   private reconnecting = false;
   private reconnectAttempts = 0;
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
@@ -131,7 +137,7 @@ export class VoiceSfuClient {
         const producerId = this.audioProducer.id;
         this.audioProducer.close();
         this.audioProducer = null;
-        void this.request('close-producer', { producerId }).catch(() => {});
+        void this.request('close-producer', { producerId }).catch(() => { });
       }
       return;
     }
@@ -154,6 +160,40 @@ export class VoiceSfuClient {
     });
   }
 
+  async replaceLocalVideoTrack(track: MediaStreamTrack | null, source: 'screen' | 'camera' | null): Promise<void> {
+    if (this.reconnecting) {
+      this.pendingLocalVideoTrack = track;
+      this.pendingLocalVideoTrackSource = source;
+      return;
+    }
+    if (this.closed || !this.sendTransport || !this.device) {
+      return;
+    }
+    if (!track) {
+      if (this.videoProducer) {
+        const producerId = this.videoProducer.id;
+        this.videoProducer.close();
+        this.videoProducer = null;
+        void this.request('close-producer', { producerId }).catch(() => { });
+      }
+      return;
+    }
+    if (!this.device.canProduce('video')) {
+      return;
+    }
+    if (this.videoProducer) {
+      await this.videoProducer.replaceTrack({ track });
+      return;
+    }
+    this.videoProducer = await this.sendTransport.produce({
+      track,
+      appData: { type: 'voice-video', source },
+      encodings: [
+        { maxBitrate: 2500000 }
+      ]
+    } as any);
+  }
+
   async syncProducers(): Promise<void> {
     if (this.closed || this.reconnecting) {
       return;
@@ -165,7 +205,7 @@ export class VoiceSfuClient {
     const activeProducerIds = new Set<string>();
 
     for (const producer of producers) {
-      if (producer.userId === this.selfUserId || producer.kind !== 'audio') {
+      if (producer.userId === this.selfUserId) {
         continue;
       }
       activeProducerIds.add(producer.producerId);
@@ -190,7 +230,7 @@ export class VoiceSfuClient {
       return;
     }
     if (payload.event === 'producer-added') {
-      if (payload.producer.userId === this.selfUserId || payload.producer.kind !== 'audio') {
+      if (payload.producer.userId === this.selfUserId) {
         return;
       }
       this.producerOwnerById.set(payload.producer.producerId, payload.producer.userId);
@@ -254,7 +294,13 @@ export class VoiceSfuClient {
       const producerId = this.audioProducer.id;
       this.audioProducer.close();
       this.audioProducer = null;
-      void this.request('close-producer', { producerId }).catch(() => {});
+      void this.request('close-producer', { producerId }).catch(() => { });
+    }
+    if (this.videoProducer) {
+      const producerId = this.videoProducer.id;
+      this.videoProducer.close();
+      this.videoProducer = null;
+      void this.request('close-producer', { producerId }).catch(() => { });
     }
     for (const producerId of Array.from(this.consumerByProducerId.keys())) {
       this.removeConsumerByProducerId(producerId);
@@ -267,6 +313,8 @@ export class VoiceSfuClient {
     this.recvTransport = null;
     this.device = null;
     this.pendingLocalAudioTrack = null;
+    this.pendingLocalVideoTrack = null;
+    this.pendingLocalVideoTrackSource = null;
   }
 
   private async createTransport(
@@ -388,6 +436,17 @@ export class VoiceSfuClient {
       null;
     this.pendingLocalAudioTrack = null;
 
+    const currentVideoTrack =
+      this.pendingLocalVideoTrack ??
+      this.videoProducer?.track ??
+      null;
+    const currentVideoTrackSource =
+      this.pendingLocalVideoTrackSource ??
+      ((this.videoProducer as any)?.appData?.source as 'screen' | 'camera' | null) ??
+      null;
+    this.pendingLocalVideoTrack = null;
+    this.pendingLocalVideoTrackSource = null;
+
     // Clean up old transports without notifying remote removal
     this.cleanupTransportsOnly();
 
@@ -413,6 +472,18 @@ export class VoiceSfuClient {
         });
       }
 
+      // Re-produce video if we had a track
+      if (currentVideoTrack && currentVideoTrack.readyState === 'live' && this.device?.canProduce('video')) {
+        this.videoProducer = await this.sendTransport.produce({
+          track: currentVideoTrack,
+          appData: { type: 'voice-video', source: currentVideoTrackSource },
+          encodings: [{ maxBitrate: 2500000 }]
+        } as any);
+        this.videoProducer.on('transportclose', () => {
+          this.videoProducer = null;
+        });
+      }
+
       // Re-subscribe to remote producers
       await this.syncProducers();
 
@@ -430,6 +501,10 @@ export class VoiceSfuClient {
     if (this.audioProducer) {
       try { this.audioProducer.close(); } catch { void 0; }
       this.audioProducer = null;
+    }
+    if (this.videoProducer) {
+      try { this.videoProducer.close(); } catch { void 0; }
+      this.videoProducer = null;
     }
     for (const consumer of this.consumerByProducerId.values()) {
       try { consumer.close(); } catch { void 0; }
@@ -512,12 +587,18 @@ export class VoiceSfuClient {
     });
 
     const stream = new MediaStream([consumer.track]);
-    this.remoteStreamByUserId.set(userId, stream);
-    this.callbacks.onRemoteAudio(userId, stream);
+    if (consumer.track.kind === 'audio') {
+      this.remoteAudioStreamByUserId.set(userId, stream);
+      this.callbacks.onRemoteAudio(userId, stream);
+    } else {
+      this.remoteVideoStreamByUserId.set(userId, stream);
+      this.callbacks.onRemoteVideo?.(userId, stream);
+    }
   }
 
   private removeConsumerByProducerId(producerId: string) {
     const consumer = this.consumerByProducerId.get(producerId);
+    const kind = consumer?.track.kind;
     if (consumer) {
       consumer.close();
       this.consumerByProducerId.delete(producerId);
@@ -528,15 +609,20 @@ export class VoiceSfuClient {
     }
     this.producerOwnerById.delete(producerId);
 
-    const hasRemainingProducerForUser = Array.from(this.producerOwnerById.values()).some(
-      (userId) => userId === ownerUserId,
+    const hasRemainingProducerForUserOfSameKind = Array.from(this.producerOwnerById.entries()).some(
+      ([id, userId]) => userId === ownerUserId && this.consumerByProducerId.get(id)?.track.kind === kind,
     );
-    if (hasRemainingProducerForUser) {
+    if (hasRemainingProducerForUserOfSameKind) {
       return;
     }
 
-    this.remoteStreamByUserId.delete(ownerUserId);
-    this.callbacks.onRemoteAudioRemoved(ownerUserId);
+    if (kind === 'audio') {
+      this.remoteAudioStreamByUserId.delete(ownerUserId);
+      this.callbacks.onRemoteAudioRemoved(ownerUserId);
+    } else if (kind === 'video') {
+      this.remoteVideoStreamByUserId.delete(ownerUserId);
+      this.callbacks.onRemoteVideoRemoved?.(ownerUserId);
+    }
   }
 
   private async requestWithRetry<TData = unknown>(
