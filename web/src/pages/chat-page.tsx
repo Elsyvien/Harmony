@@ -1340,8 +1340,8 @@ export function ChatPage() {
   }, [auth.token, incomingRequests.length]);
 
   useEffect(() => {
-    if (!ws.connected || !activeVoiceChannelId || !auth.user) {
-      teardownVoiceTransport();
+    if (!activeVoiceChannelId || !auth.user) {
+      if (ws.connected) teardownVoiceTransport();
       return;
     }
 
@@ -1387,6 +1387,7 @@ export function ChatPage() {
 
       if (voiceSfuEnabled) {
         if (!voiceSfuClientRef.current) {
+          if (!ws.connected) return; // Wait for websocket to init SFU
           logVoiceDebug('sfu_init', { channelId: activeVoiceChannelId });
           voiceSfuClientRef.current = new VoiceSfuClient({
             selfUserId: auth.user!.id,
@@ -1417,7 +1418,9 @@ export function ChatPage() {
             voiceSfuClientRef.current = null;
           }
         } else {
-          void voiceSfuClientRef.current.syncProducers();
+          if (ws.connected) {
+            void voiceSfuClientRef.current.syncProducers();
+          }
         }
       } else {
         const sortedPeerUserIds = Array.from(desiredPeerUserIds).sort();

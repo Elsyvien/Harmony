@@ -82,6 +82,8 @@ const wsPluginImpl: FastifyPluginAsync<WsPluginOptions> = async (fastify, option
   const voiceParticipants = new Map<string, Map<string, VoiceParticipantState>>();
   const activeVoiceChannelByUser = new Map<string, string>();
   const voiceSessionCountByUser = new Map<string, number>();
+  const disconnectGraceTimers = new Map<string, NodeJS.Timeout>();
+  const GRACE_PERIOD_MS = 15000;
 
   // Global settings for idle timeout
   let idleTimeoutMinutes = 15;
@@ -528,6 +530,18 @@ const wsPluginImpl: FastifyPluginAsync<WsPluginOptions> = async (fastify, option
           ctx.username = dbUser.username;
           ctx.avatarUrl = dbUser.avatarUrl;
           ctx.role = dbUser.role;
+
+          // Resume Voice constraints
+          const existingVoiceChannel = activeVoiceChannelByUser.get(ctx.userId);
+          if (existingVoiceChannel) {
+            ctx.activeVoiceChannelId = existingVoiceChannel;
+          }
+          const pendingTimer = disconnectGraceTimers.get(ctx.userId);
+          if (pendingTimer) {
+            clearTimeout(pendingTimer);
+            disconnectGraceTimers.delete(ctx.userId);
+          }
+
           const subscribers = userSubscribers.get(user.userId) ?? new Set<ClientContext>();
           subscribers.add(ctx);
           userSubscribers.set(user.userId, subscribers);
@@ -1067,8 +1081,18 @@ const wsPluginImpl: FastifyPluginAsync<WsPluginOptions> = async (fastify, option
     socket.on('close', () => {
       leaveAllChannels(ctx);
       if (ctx.userId && ctx.activeVoiceChannelId) {
-        leaveVoiceChannel(ctx.userId, ctx.activeVoiceChannelId);
-        ctx.activeVoiceChannelId = null;
+        const userId = ctx.userId;
+        const channelId = ctx.activeVoiceChannelId;
+        const timerId = setTimeout(() => {
+          disconnectGraceTimers.delete(userId);
+          const currentActivity = activeVoiceChannelByUser.get(userId);
+          if (currentActivity === channelId) {
+            leaveVoiceChannel(userId, channelId, { force: true });
+          }
+        }, GRACE_PERIOD_MS);
+        disconnectGraceTimers.set(userId, timerId);
+
+        // We do *NOT* call leaveVoiceChannel right away to allow the client to reconnect.
       }
       const changed = unregisterUser(ctx);
       if (changed) {

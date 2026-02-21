@@ -68,7 +68,7 @@ export class VoiceSfuClient {
   private iceRestartInProgress = new Set<string>();
 
   private static readonly REQUEST_TIMEOUT_MS = 15_000;
-  private static readonly RETRYABLE_ERROR_PATTERNS = ['timed out', 'connection is not active'];
+  private static readonly RETRYABLE_ERROR_PATTERNS = ['timed out', 'connection is not active', 'connection closed', 'not active'];
   private static readonly MAX_RECONNECT_ATTEMPTS = 8;
   private static readonly KEEPALIVE_INTERVAL_MS = 10_000;
 
@@ -211,7 +211,7 @@ export class VoiceSfuClient {
       activeProducerIds.add(producer.producerId);
       this.producerOwnerById.set(producer.producerId, producer.userId);
       try {
-        await this.consumeProducer(producer.producerId, producer.userId);
+        await this.consumeProducer(producer.producerId, producer.userId, producer.appData);
       } catch {
         // Continue consuming other producers; a transient failure should not block all remote audio.
       }
@@ -234,7 +234,7 @@ export class VoiceSfuClient {
         return;
       }
       this.producerOwnerById.set(payload.producer.producerId, payload.producer.userId);
-      await this.consumeProducer(payload.producer.producerId, payload.producer.userId);
+      await this.consumeProducer(payload.producer.producerId, payload.producer.userId, payload.producer.appData);
       return;
     }
     this.removeConsumerByProducerId(payload.producerId);
@@ -541,7 +541,7 @@ export class VoiceSfuClient {
     }
   }
 
-  private async consumeProducer(producerId: string, userId: string): Promise<void> {
+  private async consumeProducer(producerId: string, userId: string, producerAppData?: Record<string, unknown>): Promise<void> {
     if (this.consumerByProducerId.has(producerId) || this.closed || this.reconnecting) {
       return;
     }
@@ -592,9 +592,8 @@ export class VoiceSfuClient {
       this.callbacks.onRemoteAudio(userId, stream);
     } else {
       let source: 'screen' | 'camera' = 'camera';
-      const consumerAppData = (consumer as any).appData as Record<string, unknown> | undefined;
-      if (consumerAppData && typeof consumerAppData.source === 'string') {
-        source = consumerAppData.source as 'screen' | 'camera';
+      if (producerAppData && typeof producerAppData.source === 'string') {
+        source = producerAppData.source as 'screen' | 'camera';
       }
       this.remoteVideoStreamByUserId.set(userId, stream);
       this.callbacks.onRemoteVideo?.(userId, stream, source);
@@ -635,19 +634,28 @@ export class VoiceSfuClient {
     data?: unknown,
     timeoutMs = VoiceSfuClient.REQUEST_TIMEOUT_MS,
   ): Promise<TData> {
-    try {
-      return await this.request<TData>(action, data, timeoutMs);
-    } catch (error) {
-      const message = error instanceof Error ? error.message.toLowerCase() : String(error).toLowerCase();
-      const isRetryable = VoiceSfuClient.RETRYABLE_ERROR_PATTERNS.some((pattern) =>
-        message.includes(pattern),
-      );
-      if (!isRetryable || this.closed) {
-        throw error;
+    const maxRetries = 3;
+    let lastError: unknown;
+    for (let attempt = 0; attempt <= maxRetries; attempt++) {
+      try {
+        return await this.request<TData>(action, data, timeoutMs);
+      } catch (error) {
+        lastError = error;
+        if (this.closed) {
+          throw error;
+        }
+        const message = error instanceof Error ? error.message.toLowerCase() : String(error).toLowerCase();
+        const isRetryable = VoiceSfuClient.RETRYABLE_ERROR_PATTERNS.some((pattern) =>
+          message.includes(pattern),
+        );
+        if (!isRetryable || attempt >= maxRetries) {
+          throw error;
+        }
+        // Exponential backoff: 500ms, 1500ms, 3500ms
+        const delay = 500 * Math.pow(2, attempt) - 500 + 500;
+        await new Promise((resolve) => setTimeout(resolve, delay));
       }
-      // Wait a short delay before retry to avoid hammering
-      await new Promise((resolve) => setTimeout(resolve, 300));
-      return this.request<TData>(action, data, timeoutMs);
     }
+    throw lastError;
   }
 }

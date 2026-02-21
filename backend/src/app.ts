@@ -10,6 +10,7 @@ import { mkdir } from 'node:fs/promises';
 import { networkInterfaces } from 'node:os';
 import path from 'node:path';
 import { ZodError } from 'zod';
+import { publicIpv4 } from 'public-ip';
 import { loadEnv } from './config/env.js';
 import { wsPlugin } from './plugins/ws.plugin.js';
 import { PrismaChannelRepository } from './repositories/channel.repository.js';
@@ -105,20 +106,26 @@ export async function buildApp() {
   const userService = new UserService();
   const adminService = new AdminService();
   const adminUserService = new AdminUserService();
+
   // Auto-detect a routable IP for SFU ICE candidates when SFU_ANNOUNCED_IP is not set.
   // Without this, mediasoup generates candidates with 0.0.0.0 which browsers cannot reach.
   let sfuAnnouncedIp: string | null = env.SFU_ANNOUNCED_IP.trim() || null;
   if (!sfuAnnouncedIp && env.SFU_ENABLED) {
-    const ifaces = networkInterfaces();
-    for (const entries of Object.values(ifaces)) {
-      if (!entries) continue;
-      for (const entry of entries) {
-        if (entry.family === 'IPv4' && !entry.internal) {
-          sfuAnnouncedIp = entry.address;
-          break;
+    try {
+      sfuAnnouncedIp = await publicIpv4();
+    } catch {
+      // Fallback
+      const ifaces = networkInterfaces();
+      for (const entries of Object.values(ifaces)) {
+        if (!entries) continue;
+        for (const entry of entries) {
+          if (entry.family === 'IPv4' && !entry.internal) {
+            sfuAnnouncedIp = entry.address;
+            break;
+          }
         }
+        if (sfuAnnouncedIp) break;
       }
-      if (sfuAnnouncedIp) break;
     }
     // Fallback for loopback-only environments
     if (!sfuAnnouncedIp) sfuAnnouncedIp = '127.0.0.1';
