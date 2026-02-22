@@ -940,6 +940,7 @@ export function ChatPage() {
     isSelfDeafened,
     setIsSelfMuted,
     localVoiceStreamRef,
+    localVoiceProcessedStreamRef,
     localAnalyserRef,
     audioInputDevices,
     microphonePermission,
@@ -956,6 +957,14 @@ export function ChatPage() {
     setError,
     replaceAudioTrackAcrossPeers,
   });
+
+  const getCurrentOutgoingVoiceTrack = useCallback(() => {
+    const processedTrack = localVoiceProcessedStreamRef.current?.getAudioTracks()[0] ?? null;
+    if (processedTrack && processedTrack.readyState === 'live') {
+      return processedTrack;
+    }
+    return localVoiceStreamRef.current?.getAudioTracks()[0] ?? null;
+  }, [localVoiceProcessedStreamRef, localVoiceStreamRef]);
 
   const teardownVoiceTransport = useCallback(() => {
     voiceTransportEpochRef.current += 1;
@@ -1278,6 +1287,10 @@ export function ChatPage() {
   }, [ws.sendVoiceSignal]);
 
   useEffect(() => {
+    getLocalVoiceStreamRef.current = getLocalVoiceStream;
+  }, [getLocalVoiceStream]);
+
+  useEffect(() => {
     createOfferForPeerRef.current = createOfferForPeer;
   }, [createOfferForPeer, peerConnectionsRef, videoSenderByPeerRef]);
 
@@ -1462,8 +1475,9 @@ export function ChatPage() {
     const syncVoiceTransport = async () => {
       const currentRawTrack = localVoiceStreamRef.current?.getAudioTracks()[0] ?? null;
       const needsFreshStream = !currentRawTrack || currentRawTrack.readyState !== 'live';
+      let outgoingStream: MediaStream;
       try {
-        await getLocalVoiceStream(needsFreshStream);
+        outgoingStream = await getLocalVoiceStream(needsFreshStream);
       } catch (err) {
         if (!cancelled && voiceTransportEpochRef.current === transportEpoch) {
           leaveVoiceRef.current(activeVoiceChannelId);
@@ -1473,6 +1487,9 @@ export function ChatPage() {
         }
         return;
       }
+      const outgoingTrack =
+        outgoingStream.getAudioTracks()[0] ??
+        getCurrentOutgoingVoiceTrack();
 
       // Use epoch check instead of cancelled flag so that rapid effect re-runs
       // (e.g. from mute state changes during join causing getLocalVoiceStream
@@ -1517,9 +1534,8 @@ export function ChatPage() {
               },
             },
           });
-          const rawTrack = localVoiceStreamRef.current?.getAudioTracks()[0] ?? null;
           try {
-            await voiceSfuClientRef.current.start(rawTrack);
+            await voiceSfuClientRef.current.start(outgoingTrack);
           } catch (err) {
             logVoiceDebug('sfu_start_error', { err });
             setError(getErrorMessage(err, 'Voice SFU connection failed'));
@@ -1528,6 +1544,7 @@ export function ChatPage() {
           }
         } else {
           if (ws.connected) {
+            void voiceSfuClientRef.current.replaceLocalAudioTrack(outgoingTrack);
             void voiceSfuClientRef.current.syncProducers();
           }
         }
@@ -1566,6 +1583,7 @@ export function ChatPage() {
     ensurePeerConnection,
     createOfferForPeer,
     localVoiceStreamRef,
+    getCurrentOutgoingVoiceTrack,
     voiceSfuEnabled,
   ]);
 
@@ -1580,10 +1598,10 @@ export function ChatPage() {
   useEffect(() => {
     applyLocalVoiceTrackState(localVoiceStreamRef.current);
     if (voiceSfuClientRef.current && ws.connected) {
-      const track = localVoiceStreamRef.current?.getAudioTracks()[0] ?? null;
+      const track = getCurrentOutgoingVoiceTrack();
       void voiceSfuClientRef.current.replaceLocalAudioTrack(track);
     }
-  }, [applyLocalVoiceTrackState, localVoiceStreamRef, ws.connected]);
+  }, [applyLocalVoiceTrackState, localVoiceStreamRef, ws.connected, getCurrentOutgoingVoiceTrack]);
 
   useEffect(() => {
     pruneStaleRemoteScreenShares();

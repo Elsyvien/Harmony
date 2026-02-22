@@ -37,6 +37,19 @@ export async function buildApp() {
   const env = loadEnv();
   const uploadsDir = path.resolve(process.cwd(), 'uploads');
   await mkdir(uploadsDir, { recursive: true });
+  const isLoopbackOrPlaceholderHost = (value: string | null) => {
+    if (!value) return false;
+    const normalized = value.trim().toLowerCase();
+    if (!normalized) return false;
+    return (
+      normalized === 'localhost' ||
+      normalized === '0.0.0.0' ||
+      normalized === '127.0.0.1' ||
+      normalized === '::1' ||
+      normalized === '[::1]' ||
+      normalized.startsWith('127.')
+    );
+  };
 
   const configuredOrigins = env.CLIENT_ORIGIN.split(',')
     .map((origin) => origin.trim())
@@ -127,9 +140,41 @@ export async function buildApp() {
         if (sfuAnnouncedIp) break;
       }
     }
-    // Fallback for loopback-only environments
-    if (!sfuAnnouncedIp) sfuAnnouncedIp = '127.0.0.1';
-    app.log.info(`SFU_ANNOUNCED_IP not set – auto-detected ${sfuAnnouncedIp}`);
+    // In production, a loopback fallback breaks ICE candidates for remote clients.
+    if (!sfuAnnouncedIp && env.NODE_ENV !== 'production') {
+      sfuAnnouncedIp = '127.0.0.1';
+    }
+    if (sfuAnnouncedIp) {
+      app.log.info(`SFU_ANNOUNCED_IP not set – auto-detected ${sfuAnnouncedIp}`);
+    } else {
+      app.log.warn(
+        'SFU_ENABLED=true but SFU_ANNOUNCED_IP could not be auto-detected. Set SFU_ANNOUNCED_IP to a public IP or DNS name for remote audio to work reliably.',
+      );
+    }
+  }
+
+  if (env.SFU_ENABLED && env.NODE_ENV === 'production' && isLoopbackOrPlaceholderHost(sfuAnnouncedIp)) {
+    app.log.warn(
+      { sfuAnnouncedIp },
+      'SFU_ANNOUNCED_IP resolves to a loopback/placeholder address. Remote clients cannot reach mediasoup transports until this is set to a public IP/DNS.',
+    );
+  }
+
+  if (
+    env.SFU_ENABLED &&
+    env.NODE_ENV === 'production' &&
+    env.SFU_WEBRTC_UDP &&
+    !env.SFU_PREFER_TCP
+  ) {
+    app.log.warn(
+      'SFU is using UDP-first transports in production. On platforms with restricted UDP (including common PaaS setups), set SFU_WEBRTC_UDP=false and SFU_PREFER_TCP=true.',
+    );
+  }
+
+  if (env.NODE_ENV === 'production' && env.TURN_URLS.trim().length === 0) {
+    app.log.warn(
+      'TURN_URLS is empty in production. Voice calls may fail for users behind restrictive NAT/firewalls.',
+    );
   }
 
   const voiceSfuService = new VoiceSfuService({

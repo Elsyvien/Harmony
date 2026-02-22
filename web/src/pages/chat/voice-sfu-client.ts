@@ -158,6 +158,9 @@ export class VoiceSfuClient {
       },
       appData: { type: 'voice-audio' },
     });
+    this.audioProducer.on('transportclose', () => {
+      this.audioProducer = null;
+    });
   }
 
   async replaceLocalVideoTrack(track: MediaStreamTrack | null, source: 'screen' | 'camera' | null): Promise<void> {
@@ -192,6 +195,9 @@ export class VoiceSfuClient {
         { maxBitrate: 2500000 }
       ]
     } as any);
+    this.videoProducer.on('transportclose', () => {
+      this.videoProducer = null;
+    });
   }
 
   async syncProducers(): Promise<void> {
@@ -234,7 +240,12 @@ export class VoiceSfuClient {
         return;
       }
       this.producerOwnerById.set(payload.producer.producerId, payload.producer.userId);
-      await this.consumeProducer(payload.producer.producerId, payload.producer.userId, payload.producer.appData);
+      try {
+        await this.consumeProducer(payload.producer.producerId, payload.producer.userId, payload.producer.appData);
+      } catch {
+        // Reconcile later via sync rather than surfacing an unhandled rejection that can break audio updates.
+        void this.syncProducers().catch(() => { });
+      }
       return;
     }
     this.removeConsumerByProducerId(payload.producerId);
@@ -447,7 +458,7 @@ export class VoiceSfuClient {
     this.pendingLocalVideoTrack = null;
     this.pendingLocalVideoTrackSource = null;
 
-    // Clean up old transports without notifying remote removal
+    // Clean up old transports and clear remote state so dead streams do not linger in the UI.
     this.cleanupTransportsOnly();
 
     try {
@@ -510,6 +521,15 @@ export class VoiceSfuClient {
       try { consumer.close(); } catch { void 0; }
     }
     this.consumerByProducerId.clear();
+    this.producerOwnerById.clear();
+    for (const userId of this.remoteAudioStreamByUserId.keys()) {
+      this.callbacks.onRemoteAudioRemoved(userId);
+    }
+    for (const userId of this.remoteVideoStreamByUserId.keys()) {
+      this.callbacks.onRemoteVideoRemoved?.(userId);
+    }
+    this.remoteAudioStreamByUserId.clear();
+    this.remoteVideoStreamByUserId.clear();
     try { this.sendTransport?.close(); } catch { void 0; }
     try { this.recvTransport?.close(); } catch { void 0; }
     this.sendTransport = null;

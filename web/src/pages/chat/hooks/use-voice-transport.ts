@@ -43,12 +43,18 @@ export function useVoiceTransport({
 
   const applyLocalVoiceTrackState = useCallback(
     (stream: MediaStream | null) => {
-      if (!stream) {
-        return;
-      }
       const shouldEnableMic = !isSelfMuted && !isSelfDeafened;
-      for (const track of stream.getAudioTracks()) {
-        track.enabled = shouldEnableMic;
+      const applyToStream = (targetStream: MediaStream | null) => {
+        if (!targetStream) {
+          return;
+        }
+        for (const track of targetStream.getAudioTracks()) {
+          track.enabled = shouldEnableMic;
+        }
+      };
+      applyToStream(stream);
+      if (localVoiceProcessedStreamRef.current !== stream) {
+        applyToStream(localVoiceProcessedStreamRef.current);
       }
     },
     [isSelfMuted, isSelfDeafened],
@@ -381,6 +387,7 @@ export function useVoiceTransport({
     setIsSelfMuted,
     setIsSelfDeafened,
     localVoiceStreamRef,
+    localVoiceProcessedStreamRef,
     localAnalyserRef,
     audioInputDevices,
     microphonePermission,
