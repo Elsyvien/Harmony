@@ -500,7 +500,7 @@ export function useVoiceChannel(params: UseVoiceChannelParams) {
                 }
                 return;
             }
-            if (cancelled || voiceTransportEpochRef.current !== epoch) return;
+            if (voiceTransportEpochRef.current !== epoch) return;
             const desired = new Set(participants.map((p) => p.userId).filter((id) => id !== authUserId));
             for (const id of Array.from(peerConnectionsRef.current.keys())) {
                 if (!desired.has(id)) closePeerConnection(id);
@@ -522,7 +522,7 @@ export function useVoiceChannel(params: UseVoiceChannelParams) {
                     });
                     const track = localVoiceStreamRef.current?.getAudioTracks()[0] ?? null;
                     try { await voiceSfuClientRef.current.start(track); }
-                    catch (err) { logVoiceDebug('sfu_start_error', { err }); voiceSfuClientRef.current?.stop(); voiceSfuClientRef.current = null; }
+                    catch (err) { logVoiceDebug('sfu_start_error', { err }); setError(getErrorMessage(err, 'Voice SFU connection failed')); voiceSfuClientRef.current?.stop(); voiceSfuClientRef.current = null; }
                 } else if (wsConnected) {
                     void voiceSfuClientRef.current.syncProducers();
                 }

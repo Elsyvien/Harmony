@@ -451,6 +451,111 @@ export function ChatPage() {
 
   const collectVoiceConnectionStats = useCallback(async () => {
     const connections = Array.from(peerConnectionsRef.current.entries());
+
+    // In SFU mode, peer connections map is empty — use the SFU transport PCs instead
+    if (connections.length === 0 && voiceSfuClientRef.current) {
+      const transports = voiceSfuClientRef.current.getTransportPeerConnections();
+      const sfuPcs = transports.filter((t) => t.pc !== null);
+      if (sfuPcs.length === 0) {
+        setVoiceConnectionStats([]);
+        setVoiceStatsUpdatedAt(Date.now());
+        return;
+      }
+
+      // Build a single aggregate SFU stats entry
+      const outboundAudio = createEmptyMediaStats();
+      const inboundAudio = createEmptyMediaStats();
+      const outboundVideo = createEmptyMediaStats();
+      const inboundVideo = createEmptyMediaStats();
+      let bestRttMs: number | null = null;
+      let bestBitrateKbps: number | null = null;
+      let localCandidateType: string | null = null;
+      let remoteCandidateType: string | null = null;
+      let aggregateConnState: RTCPeerConnectionState = 'connected';
+      let aggregateIceState: RTCIceConnectionState = 'connected';
+      let aggregateSigState: RTCSignalingState = 'stable';
+
+      for (const { direction, pc } of sfuPcs) {
+        if (!pc) continue;
+        // Use worst-case connection state across transports
+        if (pc.connectionState === 'failed') aggregateConnState = 'failed';
+        else if (pc.connectionState === 'connecting' && aggregateConnState !== 'failed') aggregateConnState = 'connecting';
+        else if (pc.connectionState === 'disconnected' && aggregateConnState !== 'failed' && aggregateConnState !== 'connecting') aggregateConnState = 'disconnected';
+        if (pc.iceConnectionState === 'failed') aggregateIceState = 'failed';
+        else if (pc.iceConnectionState === 'checking' && aggregateIceState !== 'failed') aggregateIceState = 'checking';
+        aggregateSigState = pc.signalingState;
+
+        try {
+          const report = await pc.getStats();
+          const localCands = new Map<string, { candidateType?: string }>();
+          const remoteCands = new Map<string, { candidateType?: string }>();
+          let selectedPair: (RTCIceCandidatePairStats & { availableOutgoingBitrate?: number }) | null = null;
+
+          for (const stat of report.values()) {
+            if (stat.type === 'local-candidate') { localCands.set(stat.id, stat as any); continue; }
+            if (stat.type === 'remote-candidate') { remoteCands.set(stat.id, stat as any); continue; }
+            if (stat.type === 'candidate-pair') {
+              const pair = stat as RTCIceCandidatePairStats & { selected?: boolean; availableOutgoingBitrate?: number };
+              if (pair.nominated || pair.selected) selectedPair = pair;
+              continue;
+            }
+            if (stat.type === 'outbound-rtp') {
+              const rtp = stat as RTCOutboundRtpStreamStats & { kind?: string; mediaType?: string; isRemote?: boolean; frameWidth?: number; frameHeight?: number; framesPerSecond?: number };
+              if (rtp.isRemote) continue;
+              const mediaKind = rtp.kind ?? rtp.mediaType ?? 'audio';
+              const bitrateKbps = typeof rtp.bytesSent === 'number' ? computeKbpsFromSnapshot(`sfu:${direction}:out:${rtp.id}`, rtp.bytesSent, rtp.timestamp) : null;
+              accumulateMediaStats(mediaKind === 'video' ? outboundVideo : outboundAudio, {
+                bitrateKbps, packets: typeof rtp.packetsSent === 'number' ? rtp.packetsSent : null,
+                framesPerSecond: typeof rtp.framesPerSecond === 'number' ? rtp.framesPerSecond : null,
+                frameWidth: typeof rtp.frameWidth === 'number' ? rtp.frameWidth : null,
+                frameHeight: typeof rtp.frameHeight === 'number' ? rtp.frameHeight : null,
+              });
+              continue;
+            }
+            if (stat.type === 'inbound-rtp') {
+              const rtp = stat as RTCInboundRtpStreamStats & { kind?: string; mediaType?: string; frameWidth?: number; frameHeight?: number; framesPerSecond?: number };
+              const mediaKind = rtp.kind ?? rtp.mediaType ?? 'audio';
+              const bitrateKbps = typeof rtp.bytesReceived === 'number' ? computeKbpsFromSnapshot(`sfu:${direction}:in:${rtp.id}`, rtp.bytesReceived, rtp.timestamp) : null;
+              accumulateMediaStats(mediaKind === 'video' ? inboundVideo : inboundAudio, {
+                bitrateKbps, packets: typeof rtp.packetsReceived === 'number' ? rtp.packetsReceived : null,
+                packetsLost: typeof rtp.packetsLost === 'number' ? rtp.packetsLost : null,
+                jitterMs: typeof rtp.jitter === 'number' ? rtp.jitter * 1000 : null,
+                framesPerSecond: typeof rtp.framesPerSecond === 'number' ? rtp.framesPerSecond : null,
+                frameWidth: typeof rtp.frameWidth === 'number' ? rtp.frameWidth : null,
+                frameHeight: typeof rtp.frameHeight === 'number' ? rtp.frameHeight : null,
+              });
+            }
+          }
+
+          if (selectedPair) {
+            const rtt = typeof selectedPair.currentRoundTripTime === 'number' ? selectedPair.currentRoundTripTime * 1000 : null;
+            if (rtt !== null && (bestRttMs === null || rtt < bestRttMs)) bestRttMs = rtt;
+            const bw = typeof selectedPair.availableOutgoingBitrate === 'number' ? selectedPair.availableOutgoingBitrate / 1000 : null;
+            if (bw !== null && (bestBitrateKbps === null || bw > bestBitrateKbps)) bestBitrateKbps = bw;
+            const lc = selectedPair.localCandidateId ? localCands.get(selectedPair.localCandidateId) : null;
+            const rc = selectedPair.remoteCandidateId ? remoteCands.get(selectedPair.remoteCandidateId) : null;
+            if (lc?.candidateType) localCandidateType = lc.candidateType;
+            if (rc?.candidateType) remoteCandidateType = rc.candidateType;
+          }
+        } catch { /* ignore */ }
+      }
+
+      setVoiceConnectionStats([{
+        userId: 'sfu',
+        username: 'SFU Server',
+        connectionState: aggregateConnState,
+        iceConnectionState: aggregateIceState,
+        signalingState: aggregateSigState,
+        currentRttMs: bestRttMs,
+        availableOutgoingBitrateKbps: bestBitrateKbps,
+        localCandidateType,
+        remoteCandidateType,
+        outboundAudio, inboundAudio, outboundVideo, inboundVideo,
+      }]);
+      setVoiceStatsUpdatedAt(Date.now());
+      return;
+    }
+
     if (connections.length === 0) {
       setVoiceConnectionStats([]);
       setVoiceStatsUpdatedAt(Date.now());
@@ -1369,7 +1474,10 @@ export function ChatPage() {
         return;
       }
 
-      if (cancelled || voiceTransportEpochRef.current !== transportEpoch) {
+      // Use epoch check instead of cancelled flag so that rapid effect re-runs
+      // (e.g. from mute state changes during join causing getLocalVoiceStream
+      // identity to change) don't prevent the SFU init path from ever executing.
+      if (voiceTransportEpochRef.current !== transportEpoch) {
         return;
       }
 
@@ -1414,6 +1522,7 @@ export function ChatPage() {
             await voiceSfuClientRef.current.start(rawTrack);
           } catch (err) {
             logVoiceDebug('sfu_start_error', { err });
+            setError(getErrorMessage(err, 'Voice SFU connection failed'));
             voiceSfuClientRef.current?.stop();
             voiceSfuClientRef.current = null;
           }
@@ -1457,6 +1566,7 @@ export function ChatPage() {
     ensurePeerConnection,
     createOfferForPeer,
     localVoiceStreamRef,
+    voiceSfuEnabled,
   ]);
 
   useEffect(() => {

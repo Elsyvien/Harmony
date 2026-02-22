@@ -195,7 +195,7 @@ const ScreenShareItem = memo(function ScreenShareItem({
       ensurePlayback();
       setIsStalled(false);
     };
-    
+
     video.addEventListener('loadedmetadata', onLoadedMetadata);
     video.addEventListener('canplay', onCanPlay);
 
@@ -224,7 +224,7 @@ const ScreenShareItem = memo(function ScreenShareItem({
     const watchdog = window.setInterval(() => {
       const node = videoRef.current;
       if (!node) return;
-      
+
       const hasLiveVideoTrack = stream.getVideoTracks().some(t => t.readyState === 'live');
       if (!hasLiveVideoTrack) return;
 
@@ -338,7 +338,7 @@ export function VoiceChannelPanel(props: VoiceChannelPanelProps) {
   const speakingSet = new Set(props.speakingUserIds);
   const [maximizedStreamId, setMaximizedStreamId] = useState<string | null>(null);
   const [isCinemaMode, setIsCinemaMode] = useState(false);
-  
+
   const hasLiveVideoTrack = (stream: MediaStream | null | undefined) =>
     Boolean(stream?.getVideoTracks().some((track) => track.readyState === 'live'));
 
@@ -346,11 +346,11 @@ export function VoiceChannelPanel(props: VoiceChannelPanelProps) {
     props.localStreamSource !== null &&
     props.localScreenShareStream !== null &&
     hasLiveVideoTrack(props.localScreenShareStream);
-  
+
   const visibleRemoteScreenShares = Object.entries(props.remoteScreenShares).filter(([, stream]) =>
     hasLiveVideoTrack(stream),
   );
-  
+
   const hasScreenShares = hasLocalShare || visibleRemoteScreenShares.length > 0;
   const localShareTitle = props.localStreamSource === 'camera' ? 'Your Camera' : 'Your Screen';
 
@@ -388,7 +388,7 @@ export function VoiceChannelPanel(props: VoiceChannelPanelProps) {
             Live ({visibleRemoteScreenShares.length + (hasLocalShare ? 1 : 0)})
           </span>
         )}
-        <button 
+        <button
           className={`voice-overview-chip ${props.showDetailedStats ? 'ok' : ''}`}
           onClick={props.onToggleDetailedStats}
           style={{ cursor: 'pointer' }}
@@ -460,7 +460,7 @@ export function VoiceChannelPanel(props: VoiceChannelPanelProps) {
       {hasScreenShares && (
         <div className={`voice-screen-shares ${isCinemaMode ? 'cinema-mode' : maximizedStreamId ? 'has-maximized' : 'grid-layout'}`}>
           {isCinemaMode && (
-            <button 
+            <button
               style={{
                 position: 'fixed',
                 top: '20px',
@@ -583,9 +583,14 @@ export function VoiceChannelPanel(props: VoiceChannelPanelProps) {
           const audioState = !isSelf ? props.getParticipantAudioState?.(participant.userId) : null;
           const stats = props.connectionStats.find(s => s.userId === participant.userId);
           const rtt = stats?.currentRttMs;
-          const connState = stats?.connectionState || (props.joined && !isSelf ? 'connecting' : 'new');
+          // In SFU mode there are no per-peer RTCPeerConnection objects, so
+          // connectionStats will be empty. When the local voice transport is
+          // ready (localAudioReady) we can safely treat remote participants as
+          // connected rather than perpetually showing "Connecting...".
+          const sfuFallbackState = props.localAudioReady ? 'connected' : 'connecting';
+          const connState = stats?.connectionState || (props.joined && !isSelf ? sfuFallbackState : 'new');
           const iceState = stats?.iceConnectionState;
-          
+
           let signalClass = 'good';
           if (connState === 'connecting' || connState === 'new' || iceState === 'checking') {
             signalClass = 'pending';
@@ -637,8 +642,8 @@ export function VoiceChannelPanel(props: VoiceChannelPanelProps) {
                 </div>
               </div>
               <div className="voice-participant-icons">
-                <span 
-                  className={`voice-status-icon signal ${signalClass}`} 
+                <span
+                  className={`voice-status-icon signal ${signalClass}`}
                   title={rtt !== undefined && rtt !== null ? `Ping: ${Math.round(rtt)}ms` : 'Signal details unavailable'}
                 >
                   <SignalStrength quality={signalClass as any} />
