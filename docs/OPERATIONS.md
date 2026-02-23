@@ -44,6 +44,9 @@ Important variables:
 - `RATE_LIMIT_MAX`
 - `RATE_LIMIT_WINDOW_MS`
 - `RTC_STUN_URL`
+- `CLOUDFLARE_TURN_KEY_ID` (optional; Cloudflare TURN)
+- `CLOUDFLARE_TURN_API_TOKEN` (optional; Cloudflare TURN)
+- `CLOUDFLARE_TURN_FILTER_PORT_53` (optional; defaults `true`)
 - `TURN_URLS`
 - `TURN_SHARED_SECRET` (recommended for self-hosted coturn REST auth)
 - `TURN_CREDENTIAL_TTL_SECONDS`
@@ -65,7 +68,7 @@ Render-only note (backend voice/SFU):
 - Minimum backend variables on Render: `DATABASE_URL`, `JWT_SECRET`, `CLIENT_ORIGIN`, `NODE_ENV=production`.
 - If `SFU_ENABLED=true`, also set `SFU_ANNOUNCED_IP` to the backend's public Render hostname (DNS is acceptable).
 - Recommended Render SFU transport profile: `SFU_WEBRTC_TCP=true`, `SFU_WEBRTC_UDP=false`, `SFU_PREFER_TCP=true`.
-- Recommended production relay profile: configure `TURN_URLS` plus `TURN_SHARED_SECRET` (or `TURN_USERNAME` / `TURN_CREDENTIAL`) and set `RTC_FORCE_RELAY=true`.
+- Recommended production relay profile: configure `TURN_URLS` plus `TURN_SHARED_SECRET` (or `TURN_USERNAME` / `TURN_CREDENTIAL`) and set `RTC_FORCE_RELAY=true`. If using Cloudflare TURN instead, set `CLOUDFLARE_TURN_KEY_ID` + `CLOUDFLARE_TURN_API_TOKEN` and keep `RTC_FORCE_RELAY=true`.
 - Frontend Render env vars must point to your backend: `VITE_API_URL` and `VITE_WS_URL`.
 
 Important note:
@@ -255,7 +258,7 @@ Fix:
 - allow mic permissions.
 - use localhost or HTTPS.
 - verify websocket connection is active.
-- for production group calls: configure `TURN_URLS` and `TURN_SHARED_SECRET` (coturn REST auth), then set `RTC_FORCE_RELAY=true`.
+- for production group calls: configure Cloudflare TURN (`CLOUDFLARE_TURN_KEY_ID` + `CLOUDFLARE_TURN_API_TOKEN`) or configure `TURN_URLS` and `TURN_SHARED_SECRET` (coturn REST auth), then set `RTC_FORCE_RELAY=true`.
 - on Render with `SFU_ENABLED=true`, set `SFU_ANNOUNCED_IP` and prefer TCP (`SFU_WEBRTC_UDP=false`, `SFU_WEBRTC_TCP=true`, `SFU_PREFER_TCP=true`).
 
 ## Maintenance Checklist For Behavior Changes

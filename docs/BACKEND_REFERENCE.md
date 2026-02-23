@@ -35,11 +35,14 @@ Validated in `backend/src/config/env.ts`.
 | `RATE_LIMIT_MAX` | int | min `10`, default `120` |
 | `RATE_LIMIT_WINDOW_MS` | int | min `1000`, default `60000` |
 | `RTC_STUN_URL` | string | default `stun:stun.l.google.com:19302` |
+| `CLOUDFLARE_TURN_KEY_ID` | string | Cloudflare TURN key id; when set with `CLOUDFLARE_TURN_API_TOKEN`, backend fetches ephemeral TURN creds on `/rtc/config`; default empty |
+| `CLOUDFLARE_TURN_API_TOKEN` | string | Cloudflare TURN API token for the TURN key; default empty |
+| `CLOUDFLARE_TURN_FILTER_PORT_53` | boolean | default `true`; filters Cloudflare `:53` TURN/STUN URLs for browser compatibility |
 | `TURN_URLS` | string | comma-separated `turn:`/`turns:` URLs, default empty |
 | `TURN_USERNAME` | string | static TURN username, default empty |
 | `TURN_CREDENTIAL` | string | static TURN password, default empty |
 | `TURN_SHARED_SECRET` | string | coturn REST shared secret for short-lived credentials, default empty |
-| `TURN_CREDENTIAL_TTL_SECONDS` | int | `60..86400`, default `3600` |
+| `TURN_CREDENTIAL_TTL_SECONDS` | int | `60..86400`, default `3600` (also used as Cloudflare TURN credential TTL request) |
 | `RTC_FORCE_RELAY` | boolean | default `false` |
 | `RTC_ENABLE_PUBLIC_FALLBACK_TURN` | boolean | default `true`; ignored in production when no TURN configured |
 | `SFU_ENABLED` | boolean | default `false` |

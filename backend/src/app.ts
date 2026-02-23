@@ -178,9 +178,19 @@ export async function buildApp() {
     );
   }
 
-  if (env.NODE_ENV === 'production' && env.TURN_URLS.trim().length === 0) {
+  const cloudflareTurnKeyId = env.CLOUDFLARE_TURN_KEY_ID.trim();
+  const cloudflareTurnApiToken = env.CLOUDFLARE_TURN_API_TOKEN.trim();
+  const hasCloudflareTurn = cloudflareTurnKeyId.length > 0 && cloudflareTurnApiToken.length > 0;
+
+  if ((cloudflareTurnKeyId.length > 0 || cloudflareTurnApiToken.length > 0) && !hasCloudflareTurn) {
     app.log.warn(
-      'TURN_URLS is empty in production. Voice calls may fail for users behind restrictive NAT/firewalls.',
+      'Cloudflare TURN is partially configured. Set both CLOUDFLARE_TURN_KEY_ID and CLOUDFLARE_TURN_API_TOKEN to enable ephemeral Cloudflare ICE servers.',
+    );
+  }
+
+  if (env.NODE_ENV === 'production' && env.TURN_URLS.trim().length === 0 && !hasCloudflareTurn) {
+    app.log.warn(
+      'TURN_URLS is empty in production and Cloudflare TURN is not configured. Voice calls may fail for users behind restrictive NAT/firewalls.',
     );
   }
 
@@ -213,11 +223,138 @@ export async function buildApp() {
       .filter((entry) => entry.startsWith('turn:') || entry.startsWith('turns:'))
       .slice(0, 6);
 
+  type IceServerConfig = { urls: string | string[]; username?: string; credential?: string };
+
+  const hasTurnUrl = (urls: string | string[]) =>
+    (Array.isArray(urls) ? urls : [urls]).some(
+      (url) => url.startsWith('turn:') || url.startsWith('turns:'),
+    );
+
+  const isPort53IceUrl = (url: string) => /:53(?:[/?]|$)/i.test(url);
+
+  const normalizeIceServerUrls = (value: unknown): string[] => {
+    const rawUrls = Array.isArray(value) ? value : typeof value === 'string' ? [value] : [];
+    return rawUrls
+      .filter((entry): entry is string => typeof entry === 'string')
+      .map((entry) => entry.trim())
+      .filter((entry) => entry.length > 0);
+  };
+
+  const normalizeIceServer = (value: unknown): IceServerConfig | null => {
+    if (!value || typeof value !== 'object') return null;
+
+    const candidate = value as { urls?: unknown; username?: unknown; credential?: unknown };
+    const urls = normalizeIceServerUrls(candidate.urls);
+    if (urls.length === 0) return null;
+
+    const server: IceServerConfig = { urls };
+    if (typeof candidate.username === 'string' && candidate.username.length > 0) {
+      server.username = candidate.username;
+    }
+    if (typeof candidate.credential === 'string' && candidate.credential.length > 0) {
+      server.credential = candidate.credential;
+    }
+    return server;
+  };
+
+  const maybeFilterPort53IceUrls = (server: IceServerConfig): IceServerConfig | null => {
+    if (!env.CLOUDFLARE_TURN_FILTER_PORT_53) {
+      return server;
+    }
+
+    const urls = (Array.isArray(server.urls) ? server.urls : [server.urls]).filter(
+      (url) => !isPort53IceUrl(url),
+    );
+    if (urls.length === 0) {
+      return null;
+    }
+
+    return {
+      ...server,
+      urls,
+    };
+  };
+
   const createTurnRestCredentials = (sharedSecret: string, ttlSeconds: number, principal: string) => {
     const expiryUnixSeconds = Math.floor(Date.now() / 1000) + ttlSeconds;
     const username = `${expiryUnixSeconds}:${principal}`;
     const credential = createHmac('sha1', sharedSecret).update(username).digest('base64');
     return { username, credential };
+  };
+
+  const fetchCloudflareTurnIceServers = async (): Promise<IceServerConfig[] | null> => {
+    if (!hasCloudflareTurn) {
+      return null;
+    }
+
+    const abortController = new AbortController();
+    const timeoutHandle = setTimeout(() => abortController.abort(), 5_000);
+    timeoutHandle.unref?.();
+
+    try {
+      const response = await fetch(
+        `https://rtc.live.cloudflare.com/v1/turn/keys/${encodeURIComponent(cloudflareTurnKeyId)}/credentials/generate-ice-servers`,
+        {
+          method: 'POST',
+          headers: {
+            Authorization: `Bearer ${cloudflareTurnApiToken}`,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({ ttl: env.TURN_CREDENTIAL_TTL_SECONDS }),
+          signal: abortController.signal,
+        },
+      );
+
+      if (!response.ok) {
+        const responseBody = await response.text().catch(() => '');
+        app.log.warn(
+          {
+            statusCode: response.status,
+            statusText: response.statusText,
+            body: responseBody.slice(0, 500),
+          },
+          'Cloudflare TURN ICE server request failed; falling back to configured TURN providers.',
+        );
+        return null;
+      }
+
+      const payload = (await response.json().catch(() => null)) as { iceServers?: unknown } | null;
+      if (!payload || !Array.isArray(payload.iceServers)) {
+        app.log.warn(
+          'Cloudflare TURN ICE server response was missing an iceServers array; falling back to configured TURN providers.',
+        );
+        return null;
+      }
+
+      const iceServers = payload.iceServers
+        .map((server) => normalizeIceServer(server))
+        .filter((server): server is IceServerConfig => server !== null)
+        .map((server) => maybeFilterPort53IceUrls(server))
+        .filter((server): server is IceServerConfig => server !== null);
+
+      if (!iceServers.some((server) => hasTurnUrl(server.urls))) {
+        app.log.warn(
+          'Cloudflare TURN ICE server response did not include any TURN URLs after filtering; falling back to configured TURN providers.',
+        );
+        return null;
+      }
+
+      return iceServers;
+    } catch (error) {
+      if (error instanceof Error && error.name === 'AbortError') {
+        app.log.warn(
+          'Cloudflare TURN ICE server request timed out after 5000ms; falling back to configured TURN providers.',
+        );
+      } else {
+        app.log.warn(
+          { err: error },
+          'Cloudflare TURN ICE server request threw an error; falling back to configured TURN providers.',
+        );
+      }
+      return null;
+    } finally {
+      clearTimeout(timeoutHandle);
+    }
   };
 
   app.get('/rtc/config', async () => {
@@ -226,11 +363,12 @@ export async function buildApp() {
     const hasStaticTurnCredentials = Boolean(env.TURN_USERNAME && env.TURN_CREDENTIAL);
     const hasEphemeralTurnSecret = Boolean(env.TURN_SHARED_SECRET);
 
-    const iceServers: Array<{ urls: string | string[]; username?: string; credential?: string }> = [
-      { urls: [env.RTC_STUN_URL] },
-    ];
+    const iceServers: IceServerConfig[] = [{ urls: [env.RTC_STUN_URL] }];
 
-    if (hasConfiguredTurn && hasEphemeralTurnSecret) {
+    const cloudflareIceServers = await fetchCloudflareTurnIceServers();
+    if (cloudflareIceServers && cloudflareIceServers.length > 0) {
+      iceServers.push(...cloudflareIceServers);
+    } else if (hasConfiguredTurn && hasEphemeralTurnSecret) {
       const restCredentials = createTurnRestCredentials(
         env.TURN_SHARED_SECRET,
         env.TURN_CREDENTIAL_TTL_SECONDS,
@@ -249,10 +387,11 @@ export async function buildApp() {
       });
     }
 
+    const hasRelayIceServer = iceServers.some((server) => hasTurnUrl(server.urls));
     const allowPublicFallbackTurn =
       env.RTC_ENABLE_PUBLIC_FALLBACK_TURN &&
       env.NODE_ENV !== 'production' &&
-      iceServers.length === 1;
+      !hasRelayIceServer;
     if (allowPublicFallbackTurn) {
       iceServers.push({
         urls: ['turn:openrelay.metered.ca:80'],

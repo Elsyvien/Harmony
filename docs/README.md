@@ -13,12 +13,13 @@ If documentation and implementation disagree, treat code as source of truth and 
 ## Read This First
 
 1. `docs/AI_AGENT_GUIDE.md` - invariants, safe-edit workflows, high-risk files, and known pitfalls.
-2. `docs/ARCHITECTURE.md` - end-to-end runtime architecture and lifecycle diagrams (textual).
-3. `docs/BACKEND_REFERENCE.md` - complete backend contract, including REST + WebSocket behavior.
-4. `docs/FRONTEND_REFERENCE.md` - frontend state flow, socket/polling behavior, and component contracts.
-5. `docs/DATA_MODEL.md` - Prisma schema, constraints, and domain invariants.
-6. `docs/OPERATIONS.md` - environment setup, local runbook, test and release operations.
-7. `docs/FILE_MAP.md` - file-by-file repository map (tracked files only).
+2. `docs/DOCUMENTATION_GUIDE.md` - documentation authoring, update matrix, docs UI/codebase maintenance, and design guidance usage notes.
+3. `docs/ARCHITECTURE.md` - end-to-end runtime architecture and lifecycle diagrams (textual).
+4. `docs/BACKEND_REFERENCE.md` - complete backend contract, including REST + WebSocket behavior.
+5. `docs/FRONTEND_REFERENCE.md` - frontend state flow, socket/polling behavior, and component contracts.
+6. `docs/DATA_MODEL.md` - Prisma schema, constraints, and domain invariants.
+7. `docs/OPERATIONS.md` - environment setup, local runbook, test and release operations.
+8. `docs/FILE_MAP.md` - file-by-file repository map (tracked files only).
 
 ## Quick Start
 
@@ -37,6 +38,8 @@ npm run dev
 
 - `docs/AI_AGENT_GUIDE.md`
   - Change safety rules, invariants, extension playbooks, and consistency checks.
+- `docs/DOCUMENTATION_GUIDE.md`
+  - Documentation authoring/maintenance guide, docs update matrix, docs UI codebase ownership, and `DesignerSkill.md` usage notes for docs presentation.
 - `docs/ARCHITECTURE.md`
   - Runtime layers, state ownership, message and voice flows, fallback paths.
 - `docs/BACKEND_REFERENCE.md`
@@ -63,7 +66,16 @@ npm run dev
 - Backend implementation: `backend/src`
 - Database schema + seed: `backend/prisma`
 - Frontend implementation: `web/src`
+- Canonical documentation content: `docs/*.md`
+- Static documentation UI codebase: `docs/index.html`, `docs/styles.css`, `docs/app.js`
 - Workspace scripts: `package.json`
+
+## Documentation Design And Docs UI
+
+- Use `docs/DOCUMENTATION_GUIDE.md` when changing docs content organization, docs update policy, or the static docs UI.
+- Use `DesignerSkill.md` as a local design guidance artifact when improving the visual design of documentation pages (`docs/*.html`, `docs/styles.css`).
+- `DesignerSkill.md` is not a registered Codex skill in this repo/session; treat it as reference material unless a real skill is installed and listed.
+- Technical correctness for docs content still comes from source code (`backend/src`, `web/src`) and detailed docs in this folder.
 
 ## Versioning Policy For Docs
 
@@ -84,8 +96,13 @@ When changing behavior, update docs in the same change set:
 5. New file/module:
 - update `docs/FILE_MAP.md` and `docs/structure.md`.
 
+6. Documentation UI/presentation change (`docs/*.html`, `docs/styles.css`, `docs/app.js`):
+- update the changed docs UI files and review `docs/DOCUMENTATION_GUIDE.md` if the maintenance workflow or file ownership notes changed.
+- update `docs/README.md` if docs navigation or reading order changed.
+
 ## Important Consistency Notes
 
 - The Prisma schema currently declares `provider = "postgresql"` in `backend/prisma/schema.prisma`.
 - `backend/.env.example` uses PostgreSQL DSN format. Set host/credentials for your local environment.
 - `AGENT.md` at repository root contains some stale stack notes (for example, SQLite and Zustand). Use `docs/AI_AGENT_GUIDE.md` + source code as authoritative references.
+- `DesignerSkill.md` is a design reference file for documentation/frontend presentation work, not a registered Codex skill in this repository by default.

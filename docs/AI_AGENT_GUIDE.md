@@ -175,6 +175,9 @@ Before merging behavior changes:
 - API client surface: `web/src/api/chat-api.ts`
 - Socket transport hook: `web/src/hooks/use-chat-socket.ts`
 - Auth/session store: `web/src/store/auth-store.tsx`
+- Documentation hub: `docs/README.md`
+- Documentation maintenance guide: `docs/DOCUMENTATION_GUIDE.md`
+- Static docs UI codebase: `docs/index.html`, `docs/styles.css`, `docs/app.js`
 
 ## Minimum Docs Update Rule
 
@@ -185,5 +188,12 @@ If you change behavior, update at least one of:
 - `docs/DATA_MODEL.md`
 - `docs/OPERATIONS.md`
 - `docs/API.md`
+
+If the change affects documentation structure, docs maintenance workflow, or the static docs UI (`docs/*.html`, `docs/styles.css`, `docs/app.js`), also update or review:
+
+- `docs/DOCUMENTATION_GUIDE.md`
+- `docs/README.md` (if docs navigation/read order changes)
+
+For docs presentation/design changes, `DesignerSkill.md` may be used as a local design guidance reference, but it is not a registered Codex skill.
 
 Do not leave behavior changes undocumented.

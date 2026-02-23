@@ -12,7 +12,7 @@ Scope:
 - `.gitignore` - ignore patterns for dependencies, builds, and local artifacts.
 - `.prettierrc` - shared formatting configuration.
 - `AGENT.md` - legacy project context file (contains some outdated statements).
-- `DesignerSkill.md` - design skill prompt metadata/reference.
+- `DesignerSkill.md` - local documentation/frontend design guidance artifact (prompt-style reference, not a registered Codex skill by default).
 - `README.md` - repository landing page and quick-start commands.
 - `ROADMAP.md` - high-level roadmap notes at repo root.
 - `package.json` - npm workspace orchestrator scripts (`backend`, `web`).
@@ -185,6 +185,7 @@ Scope:
 
 - `docs/FILE_MAP.md` - tracked-file map for the repository.
 - `docs/README.md` - documentation hub and navigation.
+- `docs/DOCUMENTATION_GUIDE.md` - documentation authoring/maintenance guide, including docs UI codebase ownership and update matrix.
 - `docs/AI_AGENT_GUIDE.md` - AI-agent-focused invariants and safe change workflows.
 - `docs/ARCHITECTURE.md` - end-to-end architecture reference.
 - `docs/BACKEND_REFERENCE.md` - backend contracts and behavior.
@@ -195,9 +196,11 @@ Scope:
 - `docs/SETUP.md` - compact setup quick reference.
 - `docs/structure.md` - concise project structure map.
 - `docs/ROADMAP.md` - product and engineering roadmap.
-- `docs/index.html` - static docs landing page.
-- `docs/styles.css` - static docs page styles.
-- `docs/app.js` - static docs page search/nav behavior.
+- `docs/index.html` - static docs landing page and navigation shell.
+- `docs/ai-agent-guide.html` - HTML companion page for `docs/AI_AGENT_GUIDE.md`.
+- `docs/file-map.html` - HTML companion page for `docs/FILE_MAP.md`.
+- `docs/styles.css` - shared styles for static docs HTML pages.
+- `docs/app.js` - shared static docs page search/navigation behavior (`docs/index.html`).
 
 ## Generated Or Local-Only Artifacts To Be Aware Of
 
