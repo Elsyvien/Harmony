@@ -488,6 +488,7 @@ const wsPluginImpl: FastifyPluginAsync<WsPluginOptions> = async (fastify, option
 
         if (parsed.type === 'voice:join') {
           const payload = parsed.payload as {
+            requestId?: string;
             channelId?: string;
             muted?: boolean;
             deafened?: boolean;
@@ -504,6 +505,10 @@ const wsPluginImpl: FastifyPluginAsync<WsPluginOptions> = async (fastify, option
             deafened: payload.deafened,
           });
           ctx.activeVoiceChannelId = voiceCtx.activeVoiceChannelId;
+          send(ctx, 'voice:join:ack', {
+            ...(payload.requestId ? { requestId: payload.requestId } : {}),
+            channelId: payload.channelId,
+          });
           return;
         }
 

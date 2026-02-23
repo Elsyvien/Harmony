@@ -207,6 +207,7 @@ export function ChatPage() {
     Record<string, VoiceParticipant[]>
   >({});
   const [activeVoiceChannelId, setActiveVoiceChannelId] = useState<string | null>(null);
+  const [voiceJoinAckChannelId, setVoiceJoinAckChannelId] = useState<string | null>(null);
   const [voiceBusyChannelId, setVoiceBusyChannelId] = useState<string | null>(null);
   const [remoteAudioStreams, setRemoteAudioStreams] = useState<Record<string, MediaStream>>({});
   const [speakingUserIds, setSpeakingUserIds] = useState<string[]>([]);
@@ -1394,6 +1395,7 @@ export function ChatPage() {
     setUnreadChannelCounts({});
     setVoiceParticipantsByChannel({});
     resetVoiceSignalingState();
+    setVoiceJoinAckChannelId(null);
     activeVoiceChannelIdRef.current = null;
     voiceBusyChannelIdRef.current = null;
     setActiveVoiceChannelId(null);
@@ -1511,6 +1513,9 @@ export function ChatPage() {
       }
 
       if (voiceSfuEnabled) {
+        if (voiceJoinAckChannelId !== activeVoiceChannelId) {
+          return;
+        }
         if (!voiceSfuClientRef.current) {
           if (!ws.connected) return; // Wait for websocket to init SFU
           logVoiceDebug('sfu_init', { channelId: activeVoiceChannelId });
@@ -1585,6 +1590,7 @@ export function ChatPage() {
     localVoiceStreamRef,
     getCurrentOutgoingVoiceTrack,
     voiceSfuEnabled,
+    voiceJoinAckChannelId,
   ]);
 
   useEffect(() => {
@@ -1911,6 +1917,7 @@ export function ChatPage() {
       setVoiceBusyChannelId(channelId);
       try {
         const joinMuted = preferences.autoMuteOnJoin || isSelfDeafened;
+        setVoiceJoinAckChannelId(null);
         if (isSelfMuted !== joinMuted) {
           setIsSelfMuted(joinMuted);
         }
@@ -1921,23 +1928,22 @@ export function ChatPage() {
         if (activeVoiceChannelId && activeVoiceChannelId !== channelId) {
           ws.leaveVoice(activeVoiceChannelId);
         }
-        const sent = ws.joinVoice(channelId, {
+        const ack = await ws.joinVoiceWithAck(channelId, {
           muted: joinMuted,
           deafened: isSelfDeafened,
         });
-        if (!sent) {
-          throw new Error('VOICE_JOIN_FAILED');
-        }
+        setVoiceJoinAckChannelId(ack.channelId);
         reconnectVoiceIntentRef.current = {
-          channelId,
+          channelId: ack.channelId,
           muted: joinMuted,
           deafened: isSelfDeafened,
         };
-        activeVoiceChannelIdRef.current = channelId;
-        setActiveVoiceChannelId(channelId);
+        activeVoiceChannelIdRef.current = ack.channelId;
+        setActiveVoiceChannelId(ack.channelId);
         playVoiceStateSound('join');
         setError(null);
       } catch {
+        setVoiceJoinAckChannelId(null);
         setError('Could not join voice channel');
       } finally {
         setVoiceBusyChannelId(null);
@@ -1965,6 +1971,7 @@ export function ChatPage() {
       const leavingChannelId = activeVoiceChannelId;
       voiceBusyChannelIdRef.current = leavingChannelId;
       setVoiceBusyChannelId(leavingChannelId);
+      setVoiceJoinAckChannelId(null);
       ws.leaveVoice(leavingChannelId);
       activeVoiceChannelIdRef.current = null;
       playVoiceStateSound('leave');
@@ -1990,6 +1997,7 @@ export function ChatPage() {
       };
     }
     resetVoiceSignalingState();
+    setVoiceJoinAckChannelId(null);
     setActiveVoiceChannelId(null);
     setVoiceBusyChannelId(null);
     teardownVoiceTransport();
@@ -2006,6 +2014,7 @@ export function ChatPage() {
     if (!ws.connected || activeVoiceChannelId || voiceBusyChannelId) {
       return;
     }
+    let cancelled = false;
     const reconnectIntent = reconnectVoiceIntentRef.current;
     if (!reconnectIntent) {
       return;
@@ -2017,20 +2026,35 @@ export function ChatPage() {
     }
     voiceBusyChannelIdRef.current = reconnectIntent.channelId;
     setVoiceBusyChannelId(reconnectIntent.channelId);
-    const sent = ws.joinVoice(reconnectIntent.channelId, {
-      muted: reconnectIntent.muted,
-      deafened: reconnectIntent.deafened,
-    });
-    if (!sent) {
-      reconnectVoiceIntentRef.current = null;
-      setVoiceBusyChannelId(null);
-      setError('Could not restore voice channel after reconnect');
-      return;
-    }
-    activeVoiceChannelIdRef.current = reconnectIntent.channelId;
-    setActiveVoiceChannelId(reconnectIntent.channelId);
-    setError(null);
-  }, [ws, ws.connected, ws.joinVoice, channels, activeVoiceChannelId, voiceBusyChannelId]);
+    setVoiceJoinAckChannelId(null);
+    const restoreVoiceJoin = async () => {
+      try {
+        const ack = await ws.joinVoiceWithAck(reconnectIntent.channelId, {
+          muted: reconnectIntent.muted,
+          deafened: reconnectIntent.deafened,
+        });
+        if (cancelled) {
+          return;
+        }
+        setVoiceJoinAckChannelId(ack.channelId);
+        activeVoiceChannelIdRef.current = ack.channelId;
+        setActiveVoiceChannelId(ack.channelId);
+        setError(null);
+      } catch {
+        if (cancelled) {
+          return;
+        }
+        reconnectVoiceIntentRef.current = null;
+        setVoiceJoinAckChannelId(null);
+        setVoiceBusyChannelId(null);
+        setError('Could not restore voice channel after reconnect');
+      }
+    };
+    void restoreVoiceJoin();
+    return () => {
+      cancelled = true;
+    };
+  }, [ws, ws.connected, ws.joinVoiceWithAck, channels, activeVoiceChannelId, voiceBusyChannelId]);
 
   const { toggleMessageReaction } = useReactionsFeature({
     authToken: auth.token,

@@ -44,6 +44,11 @@ export interface VoiceSignalPayload {
   data: unknown;
 }
 
+export interface VoiceJoinAckPayload {
+  channelId: string;
+  requestId?: string;
+}
+
 export interface RealtimeErrorPayload {
   code?: string;
   message?: string;
@@ -105,6 +110,16 @@ export function useChatSocket(params: {
   const socketRef = useRef<WebSocket | null>(null);
   const reconnectTimerRef = useRef<number | null>(null);
   const joinedChannelIdsRef = useRef<Set<string>>(new Set());
+  const pendingVoiceJoinRequestsRef = useRef(
+    new Map<
+      string,
+      {
+        resolve: (payload: VoiceJoinAckPayload) => void;
+        reject: (reason?: unknown) => void;
+        timeoutId: number;
+      }
+    >(),
+  );
   const pendingVoiceSfuRequestsRef = useRef(
     new Map<
       string,
@@ -262,6 +277,21 @@ export function useChatSocket(params: {
             return;
           }
 
+          if (parsed.type === 'voice:join:ack') {
+            const payload = parsed.payload as VoiceJoinAckPayload | undefined;
+            if (!payload?.requestId || !payload.channelId) {
+              return;
+            }
+            const pending = pendingVoiceJoinRequestsRef.current.get(payload.requestId);
+            if (!pending) {
+              return;
+            }
+            window.clearTimeout(pending.timeoutId);
+            pendingVoiceJoinRequestsRef.current.delete(payload.requestId);
+            pending.resolve(payload);
+            return;
+          }
+
           if (parsed.type === 'voice:signal') {
             const payload = parsed.payload as VoiceSignalPayload | undefined;
             if (payload?.channelId && payload.fromUserId && payload.data !== undefined) {
@@ -337,6 +367,11 @@ export function useChatSocket(params: {
           pending.reject(new Error('Socket connection closed'));
         }
         pendingVoiceSfuRequestsRef.current.clear();
+        for (const pending of pendingVoiceJoinRequestsRef.current.values()) {
+          window.clearTimeout(pending.timeoutId);
+          pending.reject(new Error('Socket connection closed'));
+        }
+        pendingVoiceJoinRequestsRef.current.clear();
         socketRef.current = null;
         if (!isClosed) {
           reconnectTimerRef.current = window.setTimeout(connect, 2000);
@@ -344,6 +379,7 @@ export function useChatSocket(params: {
       };
     };
 
+    const pendingVoiceJoinRequests = pendingVoiceJoinRequestsRef.current;
     const pendingVoiceSfuRequests = pendingVoiceSfuRequestsRef.current;
 
     connect();
@@ -361,6 +397,11 @@ export function useChatSocket(params: {
         pending.reject(new Error('Socket connection closed'));
       }
       pendingVoiceSfuRequests.clear();
+      for (const pending of pendingVoiceJoinRequests.values()) {
+        window.clearTimeout(pending.timeoutId);
+        pending.reject(new Error('Socket connection closed'));
+      }
+      pendingVoiceJoinRequests.clear();
       joinedChannelIds.clear();
       socketRef.current?.close();
       socketRef.current = null;
@@ -408,6 +449,52 @@ export function useChatSocket(params: {
       });
     },
     [sendEvent],
+  );
+
+  const joinVoiceWithAck = useCallback(
+    (
+      channelId: string,
+      options?: { muted?: boolean; deafened?: boolean },
+      timeoutMs = 5_000,
+    ): Promise<VoiceJoinAckPayload> => {
+      const socket = socketRef.current;
+      if (!socket || socket.readyState !== WebSocket.OPEN || !authenticatedRef.current) {
+        return Promise.reject(new Error('Realtime connection is not active'));
+      }
+      const requestId =
+        typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
+          ? crypto.randomUUID()
+          : `${Date.now()}-${Math.random().toString(16).slice(2)}`;
+      return new Promise<VoiceJoinAckPayload>((resolve, reject) => {
+        const timeoutId = window.setTimeout(() => {
+          pendingVoiceJoinRequestsRef.current.delete(requestId);
+          reject(new Error('Voice join timed out'));
+        }, timeoutMs);
+        pendingVoiceJoinRequestsRef.current.set(requestId, {
+          resolve,
+          reject,
+          timeoutId,
+        });
+        try {
+          socket.send(
+            JSON.stringify({
+              type: 'voice:join',
+              payload: {
+                requestId,
+                channelId,
+                ...(options?.muted !== undefined ? { muted: options.muted } : {}),
+                ...(options?.deafened !== undefined ? { deafened: options.deafened } : {}),
+              },
+            }),
+          );
+        } catch (error) {
+          window.clearTimeout(timeoutId);
+          pendingVoiceJoinRequestsRef.current.delete(requestId);
+          reject(error);
+        }
+      });
+    },
+    [],
   );
 
   const leaveVoice = useCallback(
@@ -503,6 +590,7 @@ export function useChatSocket(params: {
     connected,
     sendMessage,
     joinVoice,
+    joinVoiceWithAck,
     leaveVoice,
     sendVoiceSignal,
     sendVoiceSelfState,
