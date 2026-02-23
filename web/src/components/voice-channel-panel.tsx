@@ -471,13 +471,13 @@ export function VoiceChannelPanel(props: VoiceChannelPanelProps) {
                   </div>
                   <div className="empty-state-actions">
                     <button className="primary-btn" onClick={() => props.onToggleVideoShare('screen')}>
-                      Bildschirm teilen
+                      Share Screen
                     </button>
                     <button className="secondary-btn" onClick={() => props.onToggleVideoShare('camera')}>
-                      Kamera starten
+                      Start Camera
                     </button>
                     <button className="ghost-btn" onClick={() => { setIsDrawerOpen(true); setActiveTab('settings'); }}>
-                      Einstellungen
+                      Settings
                     </button>
                   </div>
                 </div>
@@ -488,8 +488,8 @@ export function VoiceChannelPanel(props: VoiceChannelPanelProps) {
               <div className="empty-state-icon">
                 <svg width="48" height="48" viewBox="0 0 24 24"><path fill="currentColor" d="M12 14c1.66 0 3-1.34 3-3V5c0-1.66-1.34-3-3-3S9 3.34 9 5v6c0 1.66 1.34 3 3 3z"></path></svg>
               </div>
-              <h3>Bereit zum Beitritt?</h3>
-              <p>Tritt dem Voice-Channel bei, um mit anderen zu sprechen.</p>
+              <h3>Ready to join?</h3>
+              <p>Join the voice channel to talk with others.</p>
               <button className="primary-btn center-join" disabled={props.busy || !props.wsConnected} onClick={() => void props.onJoin()}>
                 {props.busy ? '...' : 'Join Voice Channel'}
               </button>
