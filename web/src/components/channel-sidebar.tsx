@@ -214,20 +214,37 @@ export function ChannelSidebar(props: ChannelSidebarProps) {
         </div>
 
         {directChannels.length > 0 ? <p className="channel-group-label">Direct Messages</p> : null}
-        {directChannels.map((channel) => (
-          <button
-            key={channel.id}
-            className={
-              isChatView && channel.id === props.activeChannelId
-                ? 'channel-item direct-channel-item active'
-                : 'channel-item direct-channel-item'
-            }
-            onClick={() => props.onSelect(channel.id)}
-          >
-            <span>@{channel.directUser?.username ?? channel.name}</span>
-            {hasUnread(channel.id) ? <span className="channel-unread-dot" aria-hidden="true"></span> : null}
-          </button>
-        ))}
+        {directChannels.map((channel) => {
+          const avatarUrl = resolveMediaUrl((channel.directUser as any)?.avatarUrl);
+          const name = channel.directUser?.username ?? channel.name;
+          return (
+            <button
+              key={channel.id}
+              className={
+                isChatView && channel.id === props.activeChannelId
+                  ? 'channel-item direct-channel-item active'
+                  : 'channel-item direct-channel-item'
+              }
+              onClick={() => props.onSelect(channel.id)}
+            >
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <div
+                  className="channel-dm-avatar"
+                  style={{
+                    backgroundColor: avatarUrl ? 'transparent' : stringToColor(name),
+                    backgroundImage: avatarUrl ? `url(${avatarUrl})` : 'none',
+                  }}
+                >
+                  {!avatarUrl && name[0].toUpperCase()}
+                </div>
+                <span>{name}</span>
+              </div>
+              {hasUnread(channel.id) ? (
+                <span className="channel-unread-dot" aria-hidden="true"></span>
+              ) : null}
+            </button>
+          );
+        })}
 
         {textChannels.length > 0 ? <p className="channel-group-label">Text Channels</p> : null}
         {textChannels.map((channel) => {
@@ -315,26 +332,20 @@ export function ChannelSidebar(props: ChannelSidebarProps) {
                   className={
                     isChatView && channel.id === props.activeChannelId ? 'channel-item active' : 'channel-item'
                   }
-                  onClick={() => props.onSelect(channel.id)}
-                >
-                  <span>~{channel.name}</span>
-                  <span className="channel-item-meta">
-                    {hasUnread(channel.id) ? <span className="channel-unread-dot" aria-hidden="true"></span> : null}
-                    <span className="channel-voice-count">{participants}</span>
-                  </span>
-                </button>
-                <button
-                  className={isJoined ? 'channel-voice-btn leave' : 'channel-voice-btn'}
-                  disabled={isTransitioning || isOtherTransition}
                   onClick={async () => {
-                    if (isJoined) {
-                      await props.onLeaveVoice();
-                      return;
+                    props.onSelect(channel.id);
+                    if (!isJoined && !isTransitioning && !isOtherTransition) {
+                      await props.onJoinVoice(channel.id);
                     }
-                    await props.onJoinVoice(channel.id);
                   }}
                 >
-                  {isTransitioning ? '...' : isJoined ? 'Leave' : 'Join'}
+                  <span className="channel-hash">~</span>
+                  <span>{channel.name}</span>
+                  <span className="channel-item-meta">
+                    {isJoined && <span className="channel-live-indicator"></span>}
+                    {hasUnread(channel.id) ? <span className="channel-unread-dot" aria-hidden="true"></span> : null}
+                    {participants > 0 && <span className="channel-voice-count">{participants}</span>}
+                  </span>
                 </button>
                 {canDelete ? (
                   <button
