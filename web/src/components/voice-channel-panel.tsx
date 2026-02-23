@@ -448,26 +448,41 @@ export function VoiceChannelPanel(props: VoiceChannelPanelProps) {
               })}
             </div>
           ) : props.joined ? (
-            <div className="voice-stream-empty-state">
-              <div className="empty-state-icon">
-                <svg width="48" height="48" viewBox="0 0 24 24"><path fill="currentColor" d="M21 16V4H3v12h18zm0-14a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2h-7v2h4v2H6v-2h4v-2H3a2 2 0 0 1-2-2V4c0-1.1.9-2 2-2h18z"></path></svg>
-              </div>
-              <div className="empty-state-text">
-                <h3>Noch kein Live-Stream</h3>
-                <p>Teile Bildschirm oder Kamera, um den Voice-Channel in einen Livestream zu verwandeln.</p>
-              </div>
-              <div className="empty-state-actions">
-                <button className="primary-btn" onClick={() => props.onToggleVideoShare('screen')}>
-                  Bildschirm teilen
-                </button>
-                <button className="secondary-btn" onClick={() => props.onToggleVideoShare('camera')}>
-                  Kamera starten
-                </button>
-                <button className="ghost-btn" onClick={() => { setIsDrawerOpen(true); setActiveTab('settings'); }}>
-                  Einstellungen
-                </button>
-              </div>
-            </div>
+            (() => {
+              const currentUserData = props.participants.find(p => p.userId === props.currentUserId);
+              const currentUserAvatarUrl = currentUserData ? resolveMediaUrl(currentUserData.avatarUrl) : null;
+              const currentUsername = currentUserData ? currentUserData.username : 'You';
+              const isSpeaking = props.showVoiceActivity && speakingSet.has(props.currentUserId);
+              return (
+                <div className="voice-stream-empty-state">
+                  <div className={`empty-state-user-profile ${isSpeaking ? 'speaking' : ''}`}>
+                    <div className="voice-participant-tile-avatar large-avatar">
+                      <div
+                        className="avatar-inner"
+                        style={{
+                          backgroundColor: currentUserAvatarUrl ? 'transparent' : stringToColor(currentUsername),
+                          backgroundImage: currentUserAvatarUrl ? `url(${currentUserAvatarUrl})` : 'none'
+                        }}
+                      >
+                        {!currentUserAvatarUrl && currentUsername[0]?.toUpperCase()}
+                      </div>
+                    </div>
+                    <h3>{currentUsername}</h3>
+                  </div>
+                  <div className="empty-state-actions">
+                    <button className="primary-btn" onClick={() => props.onToggleVideoShare('screen')}>
+                      Bildschirm teilen
+                    </button>
+                    <button className="secondary-btn" onClick={() => props.onToggleVideoShare('camera')}>
+                      Kamera starten
+                    </button>
+                    <button className="ghost-btn" onClick={() => { setIsDrawerOpen(true); setActiveTab('settings'); }}>
+                      Einstellungen
+                    </button>
+                  </div>
+                </div>
+              );
+            })()
           ) : (
             <div className="voice-stream-empty-state not-joined">
               <div className="empty-state-icon">
