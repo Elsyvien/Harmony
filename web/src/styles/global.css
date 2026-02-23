@@ -19,8 +19,8 @@
   --positive: #22c55e;
   --warning: #f59e0b;
 
-  --font-display: "Inter", -apple-system, BlinkMacSystemFont, sans-serif;
-  --font-body: "Inter", -apple-system, BlinkMacSystemFont, sans-serif;
+  --font-display: "Space Grotesk", -apple-system, BlinkMacSystemFont, sans-serif;
+  --font-body: "Space Grotesk", -apple-system, BlinkMacSystemFont, sans-serif;
 
   /* Modern soft borders */
   --radius-sharp: 8px;
