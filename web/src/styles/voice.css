@@ -155,7 +155,6 @@
 
 /* Empty State */
 .voice-stream-empty-state {
-  flex: 1;
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -166,7 +165,9 @@
   border: 1px solid var(--panel-border);
   border-radius: 16px;
   padding: 40px;
-  min-height: 300px;
+  margin: 0 auto;
+  max-width: 600px;
+  width: 100%;
 }
 
 .empty-state-icon {
@@ -231,11 +232,7 @@
   position: relative;
 }
 
-.voice-participant-tile.speaking {
-  border-color: var(--positive);
-  box-shadow: 0 0 0 1px var(--positive), 0 4px 12px rgba(35, 165, 89, 0.1);
-  background: linear-gradient(180deg, rgba(35, 165, 89, 0.05) 0%, transparent 100%);
-}
+
 
 .voice-participant-tile-avatar {
   position: relative;
