@@ -150,6 +150,13 @@ function clampMediaElementVolume(value: number) {
     return Math.min(1, Math.max(0, value));
 }
 
+function isVoiceSfuDisabledError(error: unknown) {
+    const message = error instanceof Error ? error.message : String(error);
+    const normalized = message.trim().toLowerCase();
+    return normalized.includes('sfu_disabled') || normalized.includes('server-side voice transport is disabled');
+}
+
+
 // ─── Hook ────────────────────────────────────────────────────────────
 
 export function useVoiceChannel(params: UseVoiceChannelParams) {
@@ -192,6 +199,7 @@ export function useVoiceChannel(params: UseVoiceChannelParams) {
     const [voiceStatsUpdatedAt, setVoiceStatsUpdatedAt] = useState<number | null>(null);
     const [streamStatusBanner, setStreamStatusBanner] = useState<{ type: 'error' | 'info'; message: string } | null>(null);
     const [voiceJoinAckChannelId, setVoiceJoinAckChannelId] = useState<string | null>(null);
+    const [voiceSfuRuntimeDisabled, setVoiceSfuRuntimeDisabled] = useState(false);
 
     // ── Refs ────────────────────────────────────────────────────────────
 
@@ -217,6 +225,22 @@ export function useVoiceChannel(params: UseVoiceChannelParams) {
         () => (activeVoiceChannelId ? (voiceParticipantsByChannel[activeVoiceChannelId] ?? []) : []),
         [voiceParticipantsByChannel, activeVoiceChannelId],
     );
+
+    const effectiveVoiceSfuEnabled = voiceSfuEnabled && !voiceSfuRuntimeDisabled;
+
+    useEffect(() => {
+        setVoiceSfuRuntimeDisabled(false);
+    }, [voiceSfuEnabled]);
+
+    useEffect(() => {
+        if (effectiveVoiceSfuEnabled) return;
+        if (voiceSfuClientRef.current) {
+            logVoiceDebug('sfu_runtime_disabled_fallback');
+            voiceSfuClientRef.current.stop();
+            voiceSfuClientRef.current = null;
+        }
+    }, [effectiveVoiceSfuEnabled, voiceSfuClientRef, logVoiceDebug]);
+
 
     // ── Stream Status Banner ───────────────────────────────────────────
 
@@ -525,14 +549,14 @@ export function useVoiceChannel(params: UseVoiceChannelParams) {
             for (const id of Array.from(peerConnectionsRef.current.keys())) {
                 if (!desired.has(id)) closePeerConnection(id);
             }
-            if (voiceSfuEnabled) {
+            if (effectiveVoiceSfuEnabled) {
                 if (voiceJoinAckChannelId !== activeVoiceChannelId) return;
                 if (!voiceSfuClientRef.current) {
                     if (!wsConnected) return;
                     logVoiceDebug('sfu_init', { channelId: activeVoiceChannelId });
                     voiceSfuClientRef.current = new VoiceSfuClient({
                         selfUserId: authUserId,
-                        request: (action, data, timeoutMs) => requestVoiceSfu(activeVoiceChannelId, action, data, timeoutMs),
+                        request: async (action, data, timeoutMs) => {                             try {                                 return await requestVoiceSfu(activeVoiceChannelId, action, data, timeoutMs);                             } catch (err) {                                 if (isVoiceSfuDisabledError(err)) {                                     setVoiceSfuRuntimeDisabled(true);                                 }                                 throw err;                             }                         },
                         callbacks: {
                             onRemoteAudio: onRemoteAudioStreamStable,
                             onRemoteAudioRemoved: (uid) => onRemoteAudioStreamStable(uid, null),
@@ -542,7 +566,7 @@ export function useVoiceChannel(params: UseVoiceChannelParams) {
                         },
                     });
                     try { await voiceSfuClientRef.current.start(outgoingTrack); }
-                    catch (err) { logVoiceDebug('sfu_start_error', { err }); setError(getErrorMessage(err, 'Voice SFU connection failed')); voiceSfuClientRef.current?.stop(); voiceSfuClientRef.current = null; }
+                    catch (err) {                         if (isVoiceSfuDisabledError(err)) {                             logVoiceDebug('sfu_disabled_runtime_fallback', { channelId: activeVoiceChannelId });                             setVoiceSfuRuntimeDisabled(true);                             setError(null);                         } else {                             logVoiceDebug('sfu_start_error', { err });                             setError(getErrorMessage(err, 'Voice SFU connection failed'));                         }                         voiceSfuClientRef.current?.stop();                         voiceSfuClientRef.current = null;                     }
                 } else if (wsConnected) {
                     void voiceSfuClientRef.current.replaceLocalAudioTrack(outgoingTrack);
                     void voiceSfuClientRef.current.syncProducers();
@@ -560,7 +584,7 @@ export function useVoiceChannel(params: UseVoiceChannelParams) {
         };
         void sync();
         return () => { cancelled = true; };
-    }, [wsConnected, activeVoiceChannelId, authUserId, voiceParticipantsByChannel, teardownVoiceTransport, getLocalVoiceStream, getCurrentOutgoingVoiceTrack, peerConnectionsRef, closePeerConnection, ensurePeerConnection, createOfferForPeer, voiceSfuEnabled, voiceJoinAckChannelId, requestVoiceSfu, logVoiceDebug, onRemoteAudioStreamStable, onRemoteScreenShareStreamStable, onRemoteAdvertisedVideoSourceStable, setError, setActiveVoiceChannelId]);
+    }, [wsConnected, activeVoiceChannelId, authUserId, voiceParticipantsByChannel, teardownVoiceTransport, getLocalVoiceStream, getCurrentOutgoingVoiceTrack, peerConnectionsRef, closePeerConnection, ensurePeerConnection, createOfferForPeer, effectiveVoiceSfuEnabled, voiceJoinAckChannelId, requestVoiceSfu, logVoiceDebug, onRemoteAudioStreamStable, onRemoteScreenShareStreamStable, onRemoteAdvertisedVideoSourceStable, setError, setActiveVoiceChannelId]);
 
     // ── WS Disconnect / Reconnect ──────────────────────────────────────
 
