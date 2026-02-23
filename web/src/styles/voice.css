@@ -286,7 +286,7 @@
   background: var(--bg-darker);
   border: 1px solid var(--panel-border);
   border-radius: 12px;
-  min-width: 140px;
+  width: 154px;
   transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
   position: relative;
 }

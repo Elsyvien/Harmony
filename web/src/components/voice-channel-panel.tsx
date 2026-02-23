@@ -224,8 +224,7 @@ const ScreenShareItem = memo(function ScreenShareItem({
     const watchdog = window.setInterval(() => {
       const node = videoRef.current;
       if (!node) return;
-
-      const hasLiveVideoTrack = stream.getVideoTracks().some(t => t.readyState === 'live');
+      const hasLiveVideoTrack = stream.getVideoTracks().length > 0;
       if (!hasLiveVideoTrack) return;
 
       const hasRenderableFrame = node.videoWidth > 0 && node.videoHeight > 0;
@@ -343,7 +342,7 @@ export function VoiceChannelPanel(props: VoiceChannelPanelProps) {
   const speakingSet = new Set(props.speakingUserIds);
 
   const hasLiveVideoTrack = (stream: MediaStream | null | undefined) =>
-    Boolean(stream?.getVideoTracks().some((track) => track.readyState === 'live'));
+    Boolean(stream && stream.getVideoTracks().length > 0);
 
   const hasLocalShare =
     props.localStreamSource !== null &&
