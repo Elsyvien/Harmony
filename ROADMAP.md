@@ -23,13 +23,13 @@
 **Goal:** Enhance communication beyond plain text.
 - [ ] **Rich Text Support:** Markdown rendering (bold, italic, code blocks).
 - [ ] **Emoji Picker:** Integration of a standard emoji selector.
-- [ ] **File Attachments:** Image/file upload support (Local storage or S3).
+- [x] **File Attachments:** Image/file upload support (Local storage or S3).
 - [ ] **Link Previews:** OpenGraph scraping for shared URLs.
-- [ ] **Message Reactions:** Add reactions to messages.
+- [x] **Message Reactions:** Add reactions to messages.
 
 ## Phase 4: Social & Privacy
 **Goal:** Personal connections and user status.
-- [ ] **Direct Messages (DMs):** Private 1:1 conversations.
+- [x] **Direct Messages (DMs):** Private 1:1 conversations.
 - [ ] **User Status:** Real-time Online/Idle/DND indicators.
 - [x] **Friend System:** Send/Accept friend requests, manage incoming/outgoing queues, remove friends.
 - [ ] **Block List:** User-side moderation.
@@ -44,6 +44,7 @@
 
 ## Phase 6: Real-Time Media
 **Goal:** Voice and Video capabilities.
-- [ ] **Voice Channels:** WebRTC integration (SFU or Mesh).
-- [ ] **Screen Sharing:** Desktop capture and streaming.
-- [ ] **Video Calls:** Camera stream handling.
+- [x] **Voice Channels:** WebRTC integration (SFU or Mesh).
+- [x] **Screen Sharing:** Desktop capture and streaming.
+- [x] **Video Calls:** Camera stream handling.
+
