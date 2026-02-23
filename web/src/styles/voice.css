@@ -242,6 +242,9 @@
   flex: 1;
   justify-content: center;
   min-width: 0;
+  height: 44px;
+  display: inline-flex;
+  align-items: center;
 }
 
 .center-join {

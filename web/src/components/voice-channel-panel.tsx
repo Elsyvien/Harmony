@@ -460,8 +460,8 @@ export function VoiceChannelPanel(props: VoiceChannelPanelProps) {
                 <button className="secondary-btn" onClick={() => props.onToggleVideoShare('camera')}>
                   Start Camera
                 </button>
-                <button className="ghost-btn" onClick={() => { setIsDrawerOpen(true); setActiveTab('settings'); }}>
-                  Settings
+                <button className="danger-btn" onClick={() => void props.onLeave()}>
+                  Leave Voice
                 </button>
               </div>
             </div>
