@@ -173,7 +173,7 @@ export function ChatPageShell({
         ) : null}
       </section>
 
-      {activeView === 'chat' ? <UserSidebar {...userSidebarProps} /> : null}
+      {activeView === 'chat' && !activeChannelIsVoice ? <UserSidebar {...userSidebarProps} /> : null}
 
       {children}
     </main>

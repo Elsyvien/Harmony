@@ -335,9 +335,12 @@ const ScreenShareItem = memo(function ScreenShareItem({
 });
 
 export function VoiceChannelPanel(props: VoiceChannelPanelProps) {
-  const speakingSet = new Set(props.speakingUserIds);
   const [maximizedStreamId, setMaximizedStreamId] = useState<string | null>(null);
   const [isCinemaMode, setIsCinemaMode] = useState(false);
+  const [activeTab, setActiveTab] = useState<'settings' | 'stats'>('settings');
+  const [isDrawerOpen, setIsDrawerOpen] = useState(false);
+
+  const speakingSet = new Set(props.speakingUserIds);
 
   const hasLiveVideoTrack = (stream: MediaStream | null | undefined) =>
     Boolean(stream?.getVideoTracks().some((track) => track.readyState === 'live'));
@@ -355,313 +358,324 @@ export function VoiceChannelPanel(props: VoiceChannelPanelProps) {
   const localShareTitle = props.localStreamSource === 'camera' ? 'Your Camera' : 'Your Screen';
 
   return (
-    <section className="voice-panel">
-      <header className="voice-panel-header">
-        <h2>{props.channelName}</h2>
-        <div className="voice-panel-header-actions">
-          <button
-            className={`voice-action-btn ${props.isMuted ? 'danger' : ''}`}
-            disabled={!props.joined}
-            onClick={props.onToggleMute}
-          >
-            {props.isMuted ? 'Unmute' : 'Mute'}
-          </button>
-          <button
-            className={`voice-action-btn ${props.joined ? 'danger' : 'primary'}`}
-            disabled={props.busy || !props.wsConnected}
-            onClick={() => props.joined ? void props.onLeave() : void props.onJoin()}
-          >
-            {props.busy ? '...' : props.joined ? 'Leave' : 'Join Voice'}
-          </button>
+    <section className={`voice-stage ${isDrawerOpen ? 'drawer-open' : ''}`}>
+      <header className="voice-stage-header">
+        <div className="voice-stage-header-left">
+          <h2><span className="channel-hash">~</span>{props.channelName}</h2>
+        </div>
+
+        <div className="voice-stage-header-center">
+          {props.joined ? (
+            <span className="voice-status-badge connected">● Connected</span>
+          ) : props.busy ? (
+            <span className="voice-status-badge connecting">Connecting...</span>
+          ) : (
+            <span className="voice-status-badge disconnected">Disconnected</span>
+          )}
+        </div>
+
+        <div className="voice-stage-header-right">
+          {!props.joined ? (
+            <button className="primary-btn" disabled={props.busy || !props.wsConnected} onClick={() => void props.onJoin()}>
+              {props.busy ? '...' : 'Join Voice'}
+            </button>
+          ) : (
+            <div className="voice-quick-actions">
+              <button className="icon-action-btn" onClick={() => props.onToggleVideoShare('screen')} title="Share Screen">
+                <svg width="20" height="20" viewBox="0 0 24 24"><path fill="currentColor" d="M21 16V4H3v12h18zm0-14a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2h-7v2h4v2H6v-2h4v-2H3a2 2 0 0 1-2-2V4c0-1.1.9-2 2-2h18z"></path></svg>
+              </button>
+              <button className="icon-action-btn" onClick={() => props.onToggleVideoShare('camera')} title="Share Camera">
+                <svg width="20" height="20" viewBox="0 0 24 24"><path fill="currentColor" d="M15 8v8H5V8h10m1-2H4c-.55 0-1 .45-1 1v10c0 .55.45 1 1 1h12c.55 0 1-.45 1-1v-3.5l4 4v-11l-4 4V7c0-.55-.45-1-1-1z"></path></svg>
+              </button>
+              <button className={`icon-action-btn ${props.isMuted ? 'danger-active' : ''}`} onClick={props.onToggleMute} title={props.isMuted ? 'Unmute' : 'Mute'}>
+                <svg width="20" height="20" viewBox="0 0 24 24"><path fill="currentColor" d="M12 14c1.66 0 3-1.34 3-3V5c0-1.66-1.34-3-3-3S9 3.34 9 5v6c0 1.66 1.34 3 3 3z"></path><path fill="currentColor" d="M17 11c0 2.76-2.24 5-5 5s-5-2.24-5-5H5c0 3.53 2.61 6.43 6 6.92V21h2v-3.08c3.39-.49 6-3.39 6-6.92h-2z"></path></svg>
+              </button>
+              <button className="icon-action-btn danger-action" onClick={() => void props.onLeave()} title="Disconnect">
+                <svg width="20" height="20" viewBox="0 0 24 24"><path fill="currentColor" d="M10.09 15.59L11.5 17l5-5-5-5-1.41 1.41L12.67 11H3v2h9.67l-2.58 2.59zM19 3H5c-1.11 0-2 .9-2 2v4h2V5h14v14H5v-4H3v4c0 1.1.89 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2z"></path></svg>
+              </button>
+              <div className="header-divider"></div>
+              <button className={`icon-action-btn ${isDrawerOpen ? 'active' : ''}`} onClick={() => setIsDrawerOpen(!isDrawerOpen)} title="Voice Settings & Stats">
+                <svg width="20" height="20" viewBox="0 0 24 24"><path fill="currentColor" d="M19.14 12.94c.04-.3.06-.61.06-.94 0-.32-.02-.64-.07-.94l2.03-1.58a.49.49 0 0 0 .12-.61l-1.92-3.32a.488.488 0 0 0-.59-.22l-2.39.96c-.5-.38-1.03-.7-1.62-.94l-.36-2.54a.484.484 0 0 0-.48-.41h-3.84c-.24 0-.43.17-.47.41l-.36 2.54c-.59.24-1.13.57-1.62.94l-2.39-.96c-.22-.08-.47 0-.59.22L2.74 8.87c-.12.21-.08.47.12.61l2.03 1.58c-.05.3-.09.63-.09.94s.02.64.07.94l-2.03 1.58a.49.49 0 0 0-.12.61l1.92 3.32c.12.22.37.29.59.22l2.39-.96c.5.38 1.03.7 1.62.94l.36 2.54c.05.24.24.41.48.41h3.84c.24 0 .44-.17.47-.41l.36-2.54c.59-.24 1.13-.58 1.62-.94l2.39.96c.22.08.47 0 .59-.22l1.92-3.32c.12-.22.07-.47-.12-.61l-2.01-1.58zM12 15.6c-1.98 0-3.6-1.62-3.6-3.6s1.62-3.6 3.6-3.6 3.6 1.62 3.6 3.6-1.62 3.6-3.6 3.6z"></path></svg>
+              </button>
+            </div>
+          )}
         </div>
       </header>
 
-      <div className="voice-overview-chips">
-        <span className={`voice-overview-chip ${props.wsConnected ? 'ok' : 'warn'}`}>
-          {props.wsConnected ? '● Connected' : '○ Disconnected'}
-        </span>
-        <span className="voice-overview-chip">
-          Participants ({props.participants.length})
-        </span>
-        {hasScreenShares && (
-          <span className="voice-overview-chip ok">
-            Live ({visibleRemoteScreenShares.length + (hasLocalShare ? 1 : 0)})
-          </span>
-        )}
-        <button
-          className={`voice-overview-chip ${props.showDetailedStats ? 'ok' : ''}`}
-          onClick={props.onToggleDetailedStats}
-          style={{ cursor: 'pointer' }}
-        >
-          Stats
-        </button>
-      </div>
-
-      {props.showDetailedStats && (
-        <section className="voice-detailed-stats">
-          <header className="voice-detailed-stats-header">
-            <strong>Connection Analytics</strong>
-            <small>{props.statsUpdatedAt ? `Last update: ${new Date(props.statsUpdatedAt).toLocaleTimeString()}` : 'Waiting...'}</small>
-          </header>
-          <div className="voice-detailed-stats-grid">
-            {props.connectionStats.length === 0 ? (
-              <article className="voice-detailed-stat-card voice-detailed-stat-card-empty">
-                <header>
-                  <strong>Collecting voice stats</strong>
-                  <small>Waiting for active peer transport telemetry.</small>
-                </header>
-              </article>
-            ) : null}
-            {props.connectionStats.map((stats) => (
-              <article key={stats.userId} className="voice-detailed-stat-card">
-                <header>
-                  <strong>{stats.username}</strong>
-                  <small>
-                    {stats.connectionState} • {stats.iceConnectionState}
-                    {(stats.localCandidateType === 'sfu' || stats.remoteCandidateType === 'sfu') && ' • SFU'}
-                  </small>
-                </header>
-                <div className="voice-detailed-metrics">
-                  <div className="voice-metric-item">
-                    <label>Latency (RTT)</label>
-                    <span>{formatMetric(stats.currentRttMs)} ms</span>
-                  </div>
-                  <div className="voice-metric-item">
-                    <label>Bitrate Out</label>
-                    <span>{formatMetric(stats.availableOutgoingBitrateKbps)} kbps</span>
-                  </div>
-                  <div className="voice-metric-item">
-                    <label>Audio In/Out</label>
-                    <span>{formatMetric(stats.inboundAudio.bitrateKbps)} / {formatMetric(stats.outboundAudio.bitrateKbps)} kbps</span>
-                  </div>
-                  <div className="voice-metric-item">
-                    <label>Video In/Out</label>
-                    <span>{formatMetric(stats.inboundVideo.bitrateKbps)} / {formatMetric(stats.outboundVideo.bitrateKbps)} kbps</span>
-                  </div>
-                  <div className="voice-metric-item">
-                    <label>Video Resolution</label>
-                    <span>{stats.inboundVideo.frameWidth ? `${stats.inboundVideo.frameWidth}x${stats.inboundVideo.frameHeight}` : '--'}</span>
-                  </div>
-                  <div className="voice-metric-item">
-                    <label>Packet Loss</label>
-                    <span>{formatMetric(stats.inboundAudio.packetsLost, 0)}</span>
-                  </div>
-                  <div className="voice-metric-item">
-                    <label>Audio Jitter</label>
-                    <span>{formatMetric(stats.inboundAudio.jitterMs)} ms</span>
-                  </div>
-                </div>
-              </article>
-            ))}
-          </div>
-        </section>
-      )}
-
-      {hasScreenShares && (
-        <div className={`voice-screen-shares ${isCinemaMode ? 'cinema-mode' : maximizedStreamId ? 'has-maximized' : 'grid-layout'}`}>
-          {isCinemaMode && (
-            <button
-              style={{
-                position: 'fixed',
-                top: '20px',
-                right: '20px',
-                zIndex: 101,
-                background: 'rgba(0,0,0,0.5)',
-                color: '#fff',
-                border: '1px solid rgba(255,255,255,0.2)',
-                padding: '8px 12px',
-                borderRadius: '8px',
-                cursor: 'pointer'
-              }}
-              onClick={() => setIsCinemaMode(false)}
-            >
-              ✕ Exit Cinema Mode
-            </button>
-          )}
-          {hasLocalShare && props.localScreenShareStream && (
-            <ScreenShareItem
-              stream={props.localScreenShareStream}
-              label={localShareTitle}
-              isMaximized={maximizedStreamId === 'local'}
-              onMaximize={() => setMaximizedStreamId(maximizedStreamId === 'local' ? null : 'local')}
-              onCinema={() => {
-                setMaximizedStreamId('local');
-                setIsCinemaMode(true);
-              }}
-            />
-          )}
-          {visibleRemoteScreenShares.map(([userId, stream]) => {
-            const participant = props.participants.find((p) => p.userId === userId);
-            return (
-              <ScreenShareItem
-                key={userId}
-                stream={stream}
-                label={`${participant?.username ?? 'Unknown'}'s Stream`}
-                isMaximized={maximizedStreamId === userId}
-                onMaximize={() => setMaximizedStreamId(maximizedStreamId === userId ? null : userId)}
-                onCinema={() => {
-                  setMaximizedStreamId(userId);
-                  setIsCinemaMode(true);
-                }}
-              />
-            );
-          })}
-        </div>
-      )}
-
-      {props.joined && !hasScreenShares && (
-        <div className="voice-stream-empty-state">
-          <strong>No one is streaming</strong>
-          <p>Share your screen or camera to start a live broadcast in this channel.</p>
-          <div className="voice-panel-header-actions" style={{ justifyContent: 'center' }}>
-            <button className="voice-action-btn" onClick={() => props.onToggleVideoShare('screen')}>
-              Share Screen
-            </button>
-            <button className="voice-action-btn" onClick={() => props.onToggleVideoShare('camera')}>
-              Share Camera
-            </button>
-          </div>
-        </div>
-      )}
-
-      {props.joined && hasScreenShares && (
-        <div className="voice-panel-header-actions" style={{ justifyContent: 'center', marginTop: 4 }}>
-          {hasLocalShare ? (
-            <button className="voice-action-btn danger" onClick={() => props.onToggleVideoShare(props.localStreamSource ?? 'screen')}>
-              Stop Sharing
-            </button>
-          ) : (
-            <>
-              <button className="voice-action-btn" onClick={() => props.onToggleVideoShare('screen')}>
-                Share Screen
-              </button>
-              <button className="voice-action-btn" onClick={() => props.onToggleVideoShare('camera')}>
-                Share Camera
-              </button>
-            </>
-          )}
-        </div>
-      )}
-
-      {props.joined && (
-        <div className="voice-settings-grid">
-          <div className="voice-setting-col">
-            <label className="voice-quality-label">Voice Bitrate</label>
-            <DropdownSelect
-              options={VOICE_BITRATE_OPTIONS.map(formatVoiceBitrateOption)}
-              value={formatVoiceBitrateOption(props.voiceBitrateKbps)}
-              disabled={!props.canEditChannelBitrate || props.qualityBusy}
-              onChange={(val) => props.onVoiceBitrateChange(parseInt(val, 10))}
-            />
-          </div>
-          <div className="voice-setting-col">
-            <label className="voice-quality-label">Stream Bitrate</label>
-            <DropdownSelect
-              options={STREAM_BITRATE_OPTIONS.map(formatStreamBitrateOption)}
-              value={formatStreamBitrateOption(props.streamBitrateKbps)}
-              disabled={!props.canEditChannelBitrate || props.qualityBusy}
-              onChange={(val) => props.onStreamBitrateChange(parseInt(val, 10))}
-            />
-          </div>
-          <div className="voice-setting-col">
-            <label className="voice-quality-label">Resolution Preset</label>
-            <DropdownSelect
-              options={STREAM_QUALITY_OPTIONS}
-              value={props.streamQualityLabel}
-              disabled={!props.localScreenShareStream}
-              onChange={props.onStreamQualityChange}
-            />
-          </div>
-        </div>
-      )}
-
-      <div className="voice-participant-list">
-        {props.participants.map((participant) => {
-          const isSelf = participant.userId === props.currentUserId;
-          const isSpeaking = props.showVoiceActivity && speakingSet.has(participant.userId);
-          const avatarUrl = resolveMediaUrl(participant.avatarUrl);
-          const audioState = !isSelf ? props.getParticipantAudioState?.(participant.userId) : null;
-          const stats = props.connectionStats.find(s => s.userId === participant.userId);
-          const rtt = stats?.currentRttMs;
-          // In SFU mode there are no per-peer RTCPeerConnection objects, so
-          // connectionStats will be empty. When the local voice transport is
-          // ready (localAudioReady) we can safely treat remote participants as
-          // connected rather than perpetually showing "Connecting...".
-          const sfuFallbackState = props.localAudioReady ? 'connected' : 'connecting';
-          const connState = stats?.connectionState || (props.joined && !isSelf ? sfuFallbackState : 'new');
-          const iceState = stats?.iceConnectionState;
-
-          let signalClass = 'good';
-          if (connState === 'connecting' || connState === 'new' || iceState === 'checking') {
-            signalClass = 'pending';
-          } else if (connState === 'disconnected' || connState === 'failed') {
-            signalClass = 'bad';
-          } else if (rtt !== undefined && rtt !== null) {
-            if (rtt > 300) { signalClass = 'bad'; }
-            else if (rtt > 150) { signalClass = 'fair'; }
-          } else if (stats && rtt === null) {
-            signalClass = 'pending';
-          }
-
-          let displayStatus = participant.deafened ? 'Deafened' : participant.muted ? 'Muted' : isSpeaking ? 'Speaking' : 'Connected';
-          if (props.joined && !isSelf) {
-            if (connState === 'new' || connState === 'connecting' || iceState === 'checking') displayStatus = 'Connecting...';
-            else if (connState === 'disconnected') displayStatus = 'Reconnecting...';
-            else if (connState === 'failed') displayStatus = 'Connection Failed';
-          }
-
-          return (
-            <div
-              key={participant.userId}
-              className={`voice-participant-item ${isSpeaking ? 'speaking' : ''} ${connState !== 'connected' && connState !== 'new' && props.joined && !isSelf ? 'reconnecting' : ''}`}
-              onContextMenu={(e) => {
-                e.preventDefault();
-                props.onParticipantContextMenu?.(participant, { x: e.clientX, y: e.clientY });
-              }}
-            >
-              <div style={{ display: 'flex', alignItems: 'center', minWidth: 0 }}>
-                <div className="voice-participant-avatar-wrap">
-                  <div
-                    className="voice-participant-avatar"
-                    style={{
-                      backgroundColor: avatarUrl ? 'transparent' : stringToColor(participant.username),
-                      backgroundImage: avatarUrl ? `url(${avatarUrl})` : 'none'
-                    }}
-                  >
-                    {!avatarUrl && participant.username[0].toUpperCase()}
-                  </div>
-                </div>
-                <div className="voice-participant-info">
-                  <div className="voice-participant-name">
-                    {participant.username} {isSelf && '(You)'}
-                  </div>
-                  <div className="voice-participant-status">
-                    {displayStatus}
-                    {audioState && ` • ${audioState.volume}%`}
-                  </div>
-                </div>
-              </div>
-              <div className="voice-participant-icons">
-                <span
-                  className={`voice-status-icon signal ${signalClass}`}
-                  title={rtt !== undefined && rtt !== null ? `Ping: ${Math.round(rtt)}ms` : 'Signal details unavailable'}
+      <div className="voice-stage-body">
+        <div className="voice-stage-main">
+          {hasScreenShares ? (
+            <div className={`voice-screen-shares ${isCinemaMode ? 'cinema-mode' : maximizedStreamId ? 'has-maximized' : 'grid-layout'}`}>
+              {isCinemaMode && (
+                <button
+                  style={{
+                    position: 'fixed',
+                    top: '20px',
+                    right: '20px',
+                    zIndex: 101,
+                    background: 'rgba(0,0,0,0.5)',
+                    color: '#fff',
+                    border: '1px solid rgba(255,255,255,0.2)',
+                    padding: '8px 12px',
+                    borderRadius: '8px',
+                    cursor: 'pointer'
+                  }}
+                  onClick={() => setIsCinemaMode(false)}
                 >
-                  <SignalStrength quality={signalClass as any} />
-                </span>
-                {participant.muted && (
-                  <span className="voice-status-icon muted">
-                    <svg width="14" height="14" viewBox="0 0 24 24"><path fill="currentColor" d="M16.5 12c0-1.77-1.02-3.29-2.5-4.03v2.21l2.45 2.45c.03-.2.05-.41.05-.63zm2.5 0c0 .94-.2 1.82-.54 2.64l1.51 1.51C20.63 14.91 21 13.5 21 12c0-4.28-2.99-7.86-7-8.77v2.06c2.89.86 5 3.54 5 6.71zM4.27 3L3 4.27 7.73 9H3v6h4l5 5v-6.73l4.25 4.25c-.67.52-1.42.93-2.25 1.18v2.06c1.38-.31 2.63-.95 3.69-1.81L19.73 21 21 19.73l-9-9L4.27 3zM12 4L9.91 6.09 12 8.18V4z"></path></svg>
-                  </span>
-                )}
-                {participant.deafened && (
-                  <span className="voice-status-icon deafened">
-                    <svg width="14" height="14" viewBox="0 0 24 24"><path fill="currentColor" d="M12 3a9 9 0 0 0-9 9v7c0 1.1.9 2 2 2h4v-8H5v-1c0-3.87 3.13-7 7-7s7 3.13 7 7v1h-4v8h4c1.1 0 2-.9 2-2v-7a9 9 0 0 0-9-9z"></path></svg>
-                  </span>
-                )}
+                  ✕ Exit Cinema Mode
+                </button>
+              )}
+              {hasLocalShare && props.localScreenShareStream && (
+                <ScreenShareItem
+                  stream={props.localScreenShareStream}
+                  label={localShareTitle}
+                  isMaximized={maximizedStreamId === 'local'}
+                  onMaximize={() => setMaximizedStreamId(maximizedStreamId === 'local' ? null : 'local')}
+                  onCinema={() => {
+                    setMaximizedStreamId('local');
+                    setIsCinemaMode(true);
+                  }}
+                />
+              )}
+              {visibleRemoteScreenShares.map(([userId, stream]) => {
+                const participant = props.participants.find((p) => p.userId === userId);
+                return (
+                  <ScreenShareItem
+                    key={userId}
+                    stream={stream}
+                    label={`${participant?.username ?? 'Unknown'}'s Stream`}
+                    isMaximized={maximizedStreamId === userId}
+                    onMaximize={() => setMaximizedStreamId(maximizedStreamId === userId ? null : userId)}
+                    onCinema={() => {
+                      setMaximizedStreamId(userId);
+                      setIsCinemaMode(true);
+                    }}
+                  />
+                );
+              })}
+            </div>
+          ) : props.joined ? (
+            <div className="voice-stream-empty-state">
+              <div className="empty-state-icon">
+                <svg width="48" height="48" viewBox="0 0 24 24"><path fill="currentColor" d="M21 16V4H3v12h18zm0-14a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2h-7v2h4v2H6v-2h4v-2H3a2 2 0 0 1-2-2V4c0-1.1.9-2 2-2h18z"></path></svg>
+              </div>
+              <div className="empty-state-text">
+                <h3>Noch kein Live-Stream</h3>
+                <p>Teile Bildschirm oder Kamera, um den Voice-Channel in einen Livestream zu verwandeln.</p>
+              </div>
+              <div className="empty-state-actions">
+                <button className="primary-btn" onClick={() => props.onToggleVideoShare('screen')}>
+                  Bildschirm teilen
+                </button>
+                <button className="secondary-btn" onClick={() => props.onToggleVideoShare('camera')}>
+                  Kamera starten
+                </button>
+                <button className="ghost-btn" onClick={() => { setIsDrawerOpen(true); setActiveTab('settings'); }}>
+                  Einstellungen
+                </button>
               </div>
             </div>
-          );
-        })}
+          ) : (
+            <div className="voice-stream-empty-state not-joined">
+              <div className="empty-state-icon">
+                <svg width="48" height="48" viewBox="0 0 24 24"><path fill="currentColor" d="M12 14c1.66 0 3-1.34 3-3V5c0-1.66-1.34-3-3-3S9 3.34 9 5v6c0 1.66 1.34 3 3 3z"></path></svg>
+              </div>
+              <h3>Bereit zum Beitritt?</h3>
+              <p>Tritt dem Voice-Channel bei, um mit anderen zu sprechen.</p>
+              <button className="primary-btn center-join" disabled={props.busy || !props.wsConnected} onClick={() => void props.onJoin()}>
+                {props.busy ? '...' : 'Join Voice Channel'}
+              </button>
+            </div>
+          )}
+
+          {props.joined && (
+            <div className="voice-participants-filmstrip">
+              {props.participants.map((participant) => {
+                const isSelf = participant.userId === props.currentUserId;
+                const isSpeaking = props.showVoiceActivity && speakingSet.has(participant.userId);
+                const avatarUrl = resolveMediaUrl(participant.avatarUrl);
+                const audioState = !isSelf ? props.getParticipantAudioState?.(participant.userId) : null;
+                const stats = props.connectionStats.find(s => s.userId === participant.userId);
+                const rtt = stats?.currentRttMs;
+                const sfuFallbackState = props.localAudioReady ? 'connected' : 'connecting';
+                const connState = stats?.connectionState || (props.joined && !isSelf ? sfuFallbackState : 'new');
+                const iceState = stats?.iceConnectionState;
+
+                let signalClass = 'good';
+                if (connState === 'connecting' || connState === 'new' || iceState === 'checking') {
+                  signalClass = 'pending';
+                } else if (connState === 'disconnected' || connState === 'failed') {
+                  signalClass = 'bad';
+                } else if (rtt !== undefined && rtt !== null) {
+                  if (rtt > 300) { signalClass = 'bad'; }
+                  else if (rtt > 150) { signalClass = 'fair'; }
+                } else if (stats && rtt === null) {
+                  signalClass = 'pending';
+                }
+
+                let displayStatus = participant.deafened ? 'Deafened' : participant.muted ? 'Muted' : isSpeaking ? 'Speaking' : 'Connected';
+                if (props.joined && !isSelf) {
+                  if (connState === 'new' || connState === 'connecting' || iceState === 'checking') displayStatus = 'Connecting...';
+                  else if (connState === 'disconnected') displayStatus = 'Reconnecting...';
+                  else if (connState === 'failed') displayStatus = 'Connection Failed';
+                }
+
+                return (
+                  <div
+                    key={participant.userId}
+                    className={`voice-participant-tile ${isSpeaking ? 'speaking' : ''} ${connState !== 'connected' && connState !== 'new' && props.joined && !isSelf ? 'reconnecting' : ''}`}
+                    onContextMenu={(e) => {
+                      e.preventDefault();
+                      props.onParticipantContextMenu?.(participant, { x: e.clientX, y: e.clientY });
+                    }}
+                  >
+                    <div className="voice-participant-tile-avatar">
+                      <div
+                        className="avatar-inner"
+                        style={{
+                          backgroundColor: avatarUrl ? 'transparent' : stringToColor(participant.username),
+                          backgroundImage: avatarUrl ? `url(${avatarUrl})` : 'none'
+                        }}
+                      >
+                        {!avatarUrl && participant.username[0].toUpperCase()}
+                      </div>
+                      {participant.muted && (
+                        <div className="status-icon muted">
+                          <svg width="12" height="12" viewBox="0 0 24 24"><path fill="currentColor" d="M16.5 12c0-1.77-1.02-3.29-2.5-4.03v2.21l2.45 2.45c.03-.2.05-.41.05-.63zm2.5 0c0 .94-.2 1.82-.54 2.64l1.51 1.51C20.63 14.91 21 13.5 21 12c0-4.28-2.99-7.86-7-8.77v2.06c2.89.86 5 3.54 5 6.71zM4.27 3L3 4.27 7.73 9H3v6h4l5 5v-6.73l4.25 4.25c-.67.52-1.42.93-2.25 1.18v2.06c1.38-.31 2.63-.95 3.69-1.81L19.73 21 21 19.73l-9-9L4.27 3zM12 4L9.91 6.09 12 8.18V4z"></path></svg>
+                        </div>
+                      )}
+                      {participant.deafened && (
+                        <div className="status-icon deafened">
+                          <svg width="12" height="12" viewBox="0 0 24 24"><path fill="currentColor" d="M12 3a9 9 0 0 0-9 9v7c0 1.1.9 2 2 2h4v-8H5v-1c0-3.87 3.13-7 7-7s7 3.13 7 7v1h-4v8h4c1.1 0 2-.9 2-2v-7a9 9 0 0 0-9-9z"></path></svg>
+                        </div>
+                      )}
+                    </div>
+                    <div className="voice-participant-tile-info">
+                      <div className="voice-participant-tile-name">
+                        {participant.username} {isSelf && '(You)'}
+                      </div>
+                      <div className="voice-participant-tile-status">
+                        <span className={`voice-status-icon signal ${signalClass}`} title={rtt !== undefined && rtt !== null ? `Ping: ${Math.round(rtt)}ms` : 'Signal details unavailable'}>
+                          <SignalStrength quality={signalClass as any} />
+                        </span>
+                        <span>
+                          {displayStatus}
+                          {audioState && ` • ${audioState.volume}%`}
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+
+        {isDrawerOpen && (
+          <aside className="voice-stage-drawer">
+            <div className="drawer-header">
+              <div className="drawer-tabs">
+                <button className={activeTab === 'settings' ? 'active' : ''} onClick={() => setActiveTab('settings')}>Settings</button>
+                <button className={activeTab === 'stats' ? 'active' : ''} onClick={() => setActiveTab('stats')}>Stats</button>
+              </div>
+              <button className="ghost-btn small" onClick={() => setIsDrawerOpen(false)}>✕</button>
+            </div>
+
+            <div className="drawer-content">
+              {activeTab === 'settings' && (
+                <div className="drawer-settings">
+                  <div className="voice-setting-col">
+                    <label className="voice-quality-label">Voice Bitrate</label>
+                    <DropdownSelect
+                      options={VOICE_BITRATE_OPTIONS.map(formatVoiceBitrateOption)}
+                      value={formatVoiceBitrateOption(props.voiceBitrateKbps)}
+                      disabled={!props.canEditChannelBitrate || props.qualityBusy}
+                      onChange={(val) => props.onVoiceBitrateChange(parseInt(val, 10))}
+                    />
+                  </div>
+                  <div className="voice-setting-col">
+                    <label className="voice-quality-label">Stream Bitrate</label>
+                    <DropdownSelect
+                      options={STREAM_BITRATE_OPTIONS.map(formatStreamBitrateOption)}
+                      value={formatStreamBitrateOption(props.streamBitrateKbps)}
+                      disabled={!props.canEditChannelBitrate || props.qualityBusy}
+                      onChange={(val) => props.onStreamBitrateChange(parseInt(val, 10))}
+                    />
+                  </div>
+                  <div className="voice-setting-col">
+                    <label className="voice-quality-label">Resolution Preset</label>
+                    <DropdownSelect
+                      options={STREAM_QUALITY_OPTIONS}
+                      value={props.streamQualityLabel}
+                      disabled={!props.localScreenShareStream}
+                      onChange={props.onStreamQualityChange}
+                    />
+                  </div>
+                </div>
+              )}
+
+              {activeTab === 'stats' && (
+                <div className="drawer-stats">
+                  <header className="voice-detailed-stats-header">
+                    <strong>Connection Analytics</strong>
+                    <small>{props.statsUpdatedAt ? `Last update: ${new Date(props.statsUpdatedAt).toLocaleTimeString()}` : 'Waiting...'}</small>
+                  </header>
+                  <div className="voice-detailed-stats-grid">
+                    {props.connectionStats.length === 0 ? (
+                      <article className="voice-detailed-stat-card voice-detailed-stat-card-empty">
+                        <header>
+                          <strong>Collecting voice stats</strong>
+                          <small>Waiting for active peer transport telemetry.</small>
+                        </header>
+                      </article>
+                    ) : null}
+                    {props.connectionStats.map((stats) => (
+                      <article key={stats.userId} className="voice-detailed-stat-card">
+                        <header>
+                          <strong>{stats.username}</strong>
+                          <small>
+                            {stats.connectionState} • {stats.iceConnectionState}
+                            {(stats.localCandidateType === 'sfu' || stats.remoteCandidateType === 'sfu') && ' • SFU'}
+                          </small>
+                        </header>
+                        <div className="voice-detailed-metrics">
+                          <div className="voice-metric-item">
+                            <label>Latency (RTT)</label>
+                            <span>{formatMetric(stats.currentRttMs)} ms</span>
+                          </div>
+                          <div className="voice-metric-item">
+                            <label>Bitrate Out</label>
+                            <span>{formatMetric(stats.availableOutgoingBitrateKbps)} kbps</span>
+                          </div>
+                          <div className="voice-metric-item">
+                            <label>Audio In/Out</label>
+                            <span>{formatMetric(stats.inboundAudio.bitrateKbps)} / {formatMetric(stats.outboundAudio.bitrateKbps)} kbps</span>
+                          </div>
+                          <div className="voice-metric-item">
+                            <label>Video In/Out</label>
+                            <span>{formatMetric(stats.inboundVideo.bitrateKbps)} / {formatMetric(stats.outboundVideo.bitrateKbps)} kbps</span>
+                          </div>
+                          <div className="voice-metric-item">
+                            <label>Resolution</label>
+                            <span>{stats.inboundVideo.frameWidth ? `${stats.inboundVideo.frameWidth}x${stats.inboundVideo.frameHeight}` : '--'}</span>
+                          </div>
+                          <div className="voice-metric-item">
+                            <label>Packet Loss</label>
+                            <span>{formatMetric(stats.inboundAudio.packetsLost, 0)}</span>
+                          </div>
+                          <div className="voice-metric-item">
+                            <label>Audio Jitter</label>
+                            <span>{formatMetric(stats.inboundAudio.jitterMs)} ms</span>
+                          </div>
+                        </div>
+                      </article>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+          </aside>
+        )}
       </div>
     </section>
   );
