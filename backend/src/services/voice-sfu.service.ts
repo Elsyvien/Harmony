@@ -283,15 +283,7 @@ export class VoiceSfuService extends EventEmitter {
 
     // Cleanup on close
     transport.observer.on('close', () => {
-      peer.transports.delete(transport.id);
-      this.emitEvent({
-        type: 'transport-close',
-        channelId,
-        userId,
-        transportId: transport.id,
-        direction,
-      });
-      this.cleanupPeerIfEmpty(channelId, userId);
+      this.handleTransportClosed(channelId, userId, peer, transport.id, direction);
     });
 
     return {
@@ -311,6 +303,20 @@ export class VoiceSfuService extends EventEmitter {
   ): Promise<void> {
     const transport = this.getTransportOrThrow(channelId, userId, transportId);
     await transport.connect({ dtlsParameters });
+  }
+
+
+  closeTransport(channelId: string, userId: string, transportId: string): boolean {
+    const peer = this.getPeer(channelId, userId);
+    const transport = peer?.transports.get(transportId);
+    if (!peer || !transport) return false;
+
+    const appData = transport.appData as { direction?: unknown } | undefined;
+    const direction: VoiceSfuTransportDirection = appData?.direction === 'recv' ? 'recv' : 'send';
+
+    this.handleTransportClosed(channelId, userId, peer, transportId, direction);
+    transport.close();
+    return true;
   }
 
   // ─── Produce ─────────────────────────────────────────────────────
@@ -618,6 +624,26 @@ export class VoiceSfuService extends EventEmitter {
       throw new AppError('SFU_TRANSPORT_NOT_FOUND', 404, 'SFU transport was not found');
     }
     return transport;
+  }
+
+  private handleTransportClosed(
+    channelId: string,
+    userId: string,
+    peer: SfuPeer,
+    transportId: string,
+    direction: VoiceSfuTransportDirection,
+  ): void {
+    const removed = peer.transports.delete(transportId);
+    if (!removed) return;
+
+    this.emitEvent({
+      type: 'transport-close',
+      channelId,
+      userId,
+      transportId,
+      direction,
+    });
+    this.cleanupPeerIfEmpty(channelId, userId);
   }
 
   private cleanupPeerIfEmpty(channelId: string, userId: string): void {

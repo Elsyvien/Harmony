@@ -318,6 +318,8 @@ export class VoiceSfuClient {
     }
     this.consumerByProducerId.clear();
     this.producerOwnerById.clear();
+    void this.requestCloseTransport(this.sendTransport);
+    void this.requestCloseTransport(this.recvTransport);
     this.sendTransport?.close();
     this.recvTransport?.close();
     this.sendTransport = null;
@@ -459,7 +461,7 @@ export class VoiceSfuClient {
     this.pendingLocalVideoTrackSource = null;
 
     // Clean up old transports and clear remote state so dead streams do not linger in the UI.
-    this.cleanupTransportsOnly();
+    await this.cleanupTransportsOnly();
 
     try {
       // Re-create transports
@@ -508,7 +510,18 @@ export class VoiceSfuClient {
     }
   }
 
-  private cleanupTransportsOnly(): void {
+  private async requestCloseTransport(transport: mediasoupTypes.Transport | null): Promise<void> {
+    if (!transport) return;
+    try {
+      await this.request('close-transport', { transportId: transport.id }, 3000);
+    } catch {
+      // Best effort. Local transport close still happens below.
+    }
+  }
+
+  private async cleanupTransportsOnly(): Promise<void> {
+    const sendTransport = this.sendTransport;
+    const recvTransport = this.recvTransport;
     if (this.audioProducer) {
       try { this.audioProducer.close(); } catch { void 0; }
       this.audioProducer = null;
@@ -530,10 +543,14 @@ export class VoiceSfuClient {
     }
     this.remoteAudioStreamByUserId.clear();
     this.remoteVideoStreamByUserId.clear();
-    try { this.sendTransport?.close(); } catch { void 0; }
-    try { this.recvTransport?.close(); } catch { void 0; }
     this.sendTransport = null;
     this.recvTransport = null;
+    try { sendTransport?.close(); } catch { void 0; }
+    try { recvTransport?.close(); } catch { void 0; }
+    await Promise.allSettled([
+      this.requestCloseTransport(sendTransport),
+      this.requestCloseTransport(recvTransport),
+    ]);
   }
 
   private startKeepalive(): void {

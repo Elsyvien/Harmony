@@ -58,6 +58,7 @@ export type VoiceSfuRequestAction =
   | 'get-rtp-capabilities'
   | 'create-transport'
   | 'connect-transport'
+  | 'close-transport'
   | 'produce'
   | 'close-producer'
   | 'list-producers'

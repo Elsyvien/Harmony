@@ -32,6 +32,7 @@ export type VoiceSfuRequestAction =
     | 'get-rtp-capabilities'
     | 'create-transport'
     | 'connect-transport'
+    | 'close-transport'
     | 'produce'
     | 'close-producer'
     | 'list-producers'
@@ -278,6 +279,15 @@ export class VoiceWsHandler {
                         reqData.dtlsParameters as Parameters<VoiceSfuService['connectTransport']>[3],
                     );
                     return { ok: true, data: { connected: true } };
+                }
+
+                case 'close-transport': {
+                    const reqData = payload.data as { transportId?: string } | undefined;
+                    if (!reqData?.transportId) {
+                        return { ok: false, code: 'INVALID_SFU_REQUEST', message: 'Missing transportId' };
+                    }
+                    const closed = sfu.closeTransport(payload.channelId, ctx.userId, reqData.transportId);
+                    return { ok: true, data: { closed } };
                 }
 
                 case 'produce': {
