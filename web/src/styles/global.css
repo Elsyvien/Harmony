@@ -1,29 +1,30 @@
 :root {
-  /* Brutalist Discord Palette - High Contrast */
-  --bg-darkest: #000000;
-  --bg-darker: #0d0d0d;
-  --bg-dark: #121212;
-  --bg-hover: #1f1f1f;
+  /* Clean Modern Dark Palette */
+  --bg-darkest: #09090b;
+  --bg-darker: #121214;
+  --bg-dark: #18191c;
+  --bg-hover: #27272a;
 
-  --panel-border: #333333;
+  --panel-border: #27272a;
 
-  --accent: #d8f515; /* Highlighter neon yellow/green */
-  --accent-hover: #e5ff24;
-  --accent-text: #000000;
+  --accent: #6366f1; /* Vibrant Indigo */
+  --accent-hover: #818cf8;
+  --accent-text: #ffffff;
 
-  --text-header: #ffffff;
-  --text-normal: #e0e0e0;
-  --text-muted: #737373;
+  --text-header: #fafafa;
+  --text-normal: #d4d4d8;
+  --text-muted: #a1a1aa;
 
-  --danger: #ff2a2a;
-  --positive: #00ff66;
+  --danger: #ef4444;
+  --positive: #22c55e;
+  --warning: #f59e0b;
 
-  --font-display: "Space Grotesk", sans-serif;
-  --font-body: "Space Grotesk", "Inter", sans-serif;
+  --font-display: "Inter", -apple-system, BlinkMacSystemFont, sans-serif;
+  --font-body: "Inter", -apple-system, BlinkMacSystemFont, sans-serif;
 
-  /* Brutalism: No soft borders */
-  --radius-sharp: 0px;
-  --radius-soft: 0px;
+  /* Modern soft borders */
+  --radius-sharp: 8px;
+  --radius-soft: 12px;
 }
 
 body.theme-light {
@@ -263,10 +264,10 @@ body.theme-light select optgroup {
   max-width: 420px;
   padding: 34px 32px 28px;
   background: var(--bg-dark);
-  border: 4px solid var(--panel-border);
-  box-shadow: 12px 12px 0px 0px rgba(0, 0, 0, 1);
+  border: 1px solid var(--panel-border);
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.24);
   color: var(--text-normal);
-  border-radius: var(--radius-sharp);
+  border-radius: var(--radius-soft);
   animation: scaleUp 0.3s ease-out;
   display: grid;
   gap: 14px;
@@ -681,18 +682,18 @@ body.theme-light .role-pill {
   justify-content: space-between;
   gap: 12px;
   padding: 10px 14px;
-  border: 4px solid var(--panel-border);
+  border: 1px solid var(--panel-border);
   border-radius: var(--radius-sharp);
   background-color: var(--bg-darker);
-  transition: transform 0.1s;
-  box-shadow: 6px 6px 0px 0px rgba(0, 0, 0, 1);
+  transition: transform 0.15s ease, border-color 0.15s ease, box-shadow 0.15s ease;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
 }
 
 .friend-card:hover {
   background-color: var(--bg-hover);
   border-color: var(--accent);
-  transform: translate(-2px, -2px);
-  box-shadow: 8px 8px 0px 0px rgba(0, 0, 0, 1);
+  transform: translateY(-2px);
+  box-shadow: 0 8px 20px rgba(0, 0, 0, 0.15);
 }
 
 .friend-card strong {
@@ -721,16 +722,16 @@ body.theme-light .role-pill {
 
 .setting-card {
   background-color: var(--bg-darker);
-  border: 4px solid var(--panel-border);
+  border: 1px solid var(--panel-border);
   border-radius: var(--radius-sharp);
   padding: 12px;
-  box-shadow: 8px 8px 0px 0px rgba(0, 0, 0, 1);
-  transition: transform 0.1s;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+  transition: transform 0.15s ease, border-color 0.15s ease, box-shadow 0.15s ease;
 }
 .setting-card:hover {
   border-color: var(--accent);
-  transform: translate(-2px, -2px);
-  box-shadow: 10px 10px 0px 0px rgba(0, 0, 0, 1);
+  transform: translateY(-2px);
+  box-shadow: 0 8px 20px rgba(0, 0, 0, 0.15);
 }
 
 .setting-card h3 {
