@@ -186,6 +186,62 @@ export function useVoiceTransport({
     }
   }, [preferences.voiceInputDeviceId, updatePreferences]);
 
+  const disposeLocalVoiceProcessing = useCallback(() => {
+    const processedStream = localVoiceProcessedStreamRef.current;
+    localVoiceProcessedStreamRef.current = null;
+
+    if (localVoiceGainNodeRef.current) {
+      localVoiceGainNodeRef.current.disconnect();
+      localVoiceGainNodeRef.current = null;
+    }
+    if (localVoiceGainContextRef.current) {
+      void localVoiceGainContextRef.current.close();
+      localVoiceGainContextRef.current = null;
+    }
+
+    if (processedStream) {
+      for (const track of processedStream.getTracks()) {
+        track.stop();
+      }
+    }
+  }, []);
+
+  const resolveOutboundVoiceStream = useCallback(
+    async (rawStream: MediaStream, rawTrack: MediaStreamTrack) => {
+      const processedStream = localVoiceProcessedStreamRef.current;
+      if (!processedStream) {
+        return { stream: rawStream, track: rawTrack };
+      }
+
+      let processedTrack = processedStream.getAudioTracks()[0] ?? null;
+      if (!processedTrack || processedTrack.readyState !== 'live') {
+        disposeLocalVoiceProcessing();
+        return { stream: rawStream, track: rawTrack };
+      }
+
+      const gainContext = localVoiceGainContextRef.current;
+      if (gainContext && gainContext.state !== 'running') {
+        try {
+          if (gainContext.state !== 'closed') {
+            await gainContext.resume();
+          }
+        } catch {
+          // Resume may require a user gesture; the raw track is still usable.
+        }
+
+        processedTrack = processedStream.getAudioTracks()[0] ?? null;
+        const gainContextRunning = localVoiceGainContextRef.current?.state === 'running';
+        if (!gainContextRunning || !processedTrack || processedTrack.readyState !== 'live') {
+          disposeLocalVoiceProcessing();
+          return { stream: rawStream, track: rawTrack };
+        }
+      }
+
+      return { stream: processedStream, track: processedTrack };
+    },
+    [disposeLocalVoiceProcessing],
+  );
+
   const getLocalVoiceStream = useCallback(async (forceRefresh = false) => {
     const preferredDeviceId = preferences.voiceInputDeviceId || null;
     const currentRawStream = localVoiceStreamRef.current;
@@ -198,8 +254,16 @@ export function useVoiceTransport({
       localVoiceInputDeviceIdRef.current === preferredDeviceId;
 
     if (canReuseCurrentStream) {
+      const hadProcessedStream = localVoiceProcessedStreamRef.current !== null;
+      const { stream: outboundStream, track: outboundTrack } = await resolveOutboundVoiceStream(
+        currentRawStream,
+        currentRawTrack,
+      );
       applyLocalVoiceTrackState(currentRawStream);
-      return localVoiceProcessedStreamRef.current ?? currentRawStream;
+      if (hadProcessedStream && outboundTrack === currentRawTrack) {
+        await replaceAudioTrackAcrossPeers(currentRawTrack);
+      }
+      return outboundStream;
     }
 
     if (localVoiceAcquirePromiseRef.current) {
@@ -217,17 +281,8 @@ export function useVoiceTransport({
         throw new Error('No microphone track available');
       }
 
-      if (localVoiceGainNodeRef.current) {
-        localVoiceGainNodeRef.current.disconnect();
-        localVoiceGainNodeRef.current = null;
-      }
-      if (localVoiceGainContextRef.current) {
-        void localVoiceGainContextRef.current.close();
-        localVoiceGainContextRef.current = null;
-      }
-      localVoiceProcessedStreamRef.current = null;
+      disposeLocalVoiceProcessing();
 
-      let processedStream = rawStream;
       try {
         const AudioContextClass =
           window.AudioContext ||
@@ -248,17 +303,19 @@ export function useVoiceTransport({
           localVoiceGainContextRef.current = gainContext;
           localVoiceGainNodeRef.current = gainNode;
           localVoiceProcessedStreamRef.current = destination.stream;
-          processedStream = destination.stream;
         }
       } catch {
-        processedStream = rawStream;
+        // Fall back to the raw stream when Web Audio processing cannot be created.
       }
 
-      const processedTrack = processedStream.getAudioTracks()[0] ?? rawTrack;
+      const { stream: outboundStream, track: outboundTrack } = await resolveOutboundVoiceStream(
+        rawStream,
+        rawTrack,
+      );
       localVoiceStreamRef.current = rawStream;
       localVoiceInputDeviceIdRef.current = resolvedDeviceId;
 
-      await replaceAudioTrackAcrossPeers(processedTrack);
+      await replaceAudioTrackAcrossPeers(outboundTrack);
 
       if (previousRawStream && previousRawStream !== rawStream) {
         for (const track of previousRawStream.getTracks()) {
@@ -271,7 +328,7 @@ export function useVoiceTransport({
       void refreshMicrophonePermission();
       void enumerateAudioInputDevices();
       setLocalAudioReady(true);
-      return processedStream;
+      return outboundStream;
     })();
 
     localVoiceAcquirePromiseRef.current = acquirePromise;
@@ -284,11 +341,13 @@ export function useVoiceTransport({
     }
   }, [
     applyLocalVoiceTrackState,
+    disposeLocalVoiceProcessing,
     enumerateAudioInputDevices,
     initLocalAnalyser,
     preferences.voiceInputDeviceId,
     refreshMicrophonePermission,
     replaceAudioTrackAcrossPeers,
+    resolveOutboundVoiceStream,
     requestMicrophoneStream,
   ]);
 
@@ -301,18 +360,10 @@ export function useVoiceTransport({
       localVoiceStreamRef.current = null;
       localVoiceInputDeviceIdRef.current = null;
     }
-    if (localVoiceGainNodeRef.current) {
-      localVoiceGainNodeRef.current.disconnect();
-      localVoiceGainNodeRef.current = null;
-    }
-    if (localVoiceGainContextRef.current) {
-      void localVoiceGainContextRef.current.close();
-      localVoiceGainContextRef.current = null;
-    }
-    localVoiceProcessedStreamRef.current = null;
+    disposeLocalVoiceProcessing();
     resetLocalAnalyser();
     setLocalAudioReady(false);
-  }, [resetLocalAnalyser]);
+  }, [disposeLocalVoiceProcessing, resetLocalAnalyser]);
 
   const requestMicrophonePermission = useCallback(async () => {
     if (!navigator.mediaDevices?.getUserMedia) {
