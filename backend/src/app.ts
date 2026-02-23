@@ -153,11 +153,18 @@ export async function buildApp() {
     }
   }
 
-  if (env.SFU_ENABLED && env.NODE_ENV === 'production' && isLoopbackOrPlaceholderHost(sfuAnnouncedIp)) {
-    app.log.warn(
-      { sfuAnnouncedIp },
-      'SFU_ANNOUNCED_IP resolves to a loopback/placeholder address. Remote clients cannot reach mediasoup transports until this is set to a public IP/DNS.',
-    );
+  if (env.SFU_ENABLED && env.NODE_ENV === 'production') {
+    if (!sfuAnnouncedIp) {
+      throw new Error(
+        'SFU_ENABLED=true in production but SFU_ANNOUNCED_IP could not be resolved. Set SFU_ANNOUNCED_IP to a public IP or DNS name before starting the server.',
+      );
+    }
+
+    if (isLoopbackOrPlaceholderHost(sfuAnnouncedIp)) {
+      throw new Error(
+        `SFU_ENABLED=true in production but SFU_ANNOUNCED_IP resolved to an unreachable loopback/placeholder value (${sfuAnnouncedIp}). Set SFU_ANNOUNCED_IP to a public IP or DNS name before starting the server.`,
+      );
+    }
   }
 
   if (
