@@ -123,6 +123,30 @@ export class VoiceSfuClient {
     this.startKeepalive();
   }
 
+  isConnected(): boolean {
+    return !this.closed && this.sendTransport?.connectionState === 'connected';
+  }
+
+  async getDetailedStats(): Promise<any[]> {
+    if (this.closed || !this.sendTransport) return [];
+
+    return [{
+      userId: 'sfu-server',
+      username: 'Voice Server (Mediasoup SFU)',
+      connectionState: this.sendTransport.connectionState === 'connected' ? 'connected' : 'connecting',
+      iceConnectionState: this.sendTransport.connectionState === 'connected' ? 'connected' : 'connecting',
+      signalingState: 'stable',
+      currentRttMs: null,
+      availableOutgoingBitrateKbps: null,
+      localCandidateType: 'sfu-client',
+      remoteCandidateType: 'sfu-server',
+      outboundAudio: { bitrateKbps: null, packets: null, packetsLost: null, jitterMs: null, framesPerSecond: null, frameWidth: null, frameHeight: null },
+      inboundAudio: { bitrateKbps: null, packets: null, packetsLost: null, jitterMs: null, framesPerSecond: null, frameWidth: null, frameHeight: null },
+      outboundVideo: { bitrateKbps: null, packets: null, packetsLost: null, jitterMs: null, framesPerSecond: null, frameWidth: null, frameHeight: null },
+      inboundVideo: { bitrateKbps: null, packets: null, packetsLost: null, jitterMs: null, framesPerSecond: null, frameWidth: null, frameHeight: null },
+    }];
+  }
+
   async replaceLocalAudioTrack(track: MediaStreamTrack | null): Promise<void> {
     // If reconnecting, store the track for later use
     if (this.reconnecting) {

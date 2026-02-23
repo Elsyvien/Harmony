@@ -360,9 +360,23 @@ export function useVoiceChannel(params: UseVoiceChannelParams) {
 
     const collectVoiceConnectionStats = useCallback(async () => {
         const connections = Array.from(peerConnectionsRef.current.entries());
-        if (connections.length === 0) { setVoiceConnectionStats([]); setVoiceStatsUpdatedAt(Date.now()); return; }
+        const isSfuActive = voiceSfuClientRef.current?.isConnected();
+
+        if (connections.length === 0 && !isSfuActive) {
+            setVoiceConnectionStats([]);
+            setVoiceStatsUpdatedAt(Date.now());
+            return;
+        }
+
         const nameById = new Map(joinedVoiceParticipants.map((p) => [p.userId, p.username]));
         const next: VoiceDetailedConnectionStats[] = [];
+
+        if (connections.length === 0 && voiceSfuClientRef.current && isSfuActive) {
+            try {
+                const sfuStats = await voiceSfuClientRef.current.getDetailedStats();
+                if (sfuStats && sfuStats.length > 0) next.push(...sfuStats);
+            } catch { /* ignore */ }
+        }
         for (const [peerUserId, conn] of connections) {
             try {
                 const report = await conn.getStats();

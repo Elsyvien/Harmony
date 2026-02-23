@@ -216,8 +216,8 @@ const wsPluginImpl: FastifyPluginAsync<WsPluginOptions> = async (fastify, option
 
   const broadcastVoiceStateAll = () => {
     // Send full voice state snapshot to all connected users
-    const delivered = new Set<ClientContext>();
     for (const voiceState of voiceHandler.getAllVoiceStates()) {
+      const delivered = new Set<ClientContext>();
       for (const subscribers of userSubscribers.values()) {
         for (const client of subscribers) {
           if (delivered.has(client)) continue;
