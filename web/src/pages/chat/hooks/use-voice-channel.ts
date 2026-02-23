@@ -9,7 +9,7 @@
  */
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import type { VoiceParticipant } from '../../../hooks/use-chat-socket';
+import type { VoiceJoinAckPayload, VoiceParticipant, VoiceSfuRequestAction } from '../../../hooks/use-chat-socket';
 import { VoiceSfuClient } from '../voice-sfu-client';
 import {
     DEFAULT_STREAM_QUALITY,
@@ -68,7 +68,6 @@ export interface UseVoiceChannelParams {
     activeVoiceChannelId: string | null;
     voiceBusyChannelId: string | null;
     voiceParticipantsByChannel: Record<string, VoiceParticipant[]>;
-    joinedVoiceParticipants: VoiceParticipant[];
     isSelfMuted: boolean;
     isSelfDeafened: boolean;
     localAudioReady: boolean;
@@ -77,20 +76,23 @@ export interface UseVoiceChannelParams {
         voiceInputSensitivity: number;
         voiceOutputVolume: number;
     };
+    localStreamSource: StreamSource | null;
+    setLocalStreamSource: React.Dispatch<React.SetStateAction<StreamSource | null>>;
     // Transport hook refs/methods
     localVoiceStreamRef: React.MutableRefObject<MediaStream | null>;
     localAnalyserRef: React.MutableRefObject<AnalyserNode | null>;
     getLocalVoiceStream: (forceFresh?: boolean) => Promise<MediaStream>;
+    getCurrentOutgoingVoiceTrack: () => MediaStreamTrack | null;
     teardownLocalVoiceMedia: () => void;
     applyLocalVoiceTrackState: (stream: MediaStream | null) => void;
     // Peer connection manager
     peerConnectionsRef: React.MutableRefObject<Map<string, RTCPeerConnection>>;
     videoSenderByPeerRef: React.MutableRefObject<Map<string, RTCRtpSender>>;
-    pendingVideoRenegotiationByPeerRef: React.MutableRefObject<Map<string, boolean>>;
-    remoteVideoSourceByPeerRef: React.MutableRefObject<Map<string, string>>;
+    pendingVideoRenegotiationByPeerRef: React.MutableRefObject<Set<string>>;
+    remoteVideoSourceByPeerRef: React.MutableRefObject<Map<string, StreamSource | null>>;
     remoteVideoStreamByPeerRef: React.MutableRefObject<Map<string, MediaStream>>;
     closePeerConnection: (userId: string) => void;
-    ensurePeerConnection: (userId: string, channelId: string) => Promise<void>;
+    ensurePeerConnection: (userId: string, channelId: string) => Promise<RTCPeerConnection>;
     createOfferForPeer: (userId: string, channelId: string) => Promise<void>;
     sendRequestOffer: (userId: string, channelId: string) => void;
     clearPeerConnections: () => void;
@@ -100,18 +102,18 @@ export interface UseVoiceChannelParams {
     applyVideoBitrateToAllConnections: () => void;
     activeStreamBitrateKbps: number;
     // SFU request fn
-    requestVoiceSfu: <T = unknown>(channelId: string, action: string, data?: unknown, timeoutMs?: number) => Promise<T>;
+    requestVoiceSfu: <T = unknown>(channelId: string, action: VoiceSfuRequestAction, data?: unknown, timeoutMs?: number) => Promise<T>;
     // WS send fns
-    joinVoice: (channelId: string, opts?: { muted?: boolean; deafened?: boolean }) => boolean;
+    joinVoiceWithAck: (channelId: string, opts?: { muted?: boolean; deafened?: boolean }) => Promise<VoiceJoinAckPayload>;
     leaveVoice: (channelId?: string) => boolean;
     sendVoiceSignal: (channelId: string, targetUserId: string, data: unknown) => boolean;
     // Callbacks
     setError: (error: string | null) => void;
-    setActiveVoiceChannelId: (id: string | null) => void;
-    setVoiceBusyChannelId: (id: string | null) => void;
+    setActiveVoiceChannelId: React.Dispatch<React.SetStateAction<string | null>>;
+    setVoiceBusyChannelId: React.Dispatch<React.SetStateAction<string | null>>;
     setIsSelfMuted: (muted: boolean) => void;
     channels: Array<{ id: string; isVoice?: boolean }>;
-    resetVoiceSignalingState: () => void;
+    resetVoiceSignalingStateRef: React.MutableRefObject<(() => void) | null>;
     playVoiceStateSound: (kind: 'join' | 'leave') => void;
     logVoiceDebug: (event: string, details?: Record<string, unknown>) => void;
     // Stable callbacks from peer connection manager
@@ -119,6 +121,12 @@ export interface UseVoiceChannelParams {
     onRemoteScreenShareStreamStable: (userId: string, stream: MediaStream | null) => void;
     onRemoteAdvertisedVideoSourceStable: (userId: string, source: 'screen' | 'camera' | null) => void;
     autoMuteOnJoin: boolean;
+    // Shared refs owned by chat-page.tsx (needed to avoid hook-order cycles)
+    voiceSfuClientRef: React.MutableRefObject<VoiceSfuClient | null>;
+    localScreenStreamRef: React.MutableRefObject<MediaStream | null>;
+    activeVoiceChannelIdRef: React.MutableRefObject<string | null>;
+    voiceBusyChannelIdRef: React.MutableRefObject<string | null>;
+    reconnectVoiceIntentRef: React.MutableRefObject<VoiceReconnectIntent | null>;
 }
 
 // ─── Helpers ─────────────────────────────────────────────────────────
@@ -148,21 +156,27 @@ export function useVoiceChannel(params: UseVoiceChannelParams) {
     const {
         authUserId, authToken, wsConnected, voiceSfuEnabled,
         activeVoiceChannelId, voiceBusyChannelId,
-        voiceParticipantsByChannel, joinedVoiceParticipants,
+        voiceParticipantsByChannel,
         isSelfMuted, isSelfDeafened, localAudioReady, preferences,
+        localStreamSource, setLocalStreamSource,
         localVoiceStreamRef, localAnalyserRef,
-        getLocalVoiceStream, teardownLocalVoiceMedia, applyLocalVoiceTrackState,
+        getLocalVoiceStream, getCurrentOutgoingVoiceTrack, teardownLocalVoiceMedia, applyLocalVoiceTrackState,
         peerConnectionsRef, videoSenderByPeerRef,
         closePeerConnection, ensurePeerConnection, createOfferForPeer,
         sendRequestOffer, clearPeerConnections, getOrCreateVideoSender,
         applyVideoBitrateToConnection, applyAudioBitrateToAllConnections,
         applyVideoBitrateToAllConnections, activeStreamBitrateKbps,
-        requestVoiceSfu, joinVoice, leaveVoice, sendVoiceSignal,
+        requestVoiceSfu, joinVoiceWithAck, leaveVoice, sendVoiceSignal,
         setError, setActiveVoiceChannelId, setVoiceBusyChannelId, setIsSelfMuted,
-        channels, resetVoiceSignalingState, playVoiceStateSound, logVoiceDebug,
+        channels, resetVoiceSignalingStateRef, playVoiceStateSound, logVoiceDebug,
         onRemoteAudioStreamStable, onRemoteScreenShareStreamStable, onRemoteAdvertisedVideoSourceStable,
         autoMuteOnJoin,
         remoteVideoSourceByPeerRef,
+        voiceSfuClientRef,
+        localScreenStreamRef,
+        activeVoiceChannelIdRef,
+        voiceBusyChannelIdRef,
+        reconnectVoiceIntentRef,
     } = params;
 
     // ── Local State ────────────────────────────────────────────────────
@@ -171,27 +185,22 @@ export function useVoiceChannel(params: UseVoiceChannelParams) {
     const [remoteScreenShares, setRemoteScreenShares] = useState<Record<string, MediaStream>>({});
     const [remoteAdvertisedVideoSourceByPeer, setRemoteAdvertisedVideoSourceByPeer] = useState<Record<string, StreamSource | null>>({});
     const [localScreenShareStream, setLocalScreenShareStream] = useState<MediaStream | null>(null);
-    const [localStreamSource, setLocalStreamSource] = useState<StreamSource | null>(null);
     const [streamQualityLabel, setStreamQualityLabel] = useState(DEFAULT_STREAM_QUALITY);
     const [speakingUserIds, setSpeakingUserIds] = useState<string[]>([]);
     const [showDetailedVoiceStats, setShowDetailedVoiceStats] = useState(false);
     const [voiceConnectionStats, setVoiceConnectionStats] = useState<VoiceDetailedConnectionStats[]>([]);
     const [voiceStatsUpdatedAt, setVoiceStatsUpdatedAt] = useState<number | null>(null);
     const [streamStatusBanner, setStreamStatusBanner] = useState<{ type: 'error' | 'info'; message: string } | null>(null);
+    const [voiceJoinAckChannelId, setVoiceJoinAckChannelId] = useState<string | null>(null);
 
     // ── Refs ────────────────────────────────────────────────────────────
 
-    const voiceSfuClientRef = useRef<VoiceSfuClient | null>(null);
-    const localScreenStreamRef = useRef<MediaStream | null>(null);
     const remoteAudioContextRef = useRef<AudioContext | null>(null);
     const remoteAudioSourceByUserRef = useRef<Map<string, MediaElementAudioSourceNode>>(new Map());
     const remoteAudioGainByUserRef = useRef<Map<string, GainNode>>(new Map());
     const remoteAudioElementByUserRef = useRef<Map<string, HTMLAudioElement>>(new Map());
     const previousRtpSnapshotsRef = useRef<Map<string, { bytes: number; timestamp: number }>>(new Map());
-    const activeVoiceChannelIdRef = useRef<string | null>(activeVoiceChannelId);
-    const voiceBusyChannelIdRef = useRef<string | null>(voiceBusyChannelId);
     const voiceTransportEpochRef = useRef(0);
-    const reconnectVoiceIntentRef = useRef<VoiceReconnectIntent | null>(null);
     const streamStatusBannerTimeoutRef = useRef<number | null>(null);
     const sendVoiceSignalRef = useRef(sendVoiceSignal);
     const leaveVoiceRef = useRef(leaveVoice);
@@ -203,6 +212,11 @@ export function useVoiceChannel(params: UseVoiceChannelParams) {
     useEffect(() => { sendVoiceSignalRef.current = sendVoiceSignal; }, [sendVoiceSignal]);
     useEffect(() => { leaveVoiceRef.current = leaveVoice; }, [leaveVoice]);
     useEffect(() => { createOfferForPeerRef.current = createOfferForPeer; }, [createOfferForPeer]);
+
+    const joinedVoiceParticipants = useMemo(
+        () => (activeVoiceChannelId ? (voiceParticipantsByChannel[activeVoiceChannelId] ?? []) : []),
+        [voiceParticipantsByChannel, activeVoiceChannelId],
+    );
 
     // ── Stream Status Banner ───────────────────────────────────────────
 
@@ -446,18 +460,22 @@ export function useVoiceChannel(params: UseVoiceChannelParams) {
         try {
             const joinMuted = autoMuteOnJoin || isSelfDeafened;
             if (isSelfMuted !== joinMuted) setIsSelfMuted(joinMuted);
+            setVoiceJoinAckChannelId(null);
             void getLocalVoiceStream().catch(() => { });
             if (activeVoiceChannelId && activeVoiceChannelId !== channelId) leaveVoice(activeVoiceChannelId);
-            const sent = joinVoice(channelId, { muted: joinMuted, deafened: isSelfDeafened });
-            if (!sent) throw new Error('VOICE_JOIN_FAILED');
-            reconnectVoiceIntentRef.current = { channelId, muted: joinMuted, deafened: isSelfDeafened };
-            activeVoiceChannelIdRef.current = channelId;
-            setActiveVoiceChannelId(channelId);
+            const ack = await joinVoiceWithAck(channelId, { muted: joinMuted, deafened: isSelfDeafened });
+            setVoiceJoinAckChannelId(ack.channelId);
+            reconnectVoiceIntentRef.current = { channelId: ack.channelId, muted: joinMuted, deafened: isSelfDeafened };
+            activeVoiceChannelIdRef.current = ack.channelId;
+            setActiveVoiceChannelId(ack.channelId);
             playVoiceStateSound('join');
             setError(null);
-        } catch { setError('Could not join voice channel'); }
+        } catch {
+            setVoiceJoinAckChannelId(null);
+            setError('Could not join voice channel');
+        }
         finally { setVoiceBusyChannelId(null); }
-    }, [authToken, wsConnected, activeVoiceChannelId, playVoiceStateSound, isSelfMuted, isSelfDeafened, autoMuteOnJoin, getLocalVoiceStream, setIsSelfMuted, joinVoice, leaveVoice, setError, setActiveVoiceChannelId, setVoiceBusyChannelId]);
+    }, [authToken, wsConnected, activeVoiceChannelId, playVoiceStateSound, isSelfMuted, isSelfDeafened, autoMuteOnJoin, getLocalVoiceStream, setIsSelfMuted, joinVoiceWithAck, leaveVoice, setError, setActiveVoiceChannelId, setVoiceBusyChannelId]);
 
     const leaveVoiceChannel = useCallback(async () => {
         if (!activeVoiceChannelId) return;
@@ -465,13 +483,14 @@ export function useVoiceChannel(params: UseVoiceChannelParams) {
         const leavingId = activeVoiceChannelId;
         voiceBusyChannelIdRef.current = leavingId;
         setVoiceBusyChannelId(leavingId);
+        setVoiceJoinAckChannelId(null);
         leaveVoice(leavingId);
         activeVoiceChannelIdRef.current = null;
         playVoiceStateSound('leave');
         setError(null);
         window.setTimeout(() => {
-            setVoiceBusyChannelId(null);
-            setActiveVoiceChannelId(null);
+            setVoiceBusyChannelId((current) => (current === leavingId ? null : current));
+            setActiveVoiceChannelId((current) => (current === leavingId ? null : current));
         }, 1800);
     }, [leaveVoice, activeVoiceChannelId, playVoiceStateSound, setError, setActiveVoiceChannelId, setVoiceBusyChannelId]);
 
@@ -501,11 +520,13 @@ export function useVoiceChannel(params: UseVoiceChannelParams) {
                 return;
             }
             if (voiceTransportEpochRef.current !== epoch) return;
+            const outgoingTrack = getCurrentOutgoingVoiceTrack();
             const desired = new Set(participants.map((p) => p.userId).filter((id) => id !== authUserId));
             for (const id of Array.from(peerConnectionsRef.current.keys())) {
                 if (!desired.has(id)) closePeerConnection(id);
             }
             if (voiceSfuEnabled) {
+                if (voiceJoinAckChannelId !== activeVoiceChannelId) return;
                 if (!voiceSfuClientRef.current) {
                     if (!wsConnected) return;
                     logVoiceDebug('sfu_init', { channelId: activeVoiceChannelId });
@@ -520,10 +541,10 @@ export function useVoiceChannel(params: UseVoiceChannelParams) {
                             onStateChange: (state) => logVoiceDebug('sfu_state_change', { state }),
                         },
                     });
-                    const track = localVoiceStreamRef.current?.getAudioTracks()[0] ?? null;
-                    try { await voiceSfuClientRef.current.start(track); }
+                    try { await voiceSfuClientRef.current.start(outgoingTrack); }
                     catch (err) { logVoiceDebug('sfu_start_error', { err }); setError(getErrorMessage(err, 'Voice SFU connection failed')); voiceSfuClientRef.current?.stop(); voiceSfuClientRef.current = null; }
                 } else if (wsConnected) {
+                    void voiceSfuClientRef.current.replaceLocalAudioTrack(outgoingTrack);
                     void voiceSfuClientRef.current.syncProducers();
                 }
             } else {
@@ -539,7 +560,7 @@ export function useVoiceChannel(params: UseVoiceChannelParams) {
         };
         void sync();
         return () => { cancelled = true; };
-    }, [wsConnected, activeVoiceChannelId, authUserId, voiceParticipantsByChannel, teardownVoiceTransport, getLocalVoiceStream, peerConnectionsRef, closePeerConnection, ensurePeerConnection, createOfferForPeer, localVoiceStreamRef, voiceSfuEnabled, requestVoiceSfu, logVoiceDebug, onRemoteAudioStreamStable, onRemoteScreenShareStreamStable, onRemoteAdvertisedVideoSourceStable, setError, setActiveVoiceChannelId]);
+    }, [wsConnected, activeVoiceChannelId, authUserId, voiceParticipantsByChannel, teardownVoiceTransport, getLocalVoiceStream, getCurrentOutgoingVoiceTrack, peerConnectionsRef, closePeerConnection, ensurePeerConnection, createOfferForPeer, voiceSfuEnabled, voiceJoinAckChannelId, requestVoiceSfu, logVoiceDebug, onRemoteAudioStreamStable, onRemoteScreenShareStreamStable, onRemoteAdvertisedVideoSourceStable, setError, setActiveVoiceChannelId]);
 
     // ── WS Disconnect / Reconnect ──────────────────────────────────────
 
@@ -547,11 +568,14 @@ export function useVoiceChannel(params: UseVoiceChannelParams) {
         if (wsConnected) return;
         const reconnId = activeVoiceChannelIdRef.current ?? activeVoiceChannelId;
         if (reconnId) reconnectVoiceIntentRef.current = { channelId: reconnId, muted: isSelfMuted || isSelfDeafened, deafened: isSelfDeafened };
-        resetVoiceSignalingState();
+        setVoiceJoinAckChannelId(null);
+        resetVoiceSignalingStateRef.current?.();
+        activeVoiceChannelIdRef.current = null;
+        voiceBusyChannelIdRef.current = null;
         setActiveVoiceChannelId(null);
         setVoiceBusyChannelId(null);
         teardownVoiceTransport();
-    }, [wsConnected, activeVoiceChannelId, isSelfMuted, isSelfDeafened, teardownVoiceTransport, resetVoiceSignalingState, setActiveVoiceChannelId, setVoiceBusyChannelId]);
+    }, [wsConnected, activeVoiceChannelId, isSelfMuted, isSelfDeafened, teardownVoiceTransport, resetVoiceSignalingStateRef, setActiveVoiceChannelId, setVoiceBusyChannelId]);
 
     useEffect(() => {
         if (!wsConnected || activeVoiceChannelId || voiceBusyChannelId) return;
@@ -561,12 +585,27 @@ export function useVoiceChannel(params: UseVoiceChannelParams) {
         if (!ch?.isVoice) { reconnectVoiceIntentRef.current = null; return; }
         voiceBusyChannelIdRef.current = intent.channelId;
         setVoiceBusyChannelId(intent.channelId);
-        const sent = joinVoice(intent.channelId, { muted: intent.muted, deafened: intent.deafened });
-        if (!sent) { reconnectVoiceIntentRef.current = null; setVoiceBusyChannelId(null); setError('Could not restore voice channel after reconnect'); return; }
-        activeVoiceChannelIdRef.current = intent.channelId;
-        setActiveVoiceChannelId(intent.channelId);
-        setError(null);
-    }, [wsConnected, joinVoice, channels, activeVoiceChannelId, voiceBusyChannelId, setActiveVoiceChannelId, setVoiceBusyChannelId, setError]);
+        setVoiceJoinAckChannelId(null);
+        let cancelled = false;
+        const restore = async () => {
+            try {
+                const ack = await joinVoiceWithAck(intent.channelId, { muted: intent.muted, deafened: intent.deafened });
+                if (cancelled) return;
+                setVoiceJoinAckChannelId(ack.channelId);
+                activeVoiceChannelIdRef.current = ack.channelId;
+                setActiveVoiceChannelId(ack.channelId);
+                setError(null);
+            } catch {
+                if (cancelled) return;
+                reconnectVoiceIntentRef.current = null;
+                setVoiceJoinAckChannelId(null);
+                setVoiceBusyChannelId(null);
+                setError('Could not restore voice channel after reconnect');
+            }
+        };
+        void restore();
+        return () => { cancelled = true; };
+    }, [wsConnected, joinVoiceWithAck, channels, activeVoiceChannelId, voiceBusyChannelId, setActiveVoiceChannelId, setVoiceBusyChannelId, setError]);
 
     // ── Peripheral Effects ─────────────────────────────────────────────
 
@@ -576,10 +615,10 @@ export function useVoiceChannel(params: UseVoiceChannelParams) {
     useEffect(() => {
         applyLocalVoiceTrackState(localVoiceStreamRef.current);
         if (voiceSfuClientRef.current && wsConnected) {
-            const track = localVoiceStreamRef.current?.getAudioTracks()[0] ?? null;
+            const track = getCurrentOutgoingVoiceTrack();
             void voiceSfuClientRef.current.replaceLocalAudioTrack(track);
         }
-    }, [applyLocalVoiceTrackState, localVoiceStreamRef, wsConnected]);
+    }, [applyLocalVoiceTrackState, localVoiceStreamRef, wsConnected, getCurrentOutgoingVoiceTrack]);
 
     // Stale screen share prune
     const pruneStaleScreenShares = useCallback(() => {
@@ -649,6 +688,9 @@ export function useVoiceChannel(params: UseVoiceChannelParams) {
     useEffect(() => {
         if (authToken) return;
         reconnectVoiceIntentRef.current = null;
+        setVoiceJoinAckChannelId(null);
+        activeVoiceChannelIdRef.current = null;
+        voiceBusyChannelIdRef.current = null;
         teardownVoiceTransport();
     }, [authToken, teardownVoiceTransport]);
 
