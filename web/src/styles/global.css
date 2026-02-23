@@ -7,8 +7,7 @@
 
   --panel-border: #27272a;
 
-  --accent: #6366f1;
-  /* Vibrant Indigo */
+  --accent: #6366f1; /* Vibrant Indigo */
   --accent-hover: #818cf8;
   --accent-text: #ffffff;
 
@@ -359,27 +358,6 @@ button {
 
 .primary-btn:hover {
   filter: brightness(1.1);
-  transform: translateY(-1px);
-}
-
-.secondary-btn {
-  width: 100%;
-  background-color: var(--bg-hover);
-  color: var(--text-normal);
-  border: 1px solid var(--panel-border);
-  height: 44px;
-  font-size: 14px;
-  font-weight: 600;
-  border-radius: var(--radius-sharp);
-  transition: all 0.2s;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-}
-
-.secondary-btn:hover {
-  background-color: rgba(255, 255, 255, 0.08);
-  color: var(--text-header);
   transform: translateY(-1px);
 }
 
@@ -750,7 +728,6 @@ body.theme-light .role-pill {
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
   transition: transform 0.15s ease, border-color 0.15s ease, box-shadow 0.15s ease;
 }
-
 .setting-card:hover {
   border-color: var(--accent);
   transform: translateY(-2px);
