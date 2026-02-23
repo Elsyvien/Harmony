@@ -155,7 +155,6 @@
 
 /* Empty State */
 .voice-stream-empty-state {
-  flex: 1;
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -166,7 +165,9 @@
   border: 1px solid var(--panel-border);
   border-radius: 16px;
   padding: 40px;
-  min-height: 300px;
+  margin: 0 auto;
+  max-width: 600px;
+  width: 100%;
 }
 
 .empty-state-icon {
@@ -231,11 +232,7 @@
   position: relative;
 }
 
-.voice-participant-tile.speaking {
-  border-color: var(--positive);
-  box-shadow: 0 0 0 1px var(--positive), 0 4px 12px rgba(35, 165, 89, 0.1);
-  background: linear-gradient(180deg, rgba(35, 165, 89, 0.05) 0%, transparent 100%);
-}
+
 
 .voice-participant-tile-avatar {
   position: relative;
@@ -261,9 +258,22 @@
 }
 
 .voice-participant-tile.speaking .avatar-inner {
-  box-shadow: 0 0 0 3px var(--positive);
+  box-shadow: 0 0 0 2px var(--bg-darker), 0 0 0 4px var(--positive), 0 0 12px rgba(35, 165, 89, 0.4);
   transform: scale(1.05);
   transition: all 0.1s ease;
+}
+
+.voice-global-status-floating {
+  position: absolute;
+  bottom: 24px;
+  right: 24px;
+  z-index: 50;
+  pointer-events: none;
+  transition: right 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.voice-stage.drawer-open .voice-global-status-floating {
+  right: 364px;
 }
 
 .status-icon {

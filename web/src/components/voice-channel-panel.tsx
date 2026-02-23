@@ -365,13 +365,6 @@ export function VoiceChannelPanel(props: VoiceChannelPanelProps) {
         </div>
 
         <div className="voice-stage-header-center">
-          {props.joined ? (
-            <span className="voice-status-badge connected">● Connected</span>
-          ) : props.busy ? (
-            <span className="voice-status-badge connecting">Connecting...</span>
-          ) : (
-            <span className="voice-status-badge disconnected">Disconnected</span>
-          )}
         </div>
 
         <div className="voice-stage-header-right">
@@ -675,6 +668,16 @@ export function VoiceChannelPanel(props: VoiceChannelPanelProps) {
               )}
             </div>
           </aside>
+        )}
+      </div>
+
+      <div className="voice-global-status-floating">
+        {props.joined ? (
+          <span className="voice-status-badge connected">● Connected</span>
+        ) : props.busy ? (
+          <span className="voice-status-badge connecting">Connecting...</span>
+        ) : (
+          <span className="voice-status-badge disconnected">Disconnected</span>
         )}
       </div>
     </section>
