@@ -206,6 +206,7 @@ export function useVoiceChannel(params: UseVoiceChannelParams) {
     const remoteAudioContextRef = useRef<AudioContext | null>(null);
     const remoteAudioSourceByUserRef = useRef<Map<string, MediaElementAudioSourceNode>>(new Map());
     const remoteAudioGainByUserRef = useRef<Map<string, GainNode>>(new Map());
+    const remoteAudioAnalyserByUserRef = useRef<Map<string, AnalyserNode>>(new Map());
     const remoteAudioElementByUserRef = useRef<Map<string, HTMLAudioElement>>(new Map());
     const previousRtpSnapshotsRef = useRef<Map<string, { bytes: number; timestamp: number }>>(new Map());
     const voiceTransportEpochRef = useRef(0);
@@ -282,8 +283,10 @@ export function useVoiceChannel(params: UseVoiceChannelParams) {
         setRemoteScreenShares({});
         for (const source of remoteAudioSourceByUserRef.current.values()) source.disconnect();
         for (const gain of remoteAudioGainByUserRef.current.values()) gain.disconnect();
+        for (const analyser of remoteAudioAnalyserByUserRef.current.values()) analyser.disconnect();
         remoteAudioSourceByUserRef.current.clear();
         remoteAudioGainByUserRef.current.clear();
+        remoteAudioAnalyserByUserRef.current.clear();
         remoteAudioElementByUserRef.current.clear();
         if (remoteAudioContextRef.current) {
             void remoteAudioContextRef.current.close();
@@ -307,6 +310,8 @@ export function useVoiceChannel(params: UseVoiceChannelParams) {
         remoteAudioSourceByUserRef.current.delete(userId);
         remoteAudioGainByUserRef.current.get(userId)?.disconnect();
         remoteAudioGainByUserRef.current.delete(userId);
+        remoteAudioAnalyserByUserRef.current.get(userId)?.disconnect();
+        remoteAudioAnalyserByUserRef.current.delete(userId);
         remoteAudioElementByUserRef.current.delete(userId);
     }, []);
 
@@ -320,10 +325,14 @@ export function useVoiceChannel(params: UseVoiceChannelParams) {
             disconnectRemoteAudioForUser(userId);
             const source = context.createMediaElementSource(element);
             gainNode = context.createGain();
+            const analyserNode = context.createAnalyser();
+            analyserNode.fftSize = 512;
             source.connect(gainNode);
-            gainNode.connect(context.destination);
+            gainNode.connect(analyserNode);
+            analyserNode.connect(context.destination);
             remoteAudioSourceByUserRef.current.set(userId, source);
             remoteAudioGainByUserRef.current.set(userId, gainNode);
+            remoteAudioAnalyserByUserRef.current.set(userId, analyserNode);
             remoteAudioElementByUserRef.current.set(userId, element);
         }
         gainNode.gain.value = Math.max(0, Math.min(4, gainValue));
@@ -556,7 +565,7 @@ export function useVoiceChannel(params: UseVoiceChannelParams) {
                     logVoiceDebug('sfu_init', { channelId: activeVoiceChannelId });
                     voiceSfuClientRef.current = new VoiceSfuClient({
                         selfUserId: authUserId,
-                        request: async (action, data, timeoutMs) => {                             try {                                 return await requestVoiceSfu(activeVoiceChannelId, action, data, timeoutMs);                             } catch (err) {                                 if (isVoiceSfuDisabledError(err)) {                                     setVoiceSfuRuntimeDisabled(true);                                 }                                 throw err;                             }                         },
+                        request: async (action, data, timeoutMs) => { try { return await requestVoiceSfu(activeVoiceChannelId, action, data, timeoutMs); } catch (err) { if (isVoiceSfuDisabledError(err)) { setVoiceSfuRuntimeDisabled(true); } throw err; } },
                         callbacks: {
                             onRemoteAudio: onRemoteAudioStreamStable,
                             onRemoteAudioRemoved: (uid) => onRemoteAudioStreamStable(uid, null),
@@ -566,7 +575,7 @@ export function useVoiceChannel(params: UseVoiceChannelParams) {
                         },
                     });
                     try { await voiceSfuClientRef.current.start(outgoingTrack); }
-                    catch (err) {                         if (isVoiceSfuDisabledError(err)) {                             logVoiceDebug('sfu_disabled_runtime_fallback', { channelId: activeVoiceChannelId });                             setVoiceSfuRuntimeDisabled(true);                             setError(null);                         } else {                             logVoiceDebug('sfu_start_error', { err });                             setError(getErrorMessage(err, 'Voice SFU connection failed'));                         }                         voiceSfuClientRef.current?.stop();                         voiceSfuClientRef.current = null;                     }
+                    catch (err) { if (isVoiceSfuDisabledError(err)) { logVoiceDebug('sfu_disabled_runtime_fallback', { channelId: activeVoiceChannelId }); setVoiceSfuRuntimeDisabled(true); setError(null); } else { logVoiceDebug('sfu_start_error', { err }); setError(getErrorMessage(err, 'Voice SFU connection failed')); } voiceSfuClientRef.current?.stop(); voiceSfuClientRef.current = null; }
                 } else if (wsConnected) {
                     void voiceSfuClientRef.current.replaceLocalAudioTrack(outgoingTrack);
                     void voiceSfuClientRef.current.syncProducers();
@@ -676,34 +685,57 @@ export function useVoiceChannel(params: UseVoiceChannelParams) {
         setVoiceConnectionStats([]); setVoiceStatsUpdatedAt(null); previousRtpSnapshotsRef.current.clear();
     }, [activeVoiceChannelId]);
 
-    // Speaking detection – local mic
+    // Speaking detection – local mic & remote streams
     useEffect(() => {
-        const micMuted = isSelfMuted || isSelfDeafened;
-        if (!preferences.showVoiceActivity || !authUserId || !activeVoiceChannelId || !localAudioReady || micMuted) {
+        if (!preferences.showVoiceActivity || !authUserId || !activeVoiceChannelId) {
             setSpeakingUserIds((prev) => (prev.length === 0 ? prev : [])); return;
         }
-        const analyser = localAnalyserRef.current;
-        if (!analyser) return;
-        const selfId = authUserId;
         let frame = 0;
-        const data = new Uint8Array(analyser.fftSize);
         const tick = () => {
-            analyser.getByteTimeDomainData(data);
-            let sum = 0;
-            for (let i = 0; i < data.length; i++) { const n = (data[i] - 128) / 128; sum += n * n; }
-            const rms = Math.sqrt(sum / data.length);
-            const speaking = rms >= preferences.voiceInputSensitivity;
+            const nextSpeakingIds = new Set<string>();
+            const sensitivity = preferences.voiceInputSensitivity;
+
+            // Check local mic
+            const micMuted = isSelfMuted || isSelfDeafened;
+            const localAnalyser = localAnalyserRef.current;
+            if (localAnalyser && localAudioReady && !micMuted) {
+                const data = new Uint8Array(localAnalyser.fftSize);
+                localAnalyser.getByteTimeDomainData(data);
+                let sum = 0;
+                for (let i = 0; i < data.length; i++) { const n = (data[i] - 128) / 128; sum += n * n; }
+                const rms = Math.sqrt(sum / data.length);
+                if (rms >= sensitivity) {
+                    nextSpeakingIds.add(authUserId);
+                }
+            }
+
+            // Check remote streams
+            for (const [userId, analyser] of remoteAudioAnalyserByUserRef.current.entries()) {
+                const data = new Uint8Array(analyser.fftSize);
+                analyser.getByteTimeDomainData(data);
+                let sum = 0;
+                for (let i = 0; i < data.length; i++) { const n = (data[i] - 128) / 128; sum += n * n; }
+                const rms = Math.sqrt(sum / data.length);
+
+                // For remote streams, we don't have their exact volume settings locally to adjust our sensitivity
+                // but the standard threshold usually identifies normal speech properly.
+                if (rms >= sensitivity) {
+                    nextSpeakingIds.add(userId);
+                }
+            }
+
             setSpeakingUserIds((prev) => {
-                const has = prev.includes(selfId);
-                if (speaking && !has) return [...prev, selfId];
-                if (!speaking && has) return prev.filter((id) => id !== selfId);
-                return prev;
+                let changed = false;
+                if (prev.length !== nextSpeakingIds.size) changed = true;
+                else for (const id of prev) if (!nextSpeakingIds.has(id)) changed = true;
+                if (!changed) return prev;
+                return Array.from(nextSpeakingIds);
             });
             frame = window.requestAnimationFrame(tick);
         };
         frame = window.requestAnimationFrame(tick);
-        return () => { window.cancelAnimationFrame(frame); setSpeakingUserIds((prev) => prev.filter((id) => id !== selfId)); };
-    }, [preferences.showVoiceActivity, preferences.voiceInputSensitivity, authUserId, activeVoiceChannelId, localAudioReady, isSelfMuted, isSelfDeafened, localAnalyserRef]);
+        return () => { window.cancelAnimationFrame(frame); setSpeakingUserIds([]); };
+    }, [preferences.showVoiceActivity, preferences.voiceInputSensitivity, authUserId, activeVoiceChannelId, localAudioReady, isSelfMuted, isSelfDeafened, localAnalyserRef, remoteAudioAnalyserByUserRef]);
 
     // Cleanup on unmount
     useEffect(() => () => { teardownVoiceTransport(); }, [teardownVoiceTransport]);
