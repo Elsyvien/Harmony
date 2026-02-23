@@ -168,6 +168,19 @@
   margin: 0 auto;
   max-width: 600px;
   width: 100%;
+  animation: slideFadeIn 0.4s ease-out backwards;
+}
+
+@keyframes slideFadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
 }
 
 .empty-state-icon {
@@ -244,6 +257,21 @@
   justify-content: center;
   gap: 16px;
   padding: 12px;
+  margin-top: auto;
+  animation: slideFadeInUp 0.5s ease-out backwards;
+  animation-delay: 0.1s;
+}
+
+@keyframes slideFadeInUp {
+  from {
+    opacity: 0;
+    transform: translateY(20px);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
 }
 
 .voice-participant-tile {

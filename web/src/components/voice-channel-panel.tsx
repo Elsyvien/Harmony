@@ -448,41 +448,23 @@ export function VoiceChannelPanel(props: VoiceChannelPanelProps) {
               })}
             </div>
           ) : props.joined ? (
-            (() => {
-              const currentUserData = props.participants.find(p => p.userId === props.currentUserId);
-              const currentUserAvatarUrl = currentUserData ? resolveMediaUrl(currentUserData.avatarUrl) : null;
-              const currentUsername = currentUserData ? currentUserData.username : 'You';
-              const isSpeaking = props.showVoiceActivity && speakingSet.has(props.currentUserId);
-              return (
-                <div className="voice-stream-empty-state">
-                  <div className={`empty-state-user-profile ${isSpeaking ? 'speaking' : ''}`}>
-                    <div className="voice-participant-tile-avatar large-avatar">
-                      <div
-                        className="avatar-inner"
-                        style={{
-                          backgroundColor: currentUserAvatarUrl ? 'transparent' : stringToColor(currentUsername),
-                          backgroundImage: currentUserAvatarUrl ? `url(${currentUserAvatarUrl})` : 'none'
-                        }}
-                      >
-                        {!currentUserAvatarUrl && currentUsername[0]?.toUpperCase()}
-                      </div>
-                    </div>
-                    <h3>{currentUsername}</h3>
-                  </div>
-                  <div className="empty-state-actions">
-                    <button className="primary-btn" onClick={() => props.onToggleVideoShare('screen')}>
-                      Share Screen
-                    </button>
-                    <button className="secondary-btn" onClick={() => props.onToggleVideoShare('camera')}>
-                      Start Camera
-                    </button>
-                    <button className="ghost-btn" onClick={() => { setIsDrawerOpen(true); setActiveTab('settings'); }}>
-                      Settings
-                    </button>
-                  </div>
-                </div>
-              );
-            })()
+            <div className="voice-stream-empty-state">
+              <div className="empty-state-text">
+                <h3>No Active Stream</h3>
+                <p>Share your screen or start your camera to begin a livestream.</p>
+              </div>
+              <div className="empty-state-actions">
+                <button className="primary-btn" onClick={() => props.onToggleVideoShare('screen')}>
+                  Share Screen
+                </button>
+                <button className="secondary-btn" onClick={() => props.onToggleVideoShare('camera')}>
+                  Start Camera
+                </button>
+                <button className="ghost-btn" onClick={() => { setIsDrawerOpen(true); setActiveTab('settings'); }}>
+                  Settings
+                </button>
+              </div>
+            </div>
           ) : (
             <div className="voice-stream-empty-state not-joined">
               <div className="empty-state-icon">
