@@ -98,6 +98,43 @@ const wsPluginImpl: FastifyPluginAsync<WsPluginOptions> = async (fastify, option
     }
   };
 
+  const logVoiceSfuFailure = (
+    ctx: ClientContext,
+    details: {
+      stage: 'request_validation' | 'response' | 'handler_exception';
+      requestId?: string;
+      action?: string;
+      channelId?: string;
+      code?: string;
+      message?: string;
+      error?: unknown;
+    },
+  ) => {
+    const meta: Record<string, unknown> = {
+      event: 'voice_sfu_request_failed',
+      stage: details.stage,
+      userId: ctx.userId,
+      requestId: details.requestId,
+      action: details.action,
+      channelId: details.channelId,
+      code: details.code,
+      message: details.message,
+    };
+
+    if (details.error instanceof Error) {
+      meta.err = details.error;
+    } else if (details.error !== undefined) {
+      meta.error = String(details.error);
+    }
+
+    if (details.stage === 'handler_exception' || details.code === 'SFU_REQUEST_FAILED') {
+      fastify.log.error(meta, 'voice-event');
+      return;
+    }
+
+    fastify.log.warn(meta, 'voice-event');
+  };
+
   const consumeVoiceSignalBudget = (ctx: ClientContext): 'ok' | 'limited-notify' | 'limited-silent' => {
     const now = Date.now();
     if (now - ctx.voiceSignalWindowStartedAt >= VOICE_SIGNAL_WINDOW_MS) {
@@ -549,9 +586,25 @@ const wsPluginImpl: FastifyPluginAsync<WsPluginOptions> = async (fastify, option
             data?: unknown;
           };
           if (!payload?.requestId || typeof payload.requestId !== 'string') {
+            logVoiceSfuFailure(ctx, {
+              stage: 'request_validation',
+              requestId: payload?.requestId,
+              action: payload?.action,
+              channelId: payload?.channelId,
+              code: 'INVALID_SFU_REQUEST',
+              message: 'Missing requestId',
+            });
             throw new AppError('INVALID_SFU_REQUEST', 400, 'Missing requestId');
           }
           if (!payload.channelId || !payload.action) {
+            logVoiceSfuFailure(ctx, {
+              stage: 'request_validation',
+              requestId: payload.requestId,
+              action: payload.action,
+              channelId: payload.channelId,
+              code: 'INVALID_SFU_REQUEST',
+              message: 'Missing channelId or action',
+            });
             send(ctx, 'voice:sfu:response', {
               requestId: payload.requestId,
               ok: false,
@@ -568,7 +621,36 @@ const wsPluginImpl: FastifyPluginAsync<WsPluginOptions> = async (fastify, option
             action: payload.action as VoiceSfuRequestPayload['action'],
             data: payload.data,
           };
-          const response = await voice.handleSfuRequest(voiceCtx, sfuPayload);
+          let response: Awaited<ReturnType<typeof voice.handleSfuRequest>>;
+          try {
+            response = await voice.handleSfuRequest(voiceCtx, sfuPayload);
+          } catch (error) {
+            logVoiceSfuFailure(ctx, {
+              stage: 'handler_exception',
+              requestId: payload.requestId,
+              action: payload.action,
+              channelId: payload.channelId,
+              code: error instanceof AppError ? error.code : undefined,
+              message:
+                error instanceof AppError
+                  ? error.message
+                  : error instanceof Error
+                    ? error.message
+                    : 'Could not process SFU request',
+              error,
+            });
+            throw error;
+          }
+          if (!response.ok) {
+            logVoiceSfuFailure(ctx, {
+              stage: 'response',
+              requestId: payload.requestId,
+              action: payload.action,
+              channelId: payload.channelId,
+              code: response.code,
+              message: response.message,
+            });
+          }
           send(ctx, 'voice:sfu:response', {
             requestId: payload.requestId,
             ...response,
