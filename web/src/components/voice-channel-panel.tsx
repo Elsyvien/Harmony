@@ -502,7 +502,7 @@ export function VoiceChannelPanel(props: VoiceChannelPanelProps) {
                   signalClass = 'pending';
                 }
 
-                let displayStatus = participant.deafened ? 'Deafened' : participant.muted ? 'Muted' : isSpeaking ? 'Speaking' : 'Connected';
+                let displayStatus = participant.deafened ? 'Deafened' : participant.muted ? 'Muted' : 'Connected';
                 if (props.joined && !isSelf) {
                   if (connState === 'new' || connState === 'connecting' || iceState === 'checking') displayStatus = 'Connecting...';
                   else if (connState === 'disconnected') displayStatus = 'Reconnecting...';
