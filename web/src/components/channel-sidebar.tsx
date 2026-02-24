@@ -28,6 +28,7 @@ interface ChannelSidebarProps {
   speakingUserIds: string[];
   onJoinVoice: (channelId: string) => Promise<void> | void;
   onLeaveVoice: () => Promise<void> | void;
+  onRetryLiveStreamConnect?: (channelId: string, userId: string) => Promise<void> | void;
   isSelfMuted: boolean;
   isSelfDeafened: boolean;
   onToggleMute: () => void;
@@ -402,7 +403,23 @@ export function ChannelSidebar(props: ChannelSidebarProps) {
                           )}
                         </div>
                         <span className="channel-connected-name">{participant.username}</span>
-                        {isLive ? <span className="channel-connected-live">LIVE</span> : null}
+                        {isLive ? (
+                          <button
+                            type="button"
+                            className="channel-connected-live is-action"
+                            title={`Retry stream connection for ${participant.username}`}
+                            onClick={async (event) => {
+                              event.stopPropagation();
+                              props.onSelect(channel.id);
+                              if (!isJoined && !isTransitioning && !isOtherTransition) {
+                                await props.onJoinVoice(channel.id);
+                              }
+                              await props.onRetryLiveStreamConnect?.(channel.id, participant.userId);
+                            }}
+                          >
+                            LIVE
+                          </button>
+                        ) : null}
                         {voiceStatusLabel ? (
                           <span
                             className={`channel-connected-status ${voiceStatusLabel === 'DEAF' ? 'deaf' : 'muted'}`}

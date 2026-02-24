@@ -88,6 +88,51 @@ function formatMetric(value: number | null, digits = 1) {
   return value.toFixed(digits);
 }
 
+
+const EMPTY_MEDIA_STATS: VoiceDetailedMediaStats = {
+  bitrateKbps: null,
+  packets: null,
+  packetsLost: null,
+  jitterMs: null,
+  framesPerSecond: null,
+  frameWidth: null,
+  frameHeight: null,
+};
+
+function normalizeMediaStats(stats: VoiceDetailedMediaStats | null | undefined): VoiceDetailedMediaStats {
+  return {
+    ...EMPTY_MEDIA_STATS,
+    ...(stats ?? {}),
+  };
+}
+
+function formatMetricWithUnit(value: number | null, unit: string, digits = 1) {
+  const formatted = formatMetric(value, digits);
+  return formatted === '--' ? formatted : `${formatted} ${unit}`;
+}
+
+function formatResolutionLabel(stats: VoiceDetailedMediaStats | null | undefined) {
+  const media = normalizeMediaStats(stats);
+  if (!media.frameWidth || !media.frameHeight) {
+    return '--';
+  }
+  const fps = media.framesPerSecond ? ` @ ${Math.round(media.framesPerSecond)}fps` : '';
+  return `${media.frameWidth}x${media.frameHeight}${fps}`;
+}
+
+function getConnectionStatusTone(connectionState: RTCPeerConnectionState, iceState: RTCIceConnectionState) {
+  if (connectionState === 'failed' || iceState === 'failed') return 'bad';
+  if (connectionState === 'disconnected' || iceState === 'disconnected') return 'warn';
+  if (connectionState === 'connecting' || connectionState === 'new' || iceState === 'checking' || iceState === 'new') return 'pending';
+  return 'good';
+}
+
+function getConnectionStatusLabel(connectionState: RTCPeerConnectionState, iceState: RTCIceConnectionState) {
+  if (connectionState === 'failed' || iceState === 'failed') return 'Failed';
+  if (connectionState === 'disconnected' || iceState === 'disconnected') return 'Reconnecting';
+  if (connectionState === 'connecting' || connectionState === 'new' || iceState === 'checking' || iceState === 'new') return 'Connecting';
+  return 'Connected';
+}
 const VOICE_BITRATE_OPTIONS = [
   24, 40, 64, 96, 128, 192, 256, 320, 384, 500, 640, 700, 768, 896, 1024, 1280, 1411, 1536,
 ];
@@ -604,62 +649,115 @@ export function VoiceChannelPanel(props: VoiceChannelPanelProps) {
               )}
 
               {activeTab === 'stats' && (
-                <div className="drawer-stats">
-                  <header className="voice-detailed-stats-header">
-                    <strong>Connection Analytics</strong>
-                    <small>{props.statsUpdatedAt ? `Last update: ${new Date(props.statsUpdatedAt).toLocaleTimeString()}` : 'Waiting...'}</small>
+                <div className="drawer-stats voice-stats-panel">
+                  <header className="voice-stats-panel-header">
+                    <div>
+                      <strong>Connection Analytics</strong>
+                      <small>{props.statsUpdatedAt ? `Updated ${new Date(props.statsUpdatedAt).toLocaleTimeString()}` : 'Waiting for telemetry...'}</small>
+                    </div>
+                    <span className="voice-stats-panel-count">{props.connectionStats.length} peer{props.connectionStats.length === 1 ? '' : 's'}</span>
                   </header>
-                  <div className="voice-detailed-stats-grid">
-                    {props.connectionStats.length === 0 ? (
-                      <article className="voice-detailed-stat-card voice-detailed-stat-card-empty">
-                        <header>
-                          <strong>Collecting voice stats</strong>
-                          <small>Waiting for active peer transport telemetry.</small>
-                        </header>
-                      </article>
-                    ) : null}
-                    {props.connectionStats.map((stats) => (
-                      <article key={stats.userId} className="voice-detailed-stat-card">
-                        <header>
-                          <strong>{stats.username}</strong>
-                          <small>
-                            {stats.connectionState} • {stats.iceConnectionState}
-                            {(stats.localCandidateType === 'sfu' || stats.remoteCandidateType === 'sfu') && ' • SFU'}
-                          </small>
-                        </header>
-                        <div className="voice-detailed-metrics">
-                          <div className="voice-metric-item">
-                            <label>Latency (RTT)</label>
-                            <span>{formatMetric(stats.currentRttMs)} ms</span>
-                          </div>
-                          <div className="voice-metric-item">
-                            <label>Bitrate Out</label>
-                            <span>{formatMetric(stats.availableOutgoingBitrateKbps)} kbps</span>
-                          </div>
-                          <div className="voice-metric-item">
-                            <label>Audio In/Out</label>
-                            <span>{formatMetric(stats.inboundAudio.bitrateKbps)} / {formatMetric(stats.outboundAudio.bitrateKbps)} kbps</span>
-                          </div>
-                          <div className="voice-metric-item">
-                            <label>Video In/Out</label>
-                            <span>{formatMetric(stats.inboundVideo.bitrateKbps)} / {formatMetric(stats.outboundVideo.bitrateKbps)} kbps</span>
-                          </div>
-                          <div className="voice-metric-item">
-                            <label>Resolution</label>
-                            <span>{stats.inboundVideo.frameWidth ? `${stats.inboundVideo.frameWidth}x${stats.inboundVideo.frameHeight}` : '--'}</span>
-                          </div>
-                          <div className="voice-metric-item">
-                            <label>Packet Loss</label>
-                            <span>{formatMetric(stats.inboundAudio.packetsLost, 0)}</span>
-                          </div>
-                          <div className="voice-metric-item">
-                            <label>Audio Jitter</label>
-                            <span>{formatMetric(stats.inboundAudio.jitterMs)} ms</span>
-                          </div>
-                        </div>
-                      </article>
-                    ))}
-                  </div>
+
+                  {props.connectionStats.length === 0 ? (
+                    <div className="voice-stats-empty" role="status" aria-live="polite">
+                      <strong>No connection stats yet</strong>
+                      <small>Join voice and wait a moment for browser WebRTC stats to populate.</small>
+                    </div>
+                  ) : (
+                    <div className="voice-stats-card-list">
+                      {props.connectionStats.map((stats) => {
+                        const inboundAudio = normalizeMediaStats(stats.inboundAudio);
+                        const outboundAudio = normalizeMediaStats(stats.outboundAudio);
+                        const inboundVideo = normalizeMediaStats(stats.inboundVideo);
+                        const outboundVideo = normalizeMediaStats(stats.outboundVideo);
+                        const connectionState = stats.connectionState ?? 'new';
+                        const iceConnectionState = stats.iceConnectionState ?? 'new';
+                        const signalingState = stats.signalingState ?? 'stable';
+                        const connectionTone = getConnectionStatusTone(connectionState, iceConnectionState);
+                        const connectionLabel = getConnectionStatusLabel(connectionState, iceConnectionState);
+                        const routeKind = stats.localCandidateType === 'sfu' || stats.remoteCandidateType === 'sfu' ? 'SFU' : 'P2P';
+                        const routePath = [stats.localCandidateType, stats.remoteCandidateType].filter(Boolean).join(' -> ');
+
+                        return (
+                          <article key={stats.userId} className="voice-stats-card">
+                            <header className="voice-stats-card-header">
+                              <div className="voice-stats-card-title">
+                                <strong>{stats.username}</strong>
+                                <small>{signalingState}</small>
+                              </div>
+                              <div className="voice-stats-pill-row">
+                                <span className={`voice-stats-pill ${connectionTone}`}>{connectionLabel}</span>
+                                <span className="voice-stats-pill neutral">ICE {iceConnectionState}</span>
+                                <span className="voice-stats-pill neutral">{routeKind}</span>
+                              </div>
+                            </header>
+
+                            <div className="voice-stats-section">
+                              <div className="voice-stats-section-title">Transport</div>
+                              <div className="voice-stats-grid">
+                                <div className="voice-stats-metric">
+                                  <span className="voice-stats-metric-label">RTT</span>
+                                  <span className="voice-stats-metric-value">{formatMetricWithUnit(stats.currentRttMs, 'ms', 1)}</span>
+                                </div>
+                                <div className="voice-stats-metric">
+                                  <span className="voice-stats-metric-label">Out Budget</span>
+                                  <span className="voice-stats-metric-value">{formatMetricWithUnit(stats.availableOutgoingBitrateKbps, 'kbps', 0)}</span>
+                                </div>
+                                <div className="voice-stats-metric wide">
+                                  <span className="voice-stats-metric-label">Path</span>
+                                  <span className="voice-stats-metric-value compact">{routePath || '--'}</span>
+                                </div>
+                              </div>
+                            </div>
+
+                            <div className="voice-stats-section">
+                              <div className="voice-stats-section-title">Audio</div>
+                              <div className="voice-stats-grid">
+                                <div className="voice-stats-metric">
+                                  <span className="voice-stats-metric-label">Inbound</span>
+                                  <span className="voice-stats-metric-value">{formatMetricWithUnit(inboundAudio.bitrateKbps, 'kbps', 0)}</span>
+                                </div>
+                                <div className="voice-stats-metric">
+                                  <span className="voice-stats-metric-label">Outbound</span>
+                                  <span className="voice-stats-metric-value">{formatMetricWithUnit(outboundAudio.bitrateKbps, 'kbps', 0)}</span>
+                                </div>
+                                <div className="voice-stats-metric">
+                                  <span className="voice-stats-metric-label">Loss</span>
+                                  <span className="voice-stats-metric-value">{formatMetric(inboundAudio.packetsLost, 0)}</span>
+                                </div>
+                                <div className="voice-stats-metric">
+                                  <span className="voice-stats-metric-label">Jitter</span>
+                                  <span className="voice-stats-metric-value">{formatMetricWithUnit(inboundAudio.jitterMs, 'ms', 1)}</span>
+                                </div>
+                              </div>
+                            </div>
+
+                            <div className="voice-stats-section">
+                              <div className="voice-stats-section-title">Video / Screen</div>
+                              <div className="voice-stats-grid">
+                                <div className="voice-stats-metric">
+                                  <span className="voice-stats-metric-label">Inbound</span>
+                                  <span className="voice-stats-metric-value">{formatMetricWithUnit(inboundVideo.bitrateKbps, 'kbps', 0)}</span>
+                                </div>
+                                <div className="voice-stats-metric">
+                                  <span className="voice-stats-metric-label">Outbound</span>
+                                  <span className="voice-stats-metric-value">{formatMetricWithUnit(outboundVideo.bitrateKbps, 'kbps', 0)}</span>
+                                </div>
+                                <div className="voice-stats-metric wide">
+                                  <span className="voice-stats-metric-label">Inbound Resolution</span>
+                                  <span className="voice-stats-metric-value compact">{formatResolutionLabel(inboundVideo)}</span>
+                                </div>
+                                <div className="voice-stats-metric wide">
+                                  <span className="voice-stats-metric-label">Outbound Resolution</span>
+                                  <span className="voice-stats-metric-value compact">{formatResolutionLabel(outboundVideo)}</span>
+                                </div>
+                              </div>
+                            </div>
+                          </article>
+                        );
+                      })}
+                    </div>
+                  )}
                 </div>
               )}
             </div>

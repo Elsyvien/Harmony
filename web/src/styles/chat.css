@@ -286,6 +286,7 @@ input,
   display: grid;
   gap: 3px;
   margin: 2px 8px 8px 30px;
+  min-width: 0;
 }
 
 .channel-connected-user {
@@ -293,6 +294,8 @@ input,
   align-items: center;
   gap: 7px;
   min-height: 28px;
+  min-width: 0;
+  width: 100%;
   padding: 3px 6px;
   border-radius: 8px;
   color: var(--text-muted);
@@ -336,6 +339,7 @@ input,
 
 .channel-connected-live {
   display: inline-flex;
+  white-space: nowrap;
   align-items: center;
   justify-content: center;
   height: 16px;
@@ -348,10 +352,26 @@ input,
   letter-spacing: 0.03em;
   text-transform: uppercase;
   flex-shrink: 0;
+  border: none;
+  cursor: pointer;
+  font-family: inherit;
+  line-height: 1;
+}
+
+
+.channel-connected-live.is-action:hover {
+  filter: brightness(1.06);
+  transform: translateY(-1px);
+}
+
+.channel-connected-live.is-action:focus-visible {
+  outline: 2px solid rgba(255, 255, 255, 0.45);
+  outline-offset: 1px;
 }
 
 .channel-connected-status {
   display: inline-flex;
+  white-space: nowrap;
   align-items: center;
   height: 16px;
   border-radius: 999px;

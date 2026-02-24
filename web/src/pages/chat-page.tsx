@@ -1163,6 +1163,12 @@ export function ChatPage() {
         speakingUserIds,
         onJoinVoice: joinVoiceChannel,
         onLeaveVoice: leaveVoiceChannel,
+        onRetryLiveStreamConnect: async (channelId, userId) => {
+          if (activeVoiceChannelId !== channelId) {
+            return;
+          }
+          sendRequestOffer(userId, channelId);
+        },
         isSelfMuted,
         isSelfDeafened,
         onToggleMute: toggleSelfMute,
