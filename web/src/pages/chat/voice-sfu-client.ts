@@ -47,6 +47,7 @@ export class VoiceSfuClient {
   private device: Device | null = null;
   private sendTransport: mediasoupTypes.Transport | null = null;
   private recvTransport: mediasoupTypes.Transport | null = null;
+  private sendTransportState: mediasoupTypes.ConnectionState = 'new';
   private audioProducer: mediasoupTypes.Producer | null = null;
   private videoProducer: mediasoupTypes.Producer | null = null;
   private closed = false;
@@ -86,6 +87,7 @@ export class VoiceSfuClient {
     this.closed = false;
     this.reconnecting = false;
     this.reconnectAttempts = 0;
+    this.sendTransportState = 'new';
     this.clearReconnectTimer();
     this.clearKeepaliveTimer();
 
@@ -124,17 +126,18 @@ export class VoiceSfuClient {
   }
 
   isConnected(): boolean {
-    return !this.closed && this.sendTransport?.connectionState === 'connected';
+    return !this.closed && this.sendTransportState === 'connected';
   }
 
   async getDetailedStats(): Promise<any[]> {
     if (this.closed || !this.sendTransport) return [];
+    const isConnected = this.sendTransportState === 'connected';
 
     return [{
       userId: 'sfu-server',
       username: 'Voice Server (Mediasoup SFU)',
-      connectionState: this.sendTransport.connectionState === 'connected' ? 'connected' : 'connecting',
-      iceConnectionState: this.sendTransport.connectionState === 'connected' ? 'connected' : 'connecting',
+      connectionState: isConnected ? 'connected' : 'connecting',
+      iceConnectionState: isConnected ? 'connected' : 'connecting',
       signalingState: 'stable',
       currentRttMs: null,
       availableOutgoingBitrateKbps: null,
@@ -322,6 +325,7 @@ export class VoiceSfuClient {
   stop() {
     this.closed = true;
     this.reconnecting = false;
+    this.sendTransportState = 'closed';
     this.clearReconnectTimer();
     this.clearKeepaliveTimer();
     this.iceRestartInProgress.clear();
@@ -379,6 +383,9 @@ export class VoiceSfuClient {
     });
 
     transport.on('connectionstatechange', (state: mediasoupTypes.ConnectionState) => {
+      if (direction === 'send' && transport === this.sendTransport) {
+        this.sendTransportState = state;
+      }
       this.callbacks.onStateChange?.(state);
 
       if (state === 'disconnected') {
@@ -567,6 +574,7 @@ export class VoiceSfuClient {
     }
     this.remoteAudioStreamByUserId.clear();
     this.remoteVideoStreamByUserId.clear();
+    this.sendTransportState = 'new';
     this.sendTransport = null;
     this.recvTransport = null;
     try { sendTransport?.close(); } catch { void 0; }
