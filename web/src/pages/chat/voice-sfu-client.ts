@@ -51,6 +51,7 @@ export class VoiceSfuClient {
   private audioProducer: mediasoupTypes.Producer | null = null;
   private videoProducer: mediasoupTypes.Producer | null = null;
   private closed = false;
+  private readonly previousRtpSnapshots = new Map<string, { bytes: number; timestamp: number }>();
 
   private readonly consumerByProducerId = new Map<string, mediasoupTypes.Consumer>();
   private readonly producerOwnerById = new Map<string, string>();
@@ -88,6 +89,7 @@ export class VoiceSfuClient {
     this.reconnecting = false;
     this.reconnectAttempts = 0;
     this.sendTransportState = 'new';
+    this.previousRtpSnapshots.clear();
     this.clearReconnectTimer();
     this.clearKeepaliveTimer();
 
@@ -131,22 +133,137 @@ export class VoiceSfuClient {
 
   async getDetailedStats(): Promise<any[]> {
     if (this.closed || !this.sendTransport) return [];
-    const isConnected = this.sendTransportState === 'connected';
+
+    const createEmptyMediaStats = () => ({
+      bitrateKbps: null as number | null,
+      packets: null as number | null,
+      packetsLost: null as number | null,
+      jitterMs: null as number | null,
+      framesPerSecond: null as number | null,
+      frameWidth: null as number | null,
+      frameHeight: null as number | null,
+    });
+    const accumulateMediaStats = (
+      target: ReturnType<typeof createEmptyMediaStats>,
+      update: Partial<ReturnType<typeof createEmptyMediaStats>>,
+    ) => {
+      for (const [key, value] of Object.entries(update)) {
+        if (typeof value !== 'number' || Number.isNaN(value)) continue;
+        const typedKey = key as keyof ReturnType<typeof createEmptyMediaStats>;
+        const prev = target[typedKey];
+        target[typedKey] = typeof prev === 'number' ? Math.max(prev, value) : value;
+      }
+    };
+    const computeKbpsFromSnapshot = (key: string, bytes: number, ts: number) => {
+      const prev = this.previousRtpSnapshots.get(key);
+      this.previousRtpSnapshots.set(key, { bytes, timestamp: ts });
+      if (!prev || ts <= prev.timestamp || bytes < prev.bytes) return null;
+      const deltaMs = ts - prev.timestamp;
+      return deltaMs <= 0 ? null : ((bytes - prev.bytes) * 8) / deltaMs;
+    };
+
+    const outboundAudio = createEmptyMediaStats();
+    const inboundAudio = createEmptyMediaStats();
+    const outboundVideo = createEmptyMediaStats();
+    const inboundVideo = createEmptyMediaStats();
+
+    const peerConnections = this.getTransportPeerConnections().filter((entry) => entry.pc);
+    const sendPc = peerConnections.find((entry) => entry.direction === 'send')?.pc ?? null;
+    const recvPc = peerConnections.find((entry) => entry.direction === 'recv')?.pc ?? null;
+
+    let selectedPair: any = null;
+    let selectedLocalCandidate: any = null;
+    let selectedRemoteCandidate: any = null;
+
+    for (const entry of peerConnections) {
+      const pc = entry.pc;
+      if (!pc) continue;
+
+      try {
+        const report = await pc.getStats();
+        const localCandidates = new Map<string, any>();
+        const remoteCandidates = new Map<string, any>();
+        let pcSelectedPair: any = null;
+
+        for (const stat of report.values()) {
+          if (stat.type === 'local-candidate') {
+            localCandidates.set(stat.id, stat);
+            continue;
+          }
+          if (stat.type === 'remote-candidate') {
+            remoteCandidates.set(stat.id, stat);
+            continue;
+          }
+          if (stat.type === 'candidate-pair') {
+            const pair = stat as any;
+            if (pair.nominated || pair.selected || pair.state === 'succeeded') {
+              pcSelectedPair = pair;
+            }
+            continue;
+          }
+          if (stat.type === 'outbound-rtp') {
+            const r = stat as any;
+            if (r.isRemote) continue;
+            const kind = r.kind ?? r.mediaType ?? 'audio';
+            const bitrateKbps = typeof r.bytesSent === 'number'
+              ? computeKbpsFromSnapshot(`sfu:${entry.direction}:out:${r.id}`, r.bytesSent, r.timestamp)
+              : null;
+            accumulateMediaStats(kind === 'video' ? outboundVideo : outboundAudio, {
+              bitrateKbps,
+              packets: r.packetsSent ?? null,
+              framesPerSecond: r.framesPerSecond ?? null,
+              frameWidth: r.frameWidth ?? null,
+              frameHeight: r.frameHeight ?? null,
+            });
+            continue;
+          }
+          if (stat.type === 'inbound-rtp') {
+            const r = stat as any;
+            const kind = r.kind ?? r.mediaType ?? 'audio';
+            const bitrateKbps = typeof r.bytesReceived === 'number'
+              ? computeKbpsFromSnapshot(`sfu:${entry.direction}:in:${r.id}`, r.bytesReceived, r.timestamp)
+              : null;
+            accumulateMediaStats(kind === 'video' ? inboundVideo : inboundAudio, {
+              bitrateKbps,
+              packets: r.packetsReceived ?? null,
+              packetsLost: r.packetsLost ?? null,
+              jitterMs: typeof r.jitter === 'number' ? r.jitter * 1000 : null,
+              framesPerSecond: r.framesPerSecond ?? null,
+              frameWidth: r.frameWidth ?? null,
+              frameHeight: r.frameHeight ?? null,
+            });
+          }
+        }
+
+        const isPreferredPair =
+          !selectedPair || (entry.direction === 'send' && selectedPair.__direction !== 'send');
+        if (pcSelectedPair && isPreferredPair) {
+          selectedPair = { ...pcSelectedPair, __direction: entry.direction };
+          selectedLocalCandidate = pcSelectedPair.localCandidateId ? localCandidates.get(pcSelectedPair.localCandidateId) : null;
+          selectedRemoteCandidate = pcSelectedPair.remoteCandidateId ? remoteCandidates.get(pcSelectedPair.remoteCandidateId) : null;
+        }
+      } catch {
+        // Best-effort diagnostics; one transport failing should not suppress all stats.
+      }
+    }
+
+    const primaryPc = sendPc ?? recvPc;
+    const fallbackConnectionState = this.sendTransportState === 'connected' ? 'connected' : 'connecting';
 
     return [{
       userId: 'sfu-server',
       username: 'Voice Server (Mediasoup SFU)',
-      connectionState: isConnected ? 'connected' : 'connecting',
-      iceConnectionState: isConnected ? 'connected' : 'connecting',
-      signalingState: 'stable',
-      currentRttMs: null,
-      availableOutgoingBitrateKbps: null,
-      localCandidateType: 'sfu-client',
-      remoteCandidateType: 'sfu-server',
-      outboundAudio: { bitrateKbps: null, packets: null, packetsLost: null, jitterMs: null, framesPerSecond: null, frameWidth: null, frameHeight: null },
-      inboundAudio: { bitrateKbps: null, packets: null, packetsLost: null, jitterMs: null, framesPerSecond: null, frameWidth: null, frameHeight: null },
-      outboundVideo: { bitrateKbps: null, packets: null, packetsLost: null, jitterMs: null, framesPerSecond: null, frameWidth: null, frameHeight: null },
-      inboundVideo: { bitrateKbps: null, packets: null, packetsLost: null, jitterMs: null, framesPerSecond: null, frameWidth: null, frameHeight: null },
+      connectionState: primaryPc?.connectionState ?? fallbackConnectionState,
+      iceConnectionState: primaryPc?.iceConnectionState ?? fallbackConnectionState,
+      signalingState: primaryPc?.signalingState ?? 'stable',
+      currentRttMs: typeof selectedPair?.currentRoundTripTime === 'number' ? selectedPair.currentRoundTripTime * 1000 : null,
+      availableOutgoingBitrateKbps: typeof selectedPair?.availableOutgoingBitrate === 'number' ? selectedPair.availableOutgoingBitrate / 1000 : null,
+      localCandidateType: selectedLocalCandidate?.candidateType ?? 'sfu',
+      remoteCandidateType: selectedRemoteCandidate?.candidateType ?? 'sfu',
+      outboundAudio,
+      inboundAudio,
+      outboundVideo,
+      inboundVideo,
     }];
   }
 
@@ -326,6 +443,7 @@ export class VoiceSfuClient {
     this.closed = true;
     this.reconnecting = false;
     this.sendTransportState = 'closed';
+    this.previousRtpSnapshots.clear();
     this.clearReconnectTimer();
     this.clearKeepaliveTimer();
     this.iceRestartInProgress.clear();
@@ -574,6 +692,7 @@ export class VoiceSfuClient {
     }
     this.remoteAudioStreamByUserId.clear();
     this.remoteVideoStreamByUserId.clear();
+    this.previousRtpSnapshots.clear();
     this.sendTransportState = 'new';
     this.sendTransport = null;
     this.recvTransport = null;
