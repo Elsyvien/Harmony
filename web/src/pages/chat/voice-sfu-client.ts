@@ -39,7 +39,18 @@ type VoiceSfuCallbacks = {
   onReconnected?: () => void;
 };
 
-export class VoiceSfuClient {
+export interface VoiceSfuClientLike {
+  start(localAudioTrack: MediaStreamTrack | null): Promise<void>;
+  isConnected(): boolean;
+  getDetailedStats(): Promise<any[]>;
+  replaceLocalAudioTrack(track: MediaStreamTrack | null): Promise<void>;
+  replaceLocalVideoTrack(track: MediaStreamTrack | null, source: 'screen' | 'camera' | null): Promise<void>;
+  syncProducers(): Promise<void>;
+  handleSfuEvent(payload: VoiceSfuEventPayload): Promise<void>;
+  stop(): void;
+}
+
+export class VoiceSfuClient implements VoiceSfuClientLike {
   private readonly selfUserId: string;
   private readonly request: VoiceSfuRequest;
   private readonly callbacks: VoiceSfuCallbacks;

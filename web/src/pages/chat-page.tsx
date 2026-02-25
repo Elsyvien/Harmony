@@ -23,7 +23,7 @@ import { useFriendsFeature } from './chat/hooks/use-friends-feature';
 import { useChatPresenceFeature } from './chat/hooks/use-chat-presence-feature';
 import { useChannelManagementFeature } from './chat/hooks/use-channel-management-feature';
 import { useChatPageEffects } from './chat/hooks/use-chat-page-effects';
-import type { VoiceSfuClient } from './chat/voice-sfu-client';
+import type { VoiceSfuClientLike } from './chat/voice-sfu-client';
 import { usePeerConnectionManager } from './chat/hooks/use-peer-connection-manager';
 import { useVoiceTransport } from './chat/hooks/use-voice-transport';
 import { useVoiceSignaling } from './chat/hooks/use-voice-signaling';
@@ -140,7 +140,8 @@ export function ChatPage() {
     createDefaultVoiceIceConfig(),
   );
   const [voiceSfuEnabled, setVoiceSfuEnabled] = useState(false);
-  const voiceSfuClientRef = useRef<VoiceSfuClient | null>(null);
+  const [voiceSfuProvider, setVoiceSfuProvider] = useState<'mediasoup' | 'cloudflare'>('mediasoup');
+  const voiceSfuClientRef = useRef<VoiceSfuClientLike | null>(null);
 
   const [composerInsertRequest, setComposerInsertRequest] = useState<{
     key: number;
@@ -652,6 +653,7 @@ export function ChatPage() {
     authToken: auth.token,
     wsConnected: ws.connected,
     voiceSfuEnabled,
+    voiceSfuProvider,
     activeVoiceChannelId,
     voiceBusyChannelId,
     voiceParticipantsByChannel,
@@ -941,10 +943,12 @@ export function ChatPage() {
         }
         setVoiceIceConfig(normalizeVoiceIceConfig(response.rtc));
         setVoiceSfuEnabled(Boolean(response.sfu?.enabled));
+        setVoiceSfuProvider(response.sfu?.provider === 'cloudflare' ? 'cloudflare' : 'mediasoup');
       } catch {
         if (!disposed) {
           setVoiceIceConfig(createDefaultVoiceIceConfig());
           setVoiceSfuEnabled(false);
+          setVoiceSfuProvider('mediasoup');
         }
       }
     };
