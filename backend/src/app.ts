@@ -30,6 +30,8 @@ import { userRoutes } from './routes/user.routes.js';
 import { ChannelService } from './services/channel.service.js';
 import { MessageService } from './services/message.service.js';
 import { FriendService } from './services/friend.service.js';
+import { CloudflareVoiceSfuService } from './services/cloudflare-voice-sfu.service.js';
+import type { VoiceSfuProvider } from './services/voice-sfu-provider.js';
 import { VoiceSfuService } from './services/voice-sfu.service.js';
 import { AppError } from './utils/app-error.js';
 
@@ -120,10 +122,13 @@ export async function buildApp() {
   const adminService = new AdminService();
   const adminUserService = new AdminUserService();
 
-  // Auto-detect a routable IP for SFU ICE candidates when SFU_ANNOUNCED_IP is not set.
+  const usingMediasoupSfu = env.SFU_ENABLED && env.SFU_PROVIDER === 'mediasoup';
+  const usingCloudflareManagedSfu = env.SFU_ENABLED && env.SFU_PROVIDER === 'cloudflare';
+
+  // Auto-detect a routable IP for mediasoup ICE candidates when SFU_ANNOUNCED_IP is not set.
   // Without this, mediasoup generates candidates with 0.0.0.0 which browsers cannot reach.
   let sfuAnnouncedIp: string | null = env.SFU_ANNOUNCED_IP.trim() || null;
-  if (!sfuAnnouncedIp && env.SFU_ENABLED) {
+  if (!sfuAnnouncedIp && usingMediasoupSfu) {
     try {
       sfuAnnouncedIp = await publicIpv4();
     } catch {
@@ -148,34 +153,42 @@ export async function buildApp() {
       app.log.info(`SFU_ANNOUNCED_IP not set – auto-detected ${sfuAnnouncedIp}`);
     } else {
       app.log.warn(
-        'SFU_ENABLED=true but SFU_ANNOUNCED_IP could not be auto-detected. Set SFU_ANNOUNCED_IP to a public IP or DNS name for remote audio to work reliably.',
+        'SFU_ENABLED=true (mediasoup) but SFU_ANNOUNCED_IP could not be auto-detected. Set SFU_ANNOUNCED_IP to a public IP or DNS name for remote audio to work reliably.',
       );
     }
   }
 
-  if (env.SFU_ENABLED && env.NODE_ENV === 'production') {
+  if (usingMediasoupSfu && env.NODE_ENV === 'production') {
     if (!sfuAnnouncedIp) {
       throw new Error(
-        'SFU_ENABLED=true in production but SFU_ANNOUNCED_IP could not be resolved. Set SFU_ANNOUNCED_IP to a public IP or DNS name before starting the server.',
+        'SFU_ENABLED=true (mediasoup) in production but SFU_ANNOUNCED_IP could not be resolved. Set SFU_ANNOUNCED_IP to a public IP or DNS name before starting the server.',
       );
     }
 
     if (isLoopbackOrPlaceholderHost(sfuAnnouncedIp)) {
       throw new Error(
-        `SFU_ENABLED=true in production but SFU_ANNOUNCED_IP resolved to an unreachable loopback/placeholder value (${sfuAnnouncedIp}). Set SFU_ANNOUNCED_IP to a public IP or DNS name before starting the server.`,
+        `SFU_ENABLED=true (mediasoup) in production but SFU_ANNOUNCED_IP resolved to an unreachable loopback/placeholder value (${sfuAnnouncedIp}). Set SFU_ANNOUNCED_IP to a public IP or DNS name before starting the server.`,
       );
     }
   }
 
   if (
-    env.SFU_ENABLED &&
+    usingMediasoupSfu &&
     env.NODE_ENV === 'production' &&
     env.SFU_WEBRTC_UDP &&
     !env.SFU_PREFER_TCP
   ) {
     app.log.warn(
-      'SFU is using UDP-first transports in production. On platforms with restricted UDP (including common PaaS setups), set SFU_WEBRTC_UDP=false and SFU_PREFER_TCP=true.',
+      'SFU is using UDP-first mediasoup transports in production. On platforms with restricted UDP (including common PaaS setups), set SFU_WEBRTC_UDP=false and SFU_PREFER_TCP=true.',
     );
+  }
+
+  if (usingCloudflareManagedSfu) {
+    if (!env.CLOUDFLARE_SFU_APP_ID.trim() || !env.CLOUDFLARE_SFU_APP_SECRET.trim()) {
+      app.log.warn(
+        'SFU_PROVIDER=cloudflare but CLOUDFLARE_SFU_APP_ID/CLOUDFLARE_SFU_APP_SECRET are missing. Managed SFU requests will fail until configured.',
+      );
+    }
   }
 
   const cloudflareTurnKeyId = env.CLOUDFLARE_TURN_KEY_ID.trim();
@@ -194,17 +207,26 @@ export async function buildApp() {
     );
   }
 
-  const voiceSfuService = new VoiceSfuService({
-    enabled: env.SFU_ENABLED,
-    audioOnly: env.SFU_AUDIO_ONLY,
-    listenIp: env.SFU_LISTEN_IP,
-    announcedIp: sfuAnnouncedIp,
-    minPort: env.SFU_MIN_PORT,
-    maxPort: env.SFU_MAX_PORT,
-    enableUdp: env.SFU_WEBRTC_UDP,
-    enableTcp: env.SFU_WEBRTC_TCP,
-    preferTcp: env.SFU_PREFER_TCP,
-  });
+  const voiceSfuService: VoiceSfuProvider = env.SFU_PROVIDER === 'cloudflare'
+    ? new CloudflareVoiceSfuService({
+        enabled: env.SFU_ENABLED,
+        audioOnly: env.SFU_AUDIO_ONLY,
+        appId: env.CLOUDFLARE_SFU_APP_ID,
+        appSecret: env.CLOUDFLARE_SFU_APP_SECRET,
+        accountId: env.CLOUDFLARE_SFU_ACCOUNT_ID,
+        apiBaseUrl: env.CLOUDFLARE_SFU_API_BASE_URL,
+      })
+    : new VoiceSfuService({
+        enabled: env.SFU_ENABLED,
+        audioOnly: env.SFU_AUDIO_ONLY,
+        listenIp: env.SFU_LISTEN_IP,
+        announcedIp: sfuAnnouncedIp,
+        minPort: env.SFU_MIN_PORT,
+        maxPort: env.SFU_MAX_PORT,
+        enableUdp: env.SFU_WEBRTC_UDP,
+        enableTcp: env.SFU_WEBRTC_TCP,
+        preferTcp: env.SFU_PREFER_TCP,
+      });
   await voiceSfuService.init();
 
   await channelService.ensureDefaultChannel();
@@ -408,6 +430,7 @@ export async function buildApp() {
       },
       sfu: {
         enabled: env.SFU_ENABLED,
+        provider: env.SFU_PROVIDER,
         audioOnly: env.SFU_AUDIO_ONLY,
         preferTcp: env.SFU_PREFER_TCP,
       },

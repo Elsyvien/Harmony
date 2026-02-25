@@ -7,7 +7,7 @@
  */
 
 import type { FastifyBaseLogger } from 'fastify';
-import type { VoiceSfuService, VoiceSfuProducerInfo } from '../services/voice-sfu.service.js';
+import type { VoiceSfuProducerInfo, VoiceSfuProvider } from '../services/voice-sfu-provider.js';
 import type { ChannelService } from '../services/channel.service.js';
 import { AppError } from '../utils/app-error.js';
 
@@ -55,7 +55,7 @@ const DISCONNECT_GRACE_PERIOD_MS = 15_000;
 // ─── Handler ─────────────────────────────────────────────────────────
 
 export interface VoiceWsHandlerDeps {
-    voiceSfuService: VoiceSfuService;
+    voiceSfuService: VoiceSfuProvider;
     channelService: ChannelService;
     log: FastifyBaseLogger;
     /** Send a typed WS message to all online sockets of a user */
@@ -276,7 +276,7 @@ export class VoiceWsHandler {
                         payload.channelId,
                         ctx.userId,
                         reqData.transportId,
-                        reqData.dtlsParameters as Parameters<VoiceSfuService['connectTransport']>[3],
+                        reqData.dtlsParameters as Parameters<VoiceSfuProvider['connectTransport']>[3],
                     );
                     return { ok: true, data: { connected: true } };
                 }
@@ -305,7 +305,7 @@ export class VoiceWsHandler {
                         ctx.userId,
                         reqData.transportId,
                         reqData.kind,
-                        reqData.rtpParameters as Parameters<VoiceSfuService['produce']>[4],
+                        reqData.rtpParameters as Parameters<VoiceSfuProvider['produce']>[4],
                         reqData.appData,
                     );
                     // Notify other participants
@@ -354,7 +354,7 @@ export class VoiceWsHandler {
                         ctx.userId,
                         reqData.transportId,
                         reqData.producerId,
-                        reqData.rtpCapabilities as Parameters<VoiceSfuService['consume']>[4],
+                        reqData.rtpCapabilities as Parameters<VoiceSfuProvider['consume']>[4],
                     );
                     return { ok: true, data: { consumer } };
                 }
