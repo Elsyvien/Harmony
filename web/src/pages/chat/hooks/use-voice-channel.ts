@@ -217,6 +217,7 @@ export function useVoiceChannel(params: UseVoiceChannelParams) {
     const sendVoiceSignalRef = useRef(sendVoiceSignal);
     const leaveVoiceRef = useRef(leaveVoice);
     const createOfferForPeerRef = useRef(createOfferForPeer);
+    const voiceParticipantsByChannelRef = useRef(voiceParticipantsByChannel);
 
     // Keep refs in sync
     useEffect(() => { activeVoiceChannelIdRef.current = activeVoiceChannelId; }, [activeVoiceChannelId]);
@@ -224,6 +225,7 @@ export function useVoiceChannel(params: UseVoiceChannelParams) {
     useEffect(() => { sendVoiceSignalRef.current = sendVoiceSignal; }, [sendVoiceSignal]);
     useEffect(() => { leaveVoiceRef.current = leaveVoice; }, [leaveVoice]);
     useEffect(() => { createOfferForPeerRef.current = createOfferForPeer; }, [createOfferForPeer]);
+    useEffect(() => { voiceParticipantsByChannelRef.current = voiceParticipantsByChannel; }, [voiceParticipantsByChannel]);
 
     const joinedVoiceParticipants = useMemo(
         () => (activeVoiceChannelId ? (voiceParticipantsByChannel[activeVoiceChannelId] ?? []) : []),
@@ -585,8 +587,18 @@ export function useVoiceChannel(params: UseVoiceChannelParams) {
                         authToken,
                         channelId: activeVoiceChannelId,
                         rtcConfiguration: voiceIceConfig,
-                        sendVoiceSignalToPeer: (targetUserId, data) => sendVoiceSignalRef.current(activeVoiceChannelId, targetUserId, data),
-                        getTargetPeerUserIds: () => participants.map((p) => p.userId).filter((id) => id !== authUserId),
+                        sendVoiceSignalToPeer: (targetUserId, data) => {
+                            const channelId = activeVoiceChannelIdRef.current;
+                            if (!channelId) return false;
+                            return sendVoiceSignalRef.current(channelId, targetUserId, data);
+                        },
+                        getTargetPeerUserIds: () => {
+                            const channelId = activeVoiceChannelIdRef.current;
+                            if (!channelId || !authUserId) return [];
+                            return (voiceParticipantsByChannelRef.current[channelId] ?? [])
+                                .map((p) => p.userId)
+                                .filter((id) => id !== authUserId);
+                        },
                         selfUserId: authUserId,
                         request: async (action, data, timeoutMs) => { try { return await requestVoiceSfu(activeVoiceChannelId, action, data, timeoutMs); } catch (err) { if (isVoiceSfuDisabledError(err)) { setVoiceSfuRuntimeDisabled(true); } throw err; } },
                         callbacks: {

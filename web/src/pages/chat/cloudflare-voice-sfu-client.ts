@@ -108,6 +108,7 @@ function normalizeConnectionState(state: RTCPeerConnectionState): mediasoupTypes
 
 export class CloudflareVoiceSfuClient implements VoiceSfuClientLike {
   private readonly selfUserId: string;
+  private readonly channelId: string;
   private readonly authToken: string;
   private readonly rtcConfiguration: RTCConfiguration;
   private readonly callbacks: CloudflareVoiceSfuCallbacks;
@@ -135,6 +136,11 @@ export class CloudflareVoiceSfuClient implements VoiceSfuClientLike {
     audio: [],
     video: [],
   };
+  private readonly pendingIncomingTrackEventsByMid = new Map<string, RTCTrackEvent>();
+  private readonly pendingIncomingTrackEventsByKind: Record<CloudflareTrackKind, RTCTrackEvent[]> = {
+    audio: [],
+    video: [],
+  };
   private readonly remoteAudioStreamByUserId = new Map<string, MediaStream>();
   private readonly remoteVideoStreamByUserId = new Map<string, MediaStream>();
 
@@ -148,12 +154,12 @@ export class CloudflareVoiceSfuClient implements VoiceSfuClientLike {
     getTargetPeerUserIds: () => string[];
   }) {
     this.selfUserId = params.selfUserId;
+    this.channelId = params.channelId;
     this.authToken = params.authToken;
     this.rtcConfiguration = params.rtcConfiguration;
     this.callbacks = params.callbacks;
     this.sendVoiceSignalToPeer = params.sendVoiceSignalToPeer;
     this.getTargetPeerUserIds = params.getTargetPeerUserIds;
-    void params.channelId;
   }
 
   async start(localAudioTrack: MediaStreamTrack | null): Promise<void> {
@@ -172,6 +178,9 @@ export class CloudflareVoiceSfuClient implements VoiceSfuClientLike {
       this.remoteTrackKeyByMid.clear();
       this.pendingRemoteTrackKeysByKind.audio = [];
       this.pendingRemoteTrackKeysByKind.video = [];
+      this.pendingIncomingTrackEventsByMid.clear();
+      this.pendingIncomingTrackEventsByKind.audio = [];
+      this.pendingIncomingTrackEventsByKind.video = [];
       this.removeAllRemoteMedia();
 
       const pc = new RTCPeerConnection(this.rtcConfiguration);
@@ -367,8 +376,8 @@ export class CloudflareVoiceSfuClient implements VoiceSfuClientLike {
   async handleVoiceSignalData(payload: { channelId: string; fromUserId: string; data: VoiceSignalData }): Promise<void> {
     return this.enqueue(async () => {
       if (this.closed) return;
+      if (payload.channelId !== this.channelId) return;
       const { fromUserId, data } = payload;
-      void payload.channelId;
       if (data.kind === 'cloudflare-sfu-session') {
         const previous = this.remotePeerSessionIdByUserId.get(fromUserId);
         this.remotePeerSessionIdByUserId.set(fromUserId, data.sessionId);
@@ -428,6 +437,9 @@ export class CloudflareVoiceSfuClient implements VoiceSfuClientLike {
     this.remoteTrackKeyByMid.clear();
     this.pendingRemoteTrackKeysByKind.audio = [];
     this.pendingRemoteTrackKeysByKind.video = [];
+    this.pendingIncomingTrackEventsByMid.clear();
+    this.pendingIncomingTrackEventsByKind.audio = [];
+    this.pendingIncomingTrackEventsByKind.video = [];
     this.stopPeerConnectionOnly();
     this.removeAllRemoteMedia();
   }
@@ -460,9 +472,21 @@ export class CloudflareVoiceSfuClient implements VoiceSfuClientLike {
       key = queue.shift() ?? null;
     }
     if (!key) {
+      if (mid) {
+        this.pendingIncomingTrackEventsByMid.set(mid, event);
+      } else {
+        this.pendingIncomingTrackEventsByKind[kind].push(event);
+      }
       return;
     }
 
+    this.attachIncomingTrackToSubscription(key, event);
+  }
+
+  private attachIncomingTrackToSubscription(key: string, event: RTCTrackEvent): void {
+    const track = event.track;
+    const kind = track.kind === 'video' ? 'video' : 'audio';
+    const mid = event.transceiver?.mid ?? null;
     const subscription = this.subscribedRemoteTracksByKey.get(key);
     if (!subscription) {
       return;
@@ -483,7 +507,7 @@ export class CloudflareVoiceSfuClient implements VoiceSfuClientLike {
     }
 
     track.addEventListener('ended', () => {
-      const current = this.subscribedRemoteTracksByKey.get(key!);
+      const current = this.subscribedRemoteTracksByKey.get(key);
       if (!current) return;
       this.removeRemoteMediaForUserKind(current.fromUserId, current.mediaKind);
     });
@@ -683,6 +707,7 @@ export class CloudflareVoiceSfuClient implements VoiceSfuClientLike {
     const key = getTrackKey(announced.remoteSessionId, announced.trackName);
     if (this.subscribedRemoteTracksByKey.has(key)) return;
 
+    const knownMidsBefore = this.collectKnownRemoteMids();
     const addResponse = await chatApi.cloudflareSfuAddTracks(this.authToken, this.sessionId, {
       tracks: [
         {
@@ -699,7 +724,13 @@ export class CloudflareVoiceSfuClient implements VoiceSfuClientLike {
         track.trackName === announced.trackName &&
         (!track.sessionId || track.sessionId === announced.remoteSessionId),
       ) ?? responseTracks[0];
-    const mid = responseTrack?.mid ?? responseTrack?.transceiverMid ?? null;
+    let mid = responseTrack?.mid ?? responseTrack?.transceiverMid ?? null;
+
+    await this.applyCloudflareNegotiationResponse(addResponse);
+
+    if (!mid) {
+      mid = this.findNewRemoteMidForKind(announced.mediaKind, knownMidsBefore);
+    }
 
     this.subscribedRemoteTracksByKey.set(key, { ...announced, mid });
     if (mid) {
@@ -707,8 +738,7 @@ export class CloudflareVoiceSfuClient implements VoiceSfuClientLike {
     } else {
       this.pendingRemoteTrackKeysByKind[announced.mediaKind].push(key);
     }
-
-    await this.applyCloudflareNegotiationResponse(addResponse);
+    this.flushPendingIncomingTrackForSubscription(key);
   }
 
   private async unsubscribeRemoteTrack(key: string, notifyCloudflare: boolean): Promise<void> {
@@ -793,6 +823,61 @@ export class CloudflareVoiceSfuClient implements VoiceSfuClientLike {
     this.pc = null;
     this.audioTransceiver = null;
     this.videoTransceiver = null;
+  }
+
+  private collectKnownRemoteMids(): Set<string> {
+    const mids = new Set<string>();
+    for (const mid of this.remoteTrackKeyByMid.keys()) {
+      mids.add(mid);
+    }
+    const pc = this.pc;
+    if (!pc) return mids;
+    for (const transceiver of pc.getTransceivers()) {
+      const mid = transceiver.mid;
+      if (mid) {
+        mids.add(mid);
+      }
+    }
+    return mids;
+  }
+
+  private findNewRemoteMidForKind(kind: CloudflareTrackKind, knownMidsBefore: Set<string>): string | null {
+    const pc = this.pc;
+    if (!pc) return null;
+    for (const transceiver of pc.getTransceivers()) {
+      const mid = transceiver.mid;
+      if (!mid || knownMidsBefore.has(mid) || this.remoteTrackKeyByMid.has(mid)) {
+        continue;
+      }
+      const receiverTrackKind = transceiver.receiver.track.kind === 'video' ? 'video' : 'audio';
+      if (receiverTrackKind !== kind) {
+        continue;
+      }
+      return mid;
+    }
+    return null;
+  }
+
+  private flushPendingIncomingTrackForSubscription(key: string): void {
+    const subscription = this.subscribedRemoteTracksByKey.get(key);
+    if (!subscription) return;
+
+    if (subscription.mid) {
+      const pendingByMid = this.pendingIncomingTrackEventsByMid.get(subscription.mid);
+      if (pendingByMid) {
+        this.pendingIncomingTrackEventsByMid.delete(subscription.mid);
+        this.attachIncomingTrackToSubscription(key, pendingByMid);
+        return;
+      }
+    }
+
+    const pendingQueue = this.pendingIncomingTrackEventsByKind[subscription.mediaKind];
+    if (pendingQueue.length > 0) {
+      const pendingEvent = pendingQueue.shift();
+      if (pendingEvent) {
+        this.attachIncomingTrackToSubscription(key, pendingEvent);
+      }
+    }
   }
 
   private async applyCloudflareNegotiationResponse(body: Record<string, unknown>): Promise<void> {
