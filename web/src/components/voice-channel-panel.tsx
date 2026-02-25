@@ -218,6 +218,7 @@ const ScreenShareItem = memo(function ScreenShareItem({
 }) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const [isStalled, setIsStalled] = useState(false);
+  const [isAutoplayBlocked, setIsAutoplayBlocked] = useState(false);
 
   useEffect(() => {
     const video = videoRef.current;
@@ -229,9 +230,16 @@ const ScreenShareItem = memo(function ScreenShareItem({
       if (forceReattach || node.srcObject !== stream) {
         node.srcObject = stream;
       }
-      void node.play().catch(() => {
-        // Autoplay may be blocked
-      });
+      const playAttempt = node.play();
+      if (playAttempt && typeof playAttempt.then === 'function') {
+        void playAttempt.then(() => {
+          setIsAutoplayBlocked(false);
+        }).catch(() => {
+          setIsAutoplayBlocked(true);
+        });
+      } else {
+        setIsAutoplayBlocked(false);
+      }
     };
 
     ensurePlayback();
@@ -311,8 +319,17 @@ const ScreenShareItem = memo(function ScreenShareItem({
 
   return (
     <div
-      className={`voice-screen-share-item ${isMaximized ? 'maximized' : ''}`}
-      onClick={onMaximize}
+      className={`voice-screen-share-item ${isMaximized ? 'maximized' : ''} ${isAutoplayBlocked ? 'autoplay-blocked' : ''}`}
+      onClick={() => {
+        const video = videoRef.current;
+        if (video) {
+          const playAttempt = video.play();
+          if (playAttempt && typeof playAttempt.then === 'function') {
+            void playAttempt.then(() => setIsAutoplayBlocked(false)).catch(() => setIsAutoplayBlocked(true));
+          }
+        }
+        onMaximize();
+      }}
     >
       <video
         ref={videoRef}
@@ -342,7 +359,13 @@ const ScreenShareItem = memo(function ScreenShareItem({
       <div className="voice-screen-share-overlay">
         <div className="voice-screen-share-top">
           <span className="voice-live-badge">Live</span>
+          <span className="voice-screen-share-tap-hint">Zum Starten klicken</span>
         </div>
+        {isAutoplayBlocked && (
+          <div className="voice-screen-share-click-hint" role="status" aria-live="polite">
+            Wiedergabe blockiert. Klicke auf den Stream, um ihn zu starten.
+          </div>
+        )}
         <div className="voice-screen-share-bottom">
           <div className="voice-screen-share-label">
             <span style={{ opacity: 0.8 }}>📺</span> {label}
@@ -449,7 +472,13 @@ export function VoiceChannelPanel(props: VoiceChannelPanelProps) {
       <div className="voice-stage-body">
         <div className="voice-stage-main">
           {hasScreenShares ? (
-            <div className={`voice-screen-shares ${isCinemaMode ? 'cinema-mode' : maximizedStreamId ? 'has-maximized' : 'grid-layout'}`}>
+            <>
+              {!isCinemaMode && (
+                <div className="voice-stream-watch-hint" role="note">
+                  Live-Streams starten bei manchen Browsern erst nach einem Klick auf die Stream-Kachel.
+                </div>
+              )}
+              <div className={`voice-screen-shares ${isCinemaMode ? 'cinema-mode' : maximizedStreamId ? 'has-maximized' : 'grid-layout'}`}>
               {isCinemaMode && (
                 <button
                   style={{
@@ -497,7 +526,8 @@ export function VoiceChannelPanel(props: VoiceChannelPanelProps) {
                   />
                 );
               })}
-            </div>
+              </div>
+            </>
           ) : props.joined ? (
             <div className="voice-stream-empty-state">
               <div className="empty-state-text">
