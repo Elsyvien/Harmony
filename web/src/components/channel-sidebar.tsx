@@ -65,11 +65,26 @@ const StreamPreviewCard = memo(function StreamPreviewCard({
   }, [stream]);
 
   return (
-    <article className="channel-stream-preview" onClick={onWatch}>
+    <article
+      className="channel-stream-preview"
+      onClick={onWatch}
+      role="button"
+      tabIndex={0}
+      title="Zum Stream wechseln und Wiedergabe starten"
+      onKeyDown={(event) => {
+        if (event.key !== 'Enter' && event.key !== ' ') return;
+        event.preventDefault();
+        onWatch();
+      }}
+    >
       <video ref={videoRef} autoPlay playsInline muted />
       <div className="channel-stream-preview-overlay">
-        <div className="channel-stream-preview-live">LIVE</div>
+        <div className="channel-stream-preview-header">
+          <div className="channel-stream-preview-live">LIVE</div>
+          <div className="channel-stream-preview-hint">Zum Starten anklicken</div>
+        </div>
         <strong>{title}</strong>
+        <p className="channel-stream-preview-caption">Klicke die Vorschau, um den Stream im Channel zu öffnen.</p>
         <button
           className="channel-stream-preview-btn"
           onClick={(event) => {
@@ -77,7 +92,7 @@ const StreamPreviewCard = memo(function StreamPreviewCard({
             onWatch();
           }}
         >
-          Stream anschauen
+          Stream öffnen
         </button>
       </div>
     </article>

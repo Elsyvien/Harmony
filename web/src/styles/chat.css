@@ -410,6 +410,15 @@ input,
   background: #000;
   border: 1px solid rgba(255, 255, 255, 0.12);
   cursor: pointer;
+  transition: border-color 140ms ease, box-shadow 140ms ease, transform 140ms ease;
+}
+
+.channel-stream-preview:hover,
+.channel-stream-preview:focus-visible {
+  border-color: rgba(120, 167, 255, 0.85);
+  box-shadow: 0 0 0 2px rgba(88, 101, 242, 0.24), 0 8px 20px rgba(0, 0, 0, 0.28);
+  transform: translateY(-1px);
+  outline: none;
 }
 
 .channel-stream-preview video {
@@ -429,6 +438,13 @@ input,
   background: linear-gradient(to top, rgba(0, 0, 0, 0.82), rgba(0, 0, 0, 0.15));
 }
 
+.channel-stream-preview-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
 .channel-stream-preview-live {
   justify-self: start;
   display: inline-flex;
@@ -444,12 +460,37 @@ input,
   text-transform: uppercase;
 }
 
+.channel-stream-preview-hint {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 20px;
+  border-radius: 999px;
+  padding: 0 8px;
+  border: 1px solid rgba(255, 255, 255, 0.22);
+  background: rgba(8, 10, 14, 0.62);
+  color: rgba(255, 255, 255, 0.96);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  backdrop-filter: blur(4px);
+}
+
 .channel-stream-preview-overlay strong {
   color: #fff;
   font-size: 12px;
   font-weight: 700;
   line-height: 1.2;
   text-shadow: 0 1px 2px rgba(0, 0, 0, 0.45);
+}
+
+.channel-stream-preview-caption {
+  margin: 0;
+  color: rgba(255, 255, 255, 0.84);
+  font-size: 10px;
+  line-height: 1.25;
+  max-width: 26ch;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.35);
 }
 
 .channel-stream-preview-btn {
