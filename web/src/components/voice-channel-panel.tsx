@@ -219,8 +219,11 @@ const ScreenShareItem = memo(function ScreenShareItem({
   const videoRef = useRef<HTMLVideoElement>(null);
   const [isStalled, setIsStalled] = useState(false);
   const [isAutoplayBlocked, setIsAutoplayBlocked] = useState(false);
+  const [hasStartedPlayback, setHasStartedPlayback] = useState(false);
 
   useEffect(() => {
+    setHasStartedPlayback(false);
+    setIsAutoplayBlocked(false);
     const video = videoRef.current;
     if (!video) return;
 
@@ -234,11 +237,13 @@ const ScreenShareItem = memo(function ScreenShareItem({
       if (playAttempt && typeof playAttempt.then === 'function') {
         void playAttempt.then(() => {
           setIsAutoplayBlocked(false);
+          setHasStartedPlayback(true);
         }).catch(() => {
           setIsAutoplayBlocked(true);
         });
       } else {
         setIsAutoplayBlocked(false);
+        setHasStartedPlayback(true);
       }
     };
 
@@ -248,9 +253,15 @@ const ScreenShareItem = memo(function ScreenShareItem({
       ensurePlayback();
       setIsStalled(false);
     };
+    const onPlaying = () => {
+      setHasStartedPlayback(true);
+      setIsAutoplayBlocked(false);
+      setIsStalled(false);
+    };
 
     video.addEventListener('loadedmetadata', onLoadedMetadata);
     video.addEventListener('canplay', onCanPlay);
+    video.addEventListener('playing', onPlaying);
 
     const trackCleanup: Array<() => void> = [];
     for (const track of stream.getVideoTracks()) {
@@ -284,6 +295,7 @@ const ScreenShareItem = memo(function ScreenShareItem({
       if (hasRenderableFrame && !node.paused && node.currentTime !== lastObservedTime) {
         staleTicks = 0;
         lastObservedTime = node.currentTime;
+        setHasStartedPlayback(true);
         setIsStalled(false);
         return;
       }
@@ -300,6 +312,7 @@ const ScreenShareItem = memo(function ScreenShareItem({
       window.clearInterval(watchdog);
       video.removeEventListener('loadedmetadata', onLoadedMetadata);
       video.removeEventListener('canplay', onCanPlay);
+      video.removeEventListener('playing', onPlaying);
       stream.removeEventListener('addtrack', onAddTrack);
       stream.removeEventListener('removetrack', onRemoveTrack);
       trackCleanup.forEach(c => c());
@@ -325,7 +338,7 @@ const ScreenShareItem = memo(function ScreenShareItem({
         if (video) {
           const playAttempt = video.play();
           if (playAttempt && typeof playAttempt.then === 'function') {
-            void playAttempt.then(() => setIsAutoplayBlocked(false)).catch(() => setIsAutoplayBlocked(true));
+            void playAttempt.then(() => { setIsAutoplayBlocked(false); setHasStartedPlayback(true); }).catch(() => setIsAutoplayBlocked(true));
           }
         }
         onMaximize();
@@ -339,6 +352,11 @@ const ScreenShareItem = memo(function ScreenShareItem({
         disablePictureInPicture
         style={{ cursor: 'pointer' }}
       />
+      {!hasStartedPlayback && (
+        <div className="voice-screen-share-persistent-hint" aria-hidden="true">
+          Klick, falls der Stream nicht startet
+        </div>
+      )}
       {isStalled && (
         <div style={{
           position: 'absolute',
