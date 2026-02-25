@@ -21,6 +21,7 @@ import { authRoutes } from './routes/auth.routes.js';
 import { channelRoutes } from './routes/channel.routes.js';
 import { friendRoutes } from './routes/friend.routes.js';
 import { adminRoutes } from './routes/admin.routes.js';
+import { rtcRoutes } from './routes/rtc.routes.js';
 import { AdminService } from './services/admin.service.js';
 import { AdminSettingsService } from './services/admin-settings.service.js';
 import { AdminUserService } from './services/admin-user.service.js';
@@ -31,6 +32,7 @@ import { ChannelService } from './services/channel.service.js';
 import { MessageService } from './services/message.service.js';
 import { FriendService } from './services/friend.service.js';
 import { CloudflareVoiceSfuService } from './services/cloudflare-voice-sfu.service.js';
+import { CloudflareRealtimeSfuApiClient } from './services/cloudflare-realtime-sfu-api.client.js';
 import type { VoiceSfuProvider } from './services/voice-sfu-provider.js';
 import { VoiceSfuService } from './services/voice-sfu.service.js';
 import { AppError } from './utils/app-error.js';
@@ -229,6 +231,13 @@ export async function buildApp() {
       });
   await voiceSfuService.init();
 
+  const cloudflareRealtimeSfuApi = new CloudflareRealtimeSfuApiClient({
+    enabled: env.SFU_ENABLED && env.SFU_PROVIDER === 'cloudflare',
+    appId: env.CLOUDFLARE_SFU_APP_ID,
+    appSecret: env.CLOUDFLARE_SFU_APP_SECRET,
+    apiBaseUrl: env.CLOUDFLARE_SFU_API_BASE_URL,
+  });
+
   await channelService.ensureDefaultChannel();
 
   await app.register(wsPlugin, { channelService, messageService, voiceSfuService });
@@ -237,6 +246,7 @@ export async function buildApp() {
   await app.register(friendRoutes, { friendService });
   await app.register(userRoutes, { userService });
   await app.register(adminRoutes, { adminService, adminSettingsService, adminUserService });
+  await app.register(rtcRoutes, { cloudflareRealtimeSfuApi });
 
   const parseTurnUrls = (value: string) =>
     value
