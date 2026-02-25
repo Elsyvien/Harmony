@@ -27,10 +27,59 @@ export const chatApi = {
       };
       sfu?: {
         enabled?: boolean;
+        provider?: 'mediasoup' | 'cloudflare';
         audioOnly?: boolean;
         preferTcp?: boolean;
       };
     }>('/rtc/config');
+  },
+
+  cloudflareSfuCreateSession(token: string, input: Record<string, unknown>) {
+    return apiRequest<Record<string, unknown>>(
+      '/rtc/cloudflare/sessions/new',
+      {
+        method: 'POST',
+        body: JSON.stringify(input),
+      },
+      token,
+    );
+  },
+
+  cloudflareSfuGetSession(token: string, sessionId: string) {
+    return apiRequest<Record<string, unknown>>(`/rtc/cloudflare/sessions/${sessionId}`, {}, token);
+  },
+
+  cloudflareSfuAddTracks(token: string, sessionId: string, input: Record<string, unknown>) {
+    return apiRequest<Record<string, unknown>>(
+      `/rtc/cloudflare/sessions/${sessionId}/tracks/new`,
+      {
+        method: 'POST',
+        body: JSON.stringify(input),
+      },
+      token,
+    );
+  },
+
+  cloudflareSfuRenegotiate(token: string, sessionId: string, input: Record<string, unknown>) {
+    return apiRequest<Record<string, unknown>>(
+      `/rtc/cloudflare/sessions/${sessionId}/renegotiate`,
+      {
+        method: 'PUT',
+        body: JSON.stringify(input),
+      },
+      token,
+    );
+  },
+
+  cloudflareSfuCloseTracks(token: string, sessionId: string, input: Record<string, unknown>) {
+    return apiRequest<Record<string, unknown>>(
+      `/rtc/cloudflare/sessions/${sessionId}/tracks/close`,
+      {
+        method: 'PUT',
+        body: JSON.stringify(input),
+      },
+      token,
+    );
   },
 
   register(input: { username: string; email: string; password: string }) {
