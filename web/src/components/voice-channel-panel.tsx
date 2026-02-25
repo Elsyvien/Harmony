@@ -384,6 +384,13 @@ export function VoiceChannelPanel(props: VoiceChannelPanelProps) {
   const [activeTab, setActiveTab] = useState<'settings' | 'stats'>('settings');
   const [isDrawerOpen, setIsDrawerOpen] = useState(false);
 
+  useEffect(() => {
+    const shouldShowDetailedStats = props.joined && isDrawerOpen && activeTab === 'stats';
+    if (props.showDetailedStats !== shouldShowDetailedStats) {
+      props.onToggleDetailedStats();
+    }
+  }, [activeTab, isDrawerOpen, props.joined, props.showDetailedStats, props.onToggleDetailedStats]);
+
   const speakingSet = new Set(props.speakingUserIds);
 
   const hasLiveVideoTrack = (stream: MediaStream | null | undefined) =>
@@ -777,3 +784,4 @@ export function VoiceChannelPanel(props: VoiceChannelPanelProps) {
     </section>
   );
 }
+
