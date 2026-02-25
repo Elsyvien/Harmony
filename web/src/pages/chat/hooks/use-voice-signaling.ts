@@ -2,6 +2,7 @@ import { useCallback, useRef } from 'react';
 import type { Dispatch, RefObject, SetStateAction } from 'react';
 
 import type { VoiceStatePayload } from '../../../hooks/use-chat-socket';
+import type { VoiceSfuClientLike } from '../voice-sfu-client';
 import { trackTelemetryError } from '../../../utils/telemetry';
 import {
   isVoiceSignalData,
@@ -22,6 +23,7 @@ type UseVoiceSignalingOptions = {
   createOfferForPeer: (peerUserId: string, channelId: string) => Promise<void>;
   sendVoiceSignal: (channelId: string, targetUserId: string, data: VoiceSignalData) => boolean;
   peerConnectionsRef: RefObject<Map<string, RTCPeerConnection>>;
+  voiceSfuClientRef: RefObject<VoiceSfuClientLike | null>;
   pendingIceRef: RefObject<Map<string, RTCIceCandidateInit[]>>;
   pendingVideoRenegotiationByPeerRef: RefObject<Set<string>>;
   remoteVideoSourceByPeerRef: RefObject<Map<string, StreamSource | null>>;
@@ -47,6 +49,7 @@ export function useVoiceSignaling({
   createOfferForPeer,
   sendVoiceSignal,
   peerConnectionsRef,
+  voiceSfuClientRef,
   pendingIceRef,
   pendingVideoRenegotiationByPeerRef,
   remoteVideoSourceByPeerRef,
@@ -75,6 +78,10 @@ export function useVoiceSignaling({
       }
 
       const signal = payload.data;
+      if (signal.kind === 'cloudflare-sfu-session' || signal.kind === 'cloudflare-sfu-track') {
+        await voiceSfuClientRef.current?.handleVoiceSignalData?.(payload);
+        return;
+      }
       if (signal.kind === 'video-source') {
         remoteVideoSourceByPeerRef.current.set(payload.fromUserId, signal.source);
         setRemoteAdvertisedVideoSourceByPeer((prev) => ({
@@ -230,6 +237,7 @@ export function useVoiceSignaling({
       flushPendingIceCandidates,
       peerConnectionsRef,
       pendingIceRef,
+      voiceSfuClientRef,
       pendingVideoRenegotiationByPeerRef,
       remoteVideoSourceByPeerRef,
       remoteVideoStreamByPeerRef,
@@ -393,4 +401,5 @@ export function useVoiceSignaling({
     voiceParticipantIdsByChannelRef,
   };
 }
+
 

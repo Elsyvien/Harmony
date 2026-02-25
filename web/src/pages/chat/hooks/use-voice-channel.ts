@@ -67,6 +67,7 @@ export interface UseVoiceChannelParams {
     wsConnected: boolean;
     voiceSfuEnabled: boolean;
     voiceSfuProvider?: VoiceSfuProviderName;
+    voiceIceConfig: RTCConfiguration;
     activeVoiceChannelId: string | null;
     voiceBusyChannelId: string | null;
     voiceParticipantsByChannel: Record<string, VoiceParticipant[]>;
@@ -163,7 +164,7 @@ function isVoiceSfuDisabledError(error: unknown) {
 
 export function useVoiceChannel(params: UseVoiceChannelParams) {
     const {
-        authUserId, authToken, wsConnected, voiceSfuEnabled, voiceSfuProvider,
+        authUserId, authToken, wsConnected, voiceSfuEnabled, voiceSfuProvider, voiceIceConfig,
         activeVoiceChannelId, voiceBusyChannelId,
         voiceParticipantsByChannel,
         isSelfMuted, isSelfDeafened, localAudioReady, preferences,
@@ -581,6 +582,11 @@ export function useVoiceChannel(params: UseVoiceChannelParams) {
                     logVoiceDebug('sfu_init', { channelId: activeVoiceChannelId });
                     voiceSfuClientRef.current = createVoiceSfuClient({
                         provider: voiceSfuProvider ?? 'mediasoup',
+                        authToken,
+                        channelId: activeVoiceChannelId,
+                        rtcConfiguration: voiceIceConfig,
+                        sendVoiceSignalToPeer: (targetUserId, data) => sendVoiceSignalRef.current(activeVoiceChannelId, targetUserId, data),
+                        getTargetPeerUserIds: () => participants.map((p) => p.userId).filter((id) => id !== authUserId),
                         selfUserId: authUserId,
                         request: async (action, data, timeoutMs) => { try { return await requestVoiceSfu(activeVoiceChannelId, action, data, timeoutMs); } catch (err) { if (isVoiceSfuDisabledError(err)) { setVoiceSfuRuntimeDisabled(true); } throw err; } },
                         callbacks: {
@@ -610,7 +616,7 @@ export function useVoiceChannel(params: UseVoiceChannelParams) {
         };
         void sync();
         return () => { cancelled = true; };
-    }, [wsConnected, activeVoiceChannelId, authUserId, voiceParticipantsByChannel, teardownVoiceTransport, getLocalVoiceStream, getCurrentOutgoingVoiceTrack, peerConnectionsRef, closePeerConnection, ensurePeerConnection, createOfferForPeer, effectiveVoiceSfuEnabled, voiceJoinAckChannelId, requestVoiceSfu, logVoiceDebug, onRemoteAudioStreamStable, onRemoteScreenShareStreamStable, onRemoteAdvertisedVideoSourceStable, setError, setActiveVoiceChannelId]);
+    }, [wsConnected, activeVoiceChannelId, authUserId, authToken, voiceIceConfig, voiceSfuProvider, voiceParticipantsByChannel, teardownVoiceTransport, getLocalVoiceStream, getCurrentOutgoingVoiceTrack, peerConnectionsRef, closePeerConnection, ensurePeerConnection, createOfferForPeer, effectiveVoiceSfuEnabled, voiceJoinAckChannelId, requestVoiceSfu, logVoiceDebug, onRemoteAudioStreamStable, onRemoteScreenShareStreamStable, onRemoteAdvertisedVideoSourceStable, setError, setActiveVoiceChannelId]);
 
     // ── WS Disconnect / Reconnect ──────────────────────────────────────
 
