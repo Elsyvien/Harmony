@@ -141,6 +141,7 @@ export class CloudflareVoiceSfuClient implements VoiceSfuClientLike {
     audio: [],
     video: [],
   };
+  private readonly lastCloudflareSignalSignatureByPeerScope = new Map<string, { signature: string; at: number }>();
   private readonly remoteAudioStreamByUserId = new Map<string, MediaStream>();
   private readonly remoteVideoStreamByUserId = new Map<string, MediaStream>();
 
@@ -181,6 +182,7 @@ export class CloudflareVoiceSfuClient implements VoiceSfuClientLike {
       this.pendingIncomingTrackEventsByMid.clear();
       this.pendingIncomingTrackEventsByKind.audio = [];
       this.pendingIncomingTrackEventsByKind.video = [];
+      this.lastCloudflareSignalSignatureByPeerScope.clear();
       this.removeAllRemoteMedia();
 
       const pc = new RTCPeerConnection(this.rtcConfiguration);
@@ -440,6 +442,7 @@ export class CloudflareVoiceSfuClient implements VoiceSfuClientLike {
     this.pendingIncomingTrackEventsByMid.clear();
     this.pendingIncomingTrackEventsByKind.audio = [];
     this.pendingIncomingTrackEventsByKind.video = [];
+    this.lastCloudflareSignalSignatureByPeerScope.clear();
     this.stopPeerConnectionOnly();
     this.removeAllRemoteMedia();
   }
@@ -663,9 +666,54 @@ export class CloudflareVoiceSfuClient implements VoiceSfuClientLike {
   private broadcastToPeers(data: VoiceSignalData): void {
     const targetUserIds = this.getTargetPeerUserIds()
       .filter((userId) => userId && userId !== this.selfUserId);
+    this.pruneCloudflareSignalBroadcastCache(targetUserIds);
+
+    const now = Date.now();
+    const scopeKey = this.getCloudflareSignalScopeKey(data);
+    const signature = this.getCloudflareSignalSignature(data);
+
     for (const targetUserId of targetUserIds) {
+      if (scopeKey && signature) {
+        const dedupeKey = `${targetUserId}|${scopeKey}`;
+        const previous = this.lastCloudflareSignalSignatureByPeerScope.get(dedupeKey);
+        if (previous && previous.signature == signature && now - previous.at < 1200) {
+          continue;
+        }
+        this.lastCloudflareSignalSignatureByPeerScope.set(dedupeKey, { signature, at: now });
+      }
       this.sendVoiceSignalToPeer(targetUserId, data);
     }
+  }
+
+  private pruneCloudflareSignalBroadcastCache(activePeerUserIds: string[]): void {
+    const active = new Set(activePeerUserIds);
+    for (const key of Array.from(this.lastCloudflareSignalSignatureByPeerScope.keys())) {
+      const separator = key.indexOf('|');
+      const userId = separator >= 0 ? key.slice(0, separator) : key;
+      if (!active.has(userId)) {
+        this.lastCloudflareSignalSignatureByPeerScope.delete(key);
+      }
+    }
+  }
+
+  private getCloudflareSignalScopeKey(data: VoiceSignalData): string | null {
+    if (data.kind === 'cloudflare-sfu-session') {
+      return 'cf-session';
+    }
+    if (data.kind === 'cloudflare-sfu-track') {
+      return `cf-track:${data.sessionId}:${data.trackName}`;
+    }
+    return null;
+  }
+
+  private getCloudflareSignalSignature(data: VoiceSignalData): string | null {
+    if (data.kind === 'cloudflare-sfu-session') {
+      return `session:${data.sessionId}`;
+    }
+    if (data.kind === 'cloudflare-sfu-track') {
+      return `track:${data.op}:${data.sessionId}:${data.trackName}:${data.mediaKind}:${data.source ?? 'none'}`;
+    }
+    return null;
   }
 
   private async reconcileRemoteSubscriptions(): Promise<void> {
