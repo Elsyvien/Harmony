@@ -3,7 +3,7 @@ import fp from 'fastify-plugin';
 import type { FastifyPluginAsync } from 'fastify';
 import type { ChannelService } from '../services/channel.service.js';
 import type { MessageService } from '../services/message.service.js';
-import type { VoiceSfuService } from '../services/voice-sfu.service.js';
+import type { VoiceSfuProvider } from '../services/voice-sfu-provider.js';
 import { VoiceWsHandler, type VoiceClientContext, type VoiceSfuRequestPayload } from '../handlers/voice-ws.handler.js';
 import { prisma } from '../repositories/prisma.js';
 import { AppError } from '../utils/app-error.js';
@@ -15,7 +15,7 @@ import { isSuspensionActive } from '../utils/suspension.js';
 interface WsPluginOptions {
   channelService: ChannelService;
   messageService: MessageService;
-  voiceSfuService: VoiceSfuService;
+  voiceSfuService: VoiceSfuProvider;
 }
 
 // ─── Types ───────────────────────────────────────────────────────────

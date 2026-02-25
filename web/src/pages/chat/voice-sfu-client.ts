@@ -1,5 +1,6 @@
 import { Device, type types as mediasoupTypes } from 'mediasoup-client';
 import type { VoiceSfuEventPayload, VoiceSfuRequestAction } from '../../hooks/use-chat-socket';
+import type { VoiceSignalData } from './utils/voice-signaling';
 import { getVoiceReconnectDelayMs } from './utils/voice-reconnect';
 
 type VoiceSfuRequest = <TData = unknown>(
@@ -39,7 +40,19 @@ type VoiceSfuCallbacks = {
   onReconnected?: () => void;
 };
 
-export class VoiceSfuClient {
+export interface VoiceSfuClientLike {
+  start(localAudioTrack: MediaStreamTrack | null): Promise<void>;
+  isConnected(): boolean;
+  getDetailedStats(): Promise<any[]>;
+  replaceLocalAudioTrack(track: MediaStreamTrack | null): Promise<void>;
+  replaceLocalVideoTrack(track: MediaStreamTrack | null, source: 'screen' | 'camera' | null): Promise<void>;
+  syncProducers(): Promise<void>;
+  handleSfuEvent(payload: VoiceSfuEventPayload): Promise<void>;
+  handleVoiceSignalData?(payload: { channelId: string; fromUserId: string; data: VoiceSignalData }): Promise<void>;
+  stop(): void;
+}
+
+export class VoiceSfuClient implements VoiceSfuClientLike {
   private readonly selfUserId: string;
   private readonly request: VoiceSfuRequest;
   private readonly callbacks: VoiceSfuCallbacks;

@@ -10,7 +10,8 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { VoiceJoinAckPayload, VoiceParticipant, VoiceSfuRequestAction } from '../../../hooks/use-chat-socket';
-import { VoiceSfuClient } from '../voice-sfu-client';
+import type { VoiceSfuClientLike } from '../voice-sfu-client';
+import { createVoiceSfuClient, type VoiceSfuProviderName } from '../voice-sfu-client-factory';
 import {
     DEFAULT_STREAM_QUALITY,
     clampCameraPreset,
@@ -65,6 +66,8 @@ export interface UseVoiceChannelParams {
     authToken: string | null;
     wsConnected: boolean;
     voiceSfuEnabled: boolean;
+    voiceSfuProvider?: VoiceSfuProviderName;
+    voiceIceConfig: RTCConfiguration;
     activeVoiceChannelId: string | null;
     voiceBusyChannelId: string | null;
     voiceParticipantsByChannel: Record<string, VoiceParticipant[]>;
@@ -122,7 +125,7 @@ export interface UseVoiceChannelParams {
     onRemoteAdvertisedVideoSourceStable: (userId: string, source: 'screen' | 'camera' | null) => void;
     autoMuteOnJoin: boolean;
     // Shared refs owned by chat-page.tsx (needed to avoid hook-order cycles)
-    voiceSfuClientRef: React.MutableRefObject<VoiceSfuClient | null>;
+    voiceSfuClientRef: React.MutableRefObject<VoiceSfuClientLike | null>;
     localScreenStreamRef: React.MutableRefObject<MediaStream | null>;
     activeVoiceChannelIdRef: React.MutableRefObject<string | null>;
     voiceBusyChannelIdRef: React.MutableRefObject<string | null>;
@@ -161,7 +164,7 @@ function isVoiceSfuDisabledError(error: unknown) {
 
 export function useVoiceChannel(params: UseVoiceChannelParams) {
     const {
-        authUserId, authToken, wsConnected, voiceSfuEnabled,
+        authUserId, authToken, wsConnected, voiceSfuEnabled, voiceSfuProvider, voiceIceConfig,
         activeVoiceChannelId, voiceBusyChannelId,
         voiceParticipantsByChannel,
         isSelfMuted, isSelfDeafened, localAudioReady, preferences,
@@ -577,7 +580,13 @@ export function useVoiceChannel(params: UseVoiceChannelParams) {
                 if (!voiceSfuClientRef.current) {
                     if (!wsConnected) return;
                     logVoiceDebug('sfu_init', { channelId: activeVoiceChannelId });
-                    voiceSfuClientRef.current = new VoiceSfuClient({
+                    voiceSfuClientRef.current = createVoiceSfuClient({
+                        provider: voiceSfuProvider ?? 'mediasoup',
+                        authToken,
+                        channelId: activeVoiceChannelId,
+                        rtcConfiguration: voiceIceConfig,
+                        sendVoiceSignalToPeer: (targetUserId, data) => sendVoiceSignalRef.current(activeVoiceChannelId, targetUserId, data),
+                        getTargetPeerUserIds: () => participants.map((p) => p.userId).filter((id) => id !== authUserId),
                         selfUserId: authUserId,
                         request: async (action, data, timeoutMs) => { try { return await requestVoiceSfu(activeVoiceChannelId, action, data, timeoutMs); } catch (err) { if (isVoiceSfuDisabledError(err)) { setVoiceSfuRuntimeDisabled(true); } throw err; } },
                         callbacks: {
@@ -607,7 +616,7 @@ export function useVoiceChannel(params: UseVoiceChannelParams) {
         };
         void sync();
         return () => { cancelled = true; };
-    }, [wsConnected, activeVoiceChannelId, authUserId, voiceParticipantsByChannel, teardownVoiceTransport, getLocalVoiceStream, getCurrentOutgoingVoiceTrack, peerConnectionsRef, closePeerConnection, ensurePeerConnection, createOfferForPeer, effectiveVoiceSfuEnabled, voiceJoinAckChannelId, requestVoiceSfu, logVoiceDebug, onRemoteAudioStreamStable, onRemoteScreenShareStreamStable, onRemoteAdvertisedVideoSourceStable, setError, setActiveVoiceChannelId]);
+    }, [wsConnected, activeVoiceChannelId, authUserId, authToken, voiceIceConfig, voiceSfuProvider, voiceParticipantsByChannel, teardownVoiceTransport, getLocalVoiceStream, getCurrentOutgoingVoiceTrack, peerConnectionsRef, closePeerConnection, ensurePeerConnection, createOfferForPeer, effectiveVoiceSfuEnabled, voiceJoinAckChannelId, requestVoiceSfu, logVoiceDebug, onRemoteAudioStreamStable, onRemoteScreenShareStreamStable, onRemoteAdvertisedVideoSourceStable, setError, setActiveVoiceChannelId]);
 
     // ── WS Disconnect / Reconnect ──────────────────────────────────────
 
