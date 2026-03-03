@@ -1137,6 +1137,15 @@ body.font-scale-lg {
   font-weight: 600;
 }
 
+.pending-tag.receipt {
+  color: #8fa4ff;
+  font-weight: 600;
+}
+
+.pending-tag.receipt.read {
+  color: var(--positive);
+}
+
 .pending-tag.retry-action {
   border: 1px solid rgba(239, 68, 68, 0.55);
   border-radius: 999px;
@@ -1504,3 +1513,4 @@ body.font-scale-lg {
   border-radius: 50%;
   object-fit: cover;
 }
+

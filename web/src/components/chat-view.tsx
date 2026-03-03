@@ -314,6 +314,15 @@ export function ChatView(props: ChatViewProps) {
               !message.deletedAt &&
               Boolean(props.onRetryMessage) &&
               (!props.currentUserId || props.currentUserId === message.userId);
+            const isOwnMessage = Boolean(props.currentUserId && props.currentUserId === message.userId);
+            const deliveredRecipientCount = isOwnMessage
+              ? message.deliveredUserIds.filter((userId) => userId !== message.userId).length
+              : 0;
+            const readRecipientCount = isOwnMessage
+              ? message.readUserIds.filter((userId) => userId !== message.userId).length
+              : 0;
+            const receiptLabel =
+              readRecipientCount > 0 ? 'Read' : deliveredRecipientCount > 0 ? 'Delivered' : 'Sent';
 
             return (
               <article
@@ -386,6 +395,20 @@ export function ChatView(props: ChatViewProps) {
                       >
                         Retry
                       </button>
+                    ) : null}
+                    {isOwnMessage && !message.optimistic && !message.failed && !message.deletedAt ? (
+                      <span
+                        className={`pending-tag receipt${readRecipientCount > 0 ? ' read' : ''}`}
+                        title={
+                          readRecipientCount > 0
+                            ? `Read by ${readRecipientCount}`
+                            : deliveredRecipientCount > 0
+                              ? `Delivered to ${deliveredRecipientCount}`
+                              : 'Sent'
+                        }
+                      >
+                        {receiptLabel}
+                      </span>
                     ) : null}
                   </header>
                   {message.replyTo ? (
@@ -690,3 +713,5 @@ export function ChatView(props: ChatViewProps) {
     </section>
   );
 }
+
+

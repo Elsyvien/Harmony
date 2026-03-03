@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { randomUUID } from 'node:crypto';
 import type {
+  ChannelReceiptUpdateResult,
   MessageRepository,
   MessageWithAuthor,
 } from '../src/repositories/message.repository.js';
@@ -8,6 +9,10 @@ import type { AdminSettingsService } from '../src/services/admin-settings.servic
 import type { ChannelAccessService } from '../src/services/channel.service.js';
 import { MessageService } from '../src/services/message.service.js';
 import { AppError } from '../src/utils/app-error.js';
+
+function sortUnique(userIds: string[]) {
+  return Array.from(new Set(userIds)).sort((a, b) => a.localeCompare(b));
+}
 
 class InMemoryMessageRepo implements MessageRepository {
   private items: MessageWithAuthor[] = [];
@@ -62,6 +67,8 @@ class InMemoryMessageRepo implements MessageRepository {
             : null
           : null,
       reactions: [],
+      deliveredUserIds: [params.userId],
+      readUserIds: [params.userId],
       createdAt: new Date(),
       user: {
         id: params.userId,
@@ -115,6 +122,84 @@ class InMemoryMessageRepo implements MessageRepository {
       existing.reactions.push({ emoji: params.emoji, userIds: [params.userId] });
     }
     return { message: existing, reacted: true };
+  }
+
+  async markDeliveredInChannel(params: {
+    channelId: string;
+    userId: string;
+    upToCreatedAt?: Date;
+  }): Promise<ChannelReceiptUpdateResult> {
+    const at = new Date();
+    const targets = this.items
+      .filter((item) => item.channelId === params.channelId)
+      .filter((item) => item.userId !== params.userId)
+      .filter((item) => (params.upToCreatedAt ? item.createdAt <= params.upToCreatedAt : true))
+      .sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime());
+
+    if (targets.length === 0) {
+      return {
+        updated: false,
+        upToMessageId: null,
+        at,
+      };
+    }
+
+    let changed = false;
+    for (const target of targets) {
+      const nextDelivered = sortUnique([...target.deliveredUserIds, params.userId]);
+      if (nextDelivered.length !== target.deliveredUserIds.length) {
+        target.deliveredUserIds = nextDelivered;
+        changed = true;
+      }
+    }
+
+    return {
+      updated: changed,
+      upToMessageId: targets[targets.length - 1]?.id ?? null,
+      at,
+    };
+  }
+
+  async markReadInChannel(params: {
+    channelId: string;
+    userId: string;
+    upToCreatedAt?: Date;
+  }): Promise<ChannelReceiptUpdateResult> {
+    const at = new Date();
+    const targets = this.items
+      .filter((item) => item.channelId === params.channelId)
+      .filter((item) => item.userId !== params.userId)
+      .filter((item) => (params.upToCreatedAt ? item.createdAt <= params.upToCreatedAt : true))
+      .sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime());
+
+    if (targets.length === 0) {
+      return {
+        updated: false,
+        upToMessageId: null,
+        at,
+      };
+    }
+
+    let changed = false;
+    for (const target of targets) {
+      const nextDelivered = sortUnique([...target.deliveredUserIds, params.userId]);
+      if (nextDelivered.length !== target.deliveredUserIds.length) {
+        target.deliveredUserIds = nextDelivered;
+        changed = true;
+      }
+
+      const nextRead = sortUnique([...target.readUserIds, params.userId]);
+      if (nextRead.length !== target.readUserIds.length) {
+        target.readUserIds = nextRead;
+        changed = true;
+      }
+    }
+
+    return {
+      updated: changed,
+      upToMessageId: targets[targets.length - 1]?.id ?? null,
+      at,
+    };
   }
 }
 
@@ -238,6 +323,80 @@ describe('MessageService', () => {
     });
     expect(second.reacted).toBe(false);
     expect(second.message.reactions).toEqual([]);
+  });
+
+  it('marks delivered receipts for other users in channel', async () => {
+    const createdByUser1 = await service.createMessage({
+      channelId: 'known-channel',
+      userId: 'user-1',
+      content: 'first',
+    });
+    await service.createMessage({
+      channelId: 'known-channel',
+      userId: 'user-2',
+      content: 'second',
+    });
+
+    const delivered = await service.markChannelDelivered({
+      channelId: 'known-channel',
+      userId: 'user-2',
+    });
+
+    expect(delivered.changed).toBe(true);
+    expect(delivered.upToMessageId).toBe(createdByUser1.id);
+
+    const messages = await service.listMessages({
+      channelId: 'known-channel',
+      userId: 'user-2',
+      limit: 50,
+    });
+    const first = messages.find((item) => item.id === createdByUser1.id);
+    expect(first?.deliveredUserIds).toContain('user-2');
+    expect(first?.readUserIds).not.toContain('user-2');
+  });
+
+  it('marks read receipts up to a specific message', async () => {
+    const first = await service.createMessage({
+      channelId: 'known-channel',
+      userId: 'user-1',
+      content: 'first',
+    });
+    await new Promise((resolve) => setTimeout(resolve, 2));
+    const second = await service.createMessage({
+      channelId: 'known-channel',
+      userId: 'user-1',
+      content: 'second',
+    });
+
+    const read = await service.markChannelRead({
+      channelId: 'known-channel',
+      userId: 'user-2',
+      upToMessageId: first.id,
+    });
+
+    expect(read.changed).toBe(true);
+    expect(read.upToMessageId).toBe(first.id);
+
+    const messages = await service.listMessages({
+      channelId: 'known-channel',
+      userId: 'user-2',
+      limit: 50,
+    });
+    const firstMessage = messages.find((item) => item.id === first.id);
+    const secondMessage = messages.find((item) => item.id === second.id);
+
+    expect(firstMessage?.readUserIds).toContain('user-2');
+    expect(secondMessage?.readUserIds).not.toContain('user-2');
+  });
+
+  it('rejects markChannelRead with unknown target message', async () => {
+    await expect(
+      service.markChannelRead({
+        channelId: 'known-channel',
+        userId: 'user-1',
+        upToMessageId: randomUUID(),
+      }),
+    ).rejects.toMatchObject({ code: 'MESSAGE_NOT_FOUND' } satisfies Partial<AppError>);
   });
 
   it('rejects non-admin messages when read-only mode is enabled', async () => {

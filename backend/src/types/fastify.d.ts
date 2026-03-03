@@ -27,6 +27,14 @@ declare module 'fastify' {
         message: unknown,
         meta: { userId: string; emoji: string; reacted: boolean },
       ) => void;
+      broadcastMessageDelivered: (
+        channelId: string,
+        payload: { channelId: string; userId: string; upToMessageId: string; at: string },
+      ) => void;
+      broadcastMessageRead: (
+        channelId: string,
+        payload: { channelId: string; userId: string; upToMessageId: string; at: string },
+      ) => void;
       notifyUsers: (userIds: string[], type: string, payload: unknown) => void;
       broadcastSystem: (type: string, payload: unknown) => void;
       broadcastPresence: () => void;

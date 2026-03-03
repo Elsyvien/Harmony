@@ -9,6 +9,7 @@ import { useChatSocket } from '../hooks/use-chat-socket';
 import type { PresenceUser, RealtimeErrorPayload, VoiceParticipant } from '../hooks/use-chat-socket';
 import { useUserPreferences } from '../hooks/use-user-preferences';
 import {
+  applyReceiptProgress,
   messageSignature,
   reconcileIncomingMessage,
   useMessageLifecycleFeature,
@@ -204,6 +205,8 @@ export function ChatPage() {
     setOnlineUsers,
   });
   const previousIncomingRequestCountRef = useRef<number | null>(null);
+  const lastReadMessageIdByChannelRef = useRef(new Map<string, string>());
+  const markReadInFlightByChannelRef = useRef(new Set<string>());
   const pendingSignaturesRef = useRef(new Set<string>());
   const pendingTimeoutsRef = useRef(new Map<string, number>());
   const localScreenStreamRef = useRef<MediaStream | null>(null);
@@ -517,6 +520,16 @@ export function ChatPage() {
     logVoiceDebug,
   });
 
+  const applyMessageReceipt = useCallback(
+    (payload: { channelId: string; userId: string; upToMessageId: string }, kind: 'delivered' | 'read') => {
+      if (payload.channelId !== activeChannelId) {
+        return;
+      }
+      setMessages((prev) => applyReceiptProgress(prev, payload, kind));
+    },
+    [activeChannelId],
+  );
+
   const ws = useChatSocket({
     token: auth.token,
     subscribedChannelIds,
@@ -577,6 +590,12 @@ export function ChatPage() {
       setMessages((prev) =>
         prev.map((item) => (item.id === payload.message.id ? payload.message : item)),
       );
+    },
+    onMessageDelivered: (payload) => {
+      applyMessageReceipt(payload, 'delivered');
+    },
+    onMessageRead: (payload) => {
+      applyMessageReceipt(payload, 'read');
     },
     onFriendEvent: () => {
       void loadFriendData();
@@ -811,6 +830,78 @@ export function ChatPage() {
     messageSearchInputRef,
   });
 
+  const markActiveChannelAsRead = useCallback(async () => {
+    if (!auth.token || !auth.user || activeView !== 'chat' || !activeChannelId || activeChannel?.isVoice) {
+      return;
+    }
+    if (document.hidden) {
+      return;
+    }
+
+    const latestPersisted = [...messages]
+      .reverse()
+      .find((message) => !message.id.startsWith('tmp-'));
+    if (!latestPersisted) {
+      return;
+    }
+
+    const lastMarkedMessageId = lastReadMessageIdByChannelRef.current.get(activeChannelId);
+    if (lastMarkedMessageId === latestPersisted.id) {
+      return;
+    }
+
+    if (markReadInFlightByChannelRef.current.has(activeChannelId)) {
+      return;
+    }
+    markReadInFlightByChannelRef.current.add(activeChannelId);
+
+    try {
+      const response = await chatApi.markChannelRead(auth.token, activeChannelId, latestPersisted.id);
+      const upToMessageId = response.receipt.upToMessageId;
+      if (upToMessageId) {
+        lastReadMessageIdByChannelRef.current.set(activeChannelId, upToMessageId);
+        setMessages((prev) =>
+          applyReceiptProgress(
+            prev,
+            {
+              channelId: activeChannelId,
+              userId: response.receipt.userId,
+              upToMessageId,
+            },
+            'read',
+          ),
+        );
+      }
+    } catch {
+      // Ignore read-receipt failures and retry on next state change.
+    } finally {
+      markReadInFlightByChannelRef.current.delete(activeChannelId);
+    }
+  }, [auth.token, auth.user, activeView, activeChannelId, activeChannel?.isVoice, messages]);
+
+  useEffect(() => {
+    void markActiveChannelAsRead();
+  }, [markActiveChannelAsRead]);
+
+  useEffect(() => {
+    const handleVisibilityChange = () => {
+      if (document.hidden) {
+        return;
+      }
+      void markActiveChannelAsRead();
+    };
+    const handleFocus = () => {
+      void markActiveChannelAsRead();
+    };
+
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    window.addEventListener('focus', handleFocus);
+    return () => {
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+      window.removeEventListener('focus', handleFocus);
+    };
+  }, [markActiveChannelAsRead]);
+
   useEffect(() => {
     if (!ws.connected || !auth.user || !activeVoiceChannelId) {
       return;
@@ -967,6 +1058,8 @@ export function ChatPage() {
     reconnectVoiceIntentRef.current = null;
     setOnlineUsers([]);
     setUnreadChannelCounts({});
+    lastReadMessageIdByChannelRef.current.clear();
+    markReadInFlightByChannelRef.current.clear();
     setVoiceParticipantsByChannel({});
     resetVoiceSignalingState();
     setActiveVoiceChannelId(null);
@@ -1514,3 +1607,14 @@ export function ChatPage() {
     </ChatPageShell>
   );
 }
+
+
+
+
+
+
+
+
+
+
+

@@ -92,6 +92,13 @@ export interface MessageReactionEventPayload {
   reacted: boolean;
 }
 
+export interface MessageReceiptEventPayload {
+  channelId: string;
+  userId: string;
+  upToMessageId: string;
+  at: string;
+}
+
 export function useChatSocket(params: {
   token: string | null;
   subscribedChannelIds: string[];
@@ -99,6 +106,8 @@ export function useChatSocket(params: {
   onMessageUpdated?: (message: Message) => void;
   onMessageDeleted?: (message: Message) => void;
   onMessageReaction?: (payload: MessageReactionEventPayload) => void;
+  onMessageDelivered?: (payload: MessageReceiptEventPayload) => void;
+  onMessageRead?: (payload: MessageReceiptEventPayload) => void;
   onFriendEvent?: () => void;
   onDmEvent?: (payload: DmNewEventPayload) => void;
   onChannelUpdated?: (channel: Channel) => void;
@@ -137,6 +146,8 @@ export function useChatSocket(params: {
   const onMessageUpdatedRef = useRef(params.onMessageUpdated);
   const onMessageDeletedRef = useRef(params.onMessageDeleted);
   const onMessageReactionRef = useRef(params.onMessageReaction);
+  const onMessageDeliveredRef = useRef(params.onMessageDelivered);
+  const onMessageReadRef = useRef(params.onMessageRead);
   const onFriendEventRef = useRef(params.onFriendEvent);
   const onDmEventRef = useRef(params.onDmEvent);
   const onChannelUpdatedRef = useRef(params.onChannelUpdated);
@@ -151,6 +162,8 @@ export function useChatSocket(params: {
   onMessageUpdatedRef.current = params.onMessageUpdated;
   onMessageDeletedRef.current = params.onMessageDeleted;
   onMessageReactionRef.current = params.onMessageReaction;
+  onMessageDeliveredRef.current = params.onMessageDelivered;
+  onMessageReadRef.current = params.onMessageRead;
   onFriendEventRef.current = params.onFriendEvent;
   onDmEventRef.current = params.onDmEvent;
   onChannelUpdatedRef.current = params.onChannelUpdated;
@@ -237,6 +250,22 @@ export function useChatSocket(params: {
             const payload = parsed.payload as MessageReactionEventPayload | undefined;
             if (payload?.message?.id && payload.emoji && payload.userId) {
               onMessageReactionRef.current?.(payload);
+            }
+            return;
+          }
+
+          if (parsed.type === 'message:delivered') {
+            const payload = parsed.payload as MessageReceiptEventPayload | undefined;
+            if (payload?.channelId && payload.userId && payload.upToMessageId) {
+              onMessageDeliveredRef.current?.(payload);
+            }
+            return;
+          }
+
+          if (parsed.type === 'message:read') {
+            const payload = parsed.payload as MessageReceiptEventPayload | undefined;
+            if (payload?.channelId && payload.userId && payload.upToMessageId) {
+              onMessageReadRef.current?.(payload);
             }
             return;
           }
@@ -600,3 +629,9 @@ export function useChatSocket(params: {
     ping,
   };
 }
+
+
+
+
+
+

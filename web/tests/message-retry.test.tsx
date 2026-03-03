@@ -21,6 +21,8 @@ function createMessage(overrides: Partial<Message> = {}): Message {
     replyToMessageId: null,
     replyTo: null,
     reactions: [],
+    deliveredUserIds: ['user-1'],
+    readUserIds: ['user-1'],
     createdAt: '2026-03-03T10:00:00.000Z',
     optimistic: false,
     failed: false,
@@ -146,3 +148,5 @@ describe('ChatView failed retry action', () => {
     expect(onRetryMessage).toHaveBeenCalledWith('tmp-failed');
   });
 });
+
+

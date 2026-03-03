@@ -121,6 +121,54 @@ export function reconcileConfirmedMessage(
   return mergeMessages(next, []);
 }
 
+export type MessageReceiptProgressPayload = {
+  channelId: string;
+  userId: string;
+  upToMessageId: string;
+};
+
+function addUniqueSorted(existing: string[], userId: string) {
+  if (existing.includes(userId)) {
+    return existing;
+  }
+  return [...existing, userId].sort((a, b) => a.localeCompare(b));
+}
+
+export function applyReceiptProgress(
+  existing: Message[],
+  payload: MessageReceiptProgressPayload,
+  kind: 'delivered' | 'read',
+) {
+  const upToIndex = existing.findIndex((message) => message.id === payload.upToMessageId);
+  if (upToIndex < 0) {
+    return existing;
+  }
+
+  let changed = false;
+  const next = existing.map((message, index) => {
+    if (index > upToIndex || message.channelId !== payload.channelId || message.userId === payload.userId) {
+      return message;
+    }
+
+    const nextDelivered = addUniqueSorted(message.deliveredUserIds, payload.userId);
+    const nextRead =
+      kind === 'read' ? addUniqueSorted(message.readUserIds, payload.userId) : message.readUserIds;
+
+    if (nextDelivered === message.deliveredUserIds && nextRead === message.readUserIds) {
+      return message;
+    }
+
+    changed = true;
+    return {
+      ...message,
+      deliveredUserIds: nextDelivered,
+      readUserIds: nextRead,
+    };
+  });
+
+  return changed ? next : existing;
+}
+
 type SendMessagePayload = {
   content: string;
   attachment?: MessageAttachment;
@@ -303,6 +351,8 @@ export function useMessageLifecycleFeature({
             }
           : null,
         reactions: [],
+        deliveredUserIds: [authUser.id],
+        readUserIds: [authUser.id],
         createdAt: new Date().toISOString(),
         optimistic: true,
         user: { id: authUser.id, username: authUser.username },
@@ -410,3 +460,6 @@ export function useMessageLifecycleFeature({
     retryMessage,
   };
 }
+
+
+

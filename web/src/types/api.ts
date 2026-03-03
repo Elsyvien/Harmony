@@ -54,6 +54,8 @@ export interface Message {
     emoji: string;
     userIds: string[];
   }>;
+  deliveredUserIds: string[];
+  readUserIds: string[];
   createdAt: string;
   optimistic?: boolean;
   failed?: boolean;
@@ -149,3 +151,5 @@ export interface FriendRequestSummary {
   requestedById: string;
   createdAt: string;
 }
+
+

@@ -107,6 +107,8 @@ describe('avatar display integration', () => {
         replyToMessageId: null,
         replyTo: null,
         reactions: [],
+        deliveredUserIds: ['user-1'],
+        readUserIds: ['user-1'],
         createdAt: '2026-01-01T00:00:00.000Z',
         user: {
           id: 'user-1',
@@ -132,3 +134,5 @@ describe('avatar display integration', () => {
     expect(avatar).toHaveAttribute('src', 'http://localhost:4000/uploads/avatars/alice.png');
   });
 });
+
+
