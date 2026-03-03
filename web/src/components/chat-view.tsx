@@ -23,6 +23,7 @@ interface ChatViewProps {
   onToggleReaction?: (messageId: string, emoji: string) => Promise<void> | void;
   onEditMessage?: (messageId: string, content: string) => Promise<void> | void;
   onDeleteMessage?: (messageId: string) => Promise<void> | void;
+  onRetryMessage?: (messageId: string) => Promise<void> | void;
   canManageAllMessages?: boolean;
 }
 
@@ -308,6 +309,11 @@ export function ChatView(props: ChatViewProps) {
               message.attachment?.type?.toLowerCase().startsWith('image/') && attachmentUrl,
             );
             const hasReactions = message.reactions.length > 0;
+            const canRetryMessage =
+              message.failed &&
+              !message.deletedAt &&
+              Boolean(props.onRetryMessage) &&
+              (!props.currentUserId || props.currentUserId === message.userId);
 
             return (
               <article
@@ -366,6 +372,21 @@ export function ChatView(props: ChatViewProps) {
                     <time>{formatMessageTime(message.createdAt)}</time>
                     {message.optimistic ? <span className="pending-tag">Sending...</span> : null}
                     {message.failed ? <span className="pending-tag failed">Failed</span> : null}
+                    {message.failed ? (
+                      <button
+                        type="button"
+                        className="pending-tag retry-action"
+                        disabled={!canRetryMessage}
+                        onClick={() => {
+                          if (!canRetryMessage || !props.onRetryMessage) {
+                            return;
+                          }
+                          void props.onRetryMessage(message.id);
+                        }}
+                      >
+                        Retry
+                      </button>
+                    ) : null}
                   </header>
                   {message.replyTo ? (
                     <div className="message-reply-preview">
@@ -536,6 +557,11 @@ export function ChatView(props: ChatViewProps) {
             Boolean(props.onEditMessage) &&
             Boolean(messageMenu.message.content);
           const canDeleteMessage = canManageMessage && !messageMenu.message.deletedAt && Boolean(props.onDeleteMessage);
+          const canRetryMessage =
+            Boolean(props.onRetryMessage) &&
+            Boolean(messageMenu.message.failed) &&
+            !messageMenu.message.deletedAt &&
+            (!props.currentUserId || props.currentUserId === messageMenu.message.userId);
           return (
             <div
               className="message-context-menu"
@@ -567,6 +593,18 @@ export function ChatView(props: ChatViewProps) {
                 disabled={!props.onReplyToMessage}
               >
                 Reply
+              </button>
+              <button
+                onClick={() => {
+                  if (!canRetryMessage || !props.onRetryMessage) {
+                    return;
+                  }
+                  void props.onRetryMessage(messageMenu.message.id);
+                  setMessageMenu(null);
+                }}
+                disabled={!canRetryMessage}
+              >
+                Retry Send
               </button>
               <button
                 onClick={() => {

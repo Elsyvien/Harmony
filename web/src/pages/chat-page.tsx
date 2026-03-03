@@ -1036,7 +1036,7 @@ export function ChatPage() {
     setError,
   });
 
-  const { editMessage, deleteMessage, sendMessage } = useMessageLifecycleFeature({
+  const { editMessage, deleteMessage, sendMessage, retryMessage } = useMessageLifecycleFeature({
     authToken: auth.token,
     authUser: auth.user ? { id: auth.user.id, username: auth.user.username } : null,
     activeChannelId,
@@ -1286,6 +1286,7 @@ export function ChatPage() {
         onToggleReaction: toggleMessageReaction,
         onEditMessage: editMessage,
         onDeleteMessage: deleteMessage,
+        onRetryMessage: retryMessage,
         canManageAllMessages: auth.user.isAdmin,
       }}
       composerProps={{

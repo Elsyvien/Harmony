@@ -90,6 +90,37 @@ export function reconcileIncomingMessage(existing: Message[], incoming: Message)
   return mergeMessages(existing, [incoming]);
 }
 
+export function reconcileConfirmedMessage(
+  existing: Message[],
+  optimisticMessageId: string,
+  confirmedMessage: Message,
+) {
+  const next: Message[] = [];
+  let replacedOptimistic = false;
+
+  for (const item of existing) {
+    if (item.id === optimisticMessageId) {
+      if (!replacedOptimistic) {
+        next.push(confirmedMessage);
+        replacedOptimistic = true;
+      }
+      continue;
+    }
+
+    if (item.failed && isLogicalSameMessage(item, confirmedMessage)) {
+      continue;
+    }
+
+    next.push(item);
+  }
+
+  if (!replacedOptimistic) {
+    next.push(confirmedMessage);
+  }
+
+  return mergeMessages(next, []);
+}
+
 type SendMessagePayload = {
   content: string;
   attachment?: MessageAttachment;
@@ -163,6 +194,66 @@ export function useMessageLifecycleFeature({
     [authToken, activeChannelId, setMessages, setReplyTarget, setError],
   );
 
+  const dispatchOptimisticMessage = useCallback(
+    async (optimisticMessage: Message, signature: string) => {
+      if (!authToken) {
+        clearPendingSignature(signature);
+        return;
+      }
+
+      const trimmedContent = optimisticMessage.content.trim();
+      const attachment = optimisticMessage.attachment ?? undefined;
+      const replyToMessageId = optimisticMessage.replyToMessageId ?? undefined;
+      const wsSent =
+        !attachment && trimmedContent && wsConnected && !replyToMessageId
+          ? sendRealtimeMessage(optimisticMessage.channelId, trimmedContent)
+          : false;
+
+      if (wsSent) {
+        return;
+      }
+
+      try {
+        const response = await chatApi.sendMessage(
+          authToken,
+          optimisticMessage.channelId,
+          trimmedContent,
+          attachment,
+          replyToMessageId,
+        );
+        clearPendingSignature(signature);
+        setMessages((prev) =>
+          reconcileConfirmedMessage(prev, optimisticMessage.id, response.message),
+        );
+      } catch (err) {
+        try {
+          const verification = await chatApi.messages(authToken, optimisticMessage.channelId, { limit: 100 });
+          const confirmed = verification.messages.find((message) =>
+            isLogicalSameMessage(message, optimisticMessage),
+          );
+          if (confirmed) {
+            clearPendingSignature(signature);
+            setMessages((prev) =>
+              reconcileConfirmedMessage(prev, optimisticMessage.id, confirmed),
+            );
+            return;
+          }
+        } catch {
+          // Ignore verification errors and continue with failed-state UI.
+        }
+
+        clearPendingSignature(signature);
+        setMessages((prev) =>
+          prev.map((item) =>
+            item.id === optimisticMessage.id ? { ...item, failed: true, optimistic: false } : item,
+          ),
+        );
+        throw err;
+      }
+    },
+    [authToken, wsConnected, sendRealtimeMessage, clearPendingSignature, setMessages],
+  );
+
   const sendMessage = useCallback(
     async (payload: SendMessagePayload) => {
       if (!authToken || !activeChannelId || !authUser) {
@@ -200,16 +291,16 @@ export function useMessageLifecycleFeature({
         replyToMessageId,
         replyTo: outgoingReplyTarget
           ? {
-            id: outgoingReplyTarget.id,
-            userId: outgoingReplyTarget.userId,
-            content: outgoingReplyTarget.content,
-            createdAt: new Date().toISOString(),
-            deletedAt: null,
-            user: {
-              id: outgoingReplyTarget.userId,
-              username: outgoingReplyTarget.username,
-            },
-          }
+              id: outgoingReplyTarget.id,
+              userId: outgoingReplyTarget.userId,
+              content: outgoingReplyTarget.content,
+              createdAt: new Date().toISOString(),
+              deletedAt: null,
+              user: {
+                id: outgoingReplyTarget.userId,
+                username: outgoingReplyTarget.username,
+              },
+            }
           : null,
         reactions: [],
         createdAt: new Date().toISOString(),
@@ -219,50 +310,7 @@ export function useMessageLifecycleFeature({
       setMessages((prev) => mergeMessages(prev, [optimisticMessage]));
       setReplyTarget((current) => (current?.id === replyToMessageId ? null : current));
 
-      const wsSent =
-        !attachment && trimmedContent && wsConnected && !replyToMessageId
-          ? sendRealtimeMessage(activeChannelId, trimmedContent)
-          : false;
-      if (wsSent) {
-        return;
-      }
-
-      try {
-        const response = await chatApi.sendMessage(
-          authToken,
-          activeChannelId,
-          trimmedContent,
-          attachment,
-          replyToMessageId ?? undefined,
-        );
-        clearPendingSignature(signature);
-        setMessages((prev) => {
-          const replaced = prev.map((item) => (item.id === optimisticMessage.id ? response.message : item));
-          return mergeMessages(replaced, []);
-        });
-      } catch (err) {
-        try {
-          const verification = await chatApi.messages(authToken, activeChannelId, { limit: 100 });
-          const confirmed = verification.messages.find((message) =>
-            isLogicalSameMessage(message, optimisticMessage),
-          );
-          if (confirmed) {
-            clearPendingSignature(signature);
-            setMessages((prev) => prev.map((item) => (item.id === optimisticMessage.id ? confirmed : item)));
-            return;
-          }
-        } catch {
-          // Ignore verification errors and continue with failed-state UI.
-        }
-
-        clearPendingSignature(signature);
-        setMessages((prev) =>
-          prev.map((item) =>
-            item.id === optimisticMessage.id ? { ...item, failed: true, optimistic: false } : item,
-          ),
-        );
-        throw err;
-      }
+      await dispatchOptimisticMessage(optimisticMessage, signature);
     },
     [
       authToken,
@@ -274,9 +322,84 @@ export function useMessageLifecycleFeature({
       schedulePendingTimeout,
       setMessages,
       setReplyTarget,
-      wsConnected,
-      sendRealtimeMessage,
-      clearPendingSignature,
+      dispatchOptimisticMessage,
+    ],
+  );
+
+  const retryMessage = useCallback(
+    async (messageId: string) => {
+      if (!authToken || !activeChannelId || !authUser) {
+        return;
+      }
+
+      let retrySignature: string | null = null;
+      let optimisticRetryMessage: Message | null = null;
+
+      setMessages((prev) => {
+        const failedMessage = prev.find((item) => item.id === messageId);
+        if (
+          !failedMessage ||
+          !failedMessage.failed ||
+          failedMessage.channelId !== activeChannelId ||
+          failedMessage.userId !== authUser.id ||
+          failedMessage.deletedAt
+        ) {
+          return prev;
+        }
+
+        const trimmedContent = failedMessage.content.trim();
+        if (!trimmedContent && !failedMessage.attachment) {
+          return prev;
+        }
+
+        const nextSignature = messageSignature(
+          failedMessage.channelId,
+          failedMessage.userId,
+          trimmedContent,
+          failedMessage.attachment?.url,
+        );
+        if (hasPendingSignature(nextSignature)) {
+          return prev;
+        }
+
+        const nextRetryMessage: Message = {
+          ...failedMessage,
+          content: trimmedContent,
+          createdAt: new Date().toISOString(),
+          optimistic: true,
+          failed: false,
+        };
+
+        retrySignature = nextSignature;
+        optimisticRetryMessage = nextRetryMessage;
+
+        return prev.map((item) => (item.id === messageId ? nextRetryMessage : item));
+      });
+
+      if (!retrySignature || !optimisticRetryMessage) {
+        return;
+      }
+
+      addPendingSignature(retrySignature);
+      schedulePendingTimeout(retrySignature);
+
+      try {
+        await dispatchOptimisticMessage(optimisticRetryMessage, retrySignature);
+        setError(null);
+      } catch (err) {
+        setError(getErrorMessage(err, 'Could not resend message'));
+      }
+    },
+    [
+      authToken,
+      activeChannelId,
+      authUser,
+      hasPendingSignature,
+      setMessages,
+      addPendingSignature,
+      schedulePendingTimeout,
+      dispatchOptimisticMessage,
+      setError,
     ],
   );
 
@@ -284,5 +407,6 @@ export function useMessageLifecycleFeature({
     editMessage,
     deleteMessage,
     sendMessage,
+    retryMessage,
   };
 }
