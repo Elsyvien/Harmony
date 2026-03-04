@@ -1,4 +1,5 @@
 import { useMemo, useRef, useState } from 'react';
+import { Link } from 'react-router-dom';
 import type { User } from '../types/api';
 import type { UserPreferences } from '../types/preferences';
 import { chatApi } from '../api/chat-api';
@@ -94,7 +95,7 @@ export function SettingsPanel(props: SettingsPanelProps) {
 
     if (!token) {
       trackTelemetry({
-        name: 'avatar_upload_blocked_unauthenticated',
+        name: 'avatar.upload.blocked',
         level: 'warn',
       });
       setAvatarUploadFeedback({
@@ -107,7 +108,7 @@ export function SettingsPanel(props: SettingsPanelProps) {
 
     if (!ALLOWED_AVATAR_MIME_TYPES.has(file.type)) {
       trackTelemetry({
-        name: 'avatar_upload_invalid_type',
+        name: 'avatar.upload.invalid',
         level: 'warn',
         context: { mimeType: file.type },
       });
@@ -121,7 +122,7 @@ export function SettingsPanel(props: SettingsPanelProps) {
 
     if (file.size > MAX_AVATAR_FILE_SIZE_BYTES) {
       trackTelemetry({
-        name: 'avatar_upload_too_large',
+        name: 'avatar.upload.rejected',
         level: 'warn',
         context: { sizeBytes: file.size },
       });
@@ -139,7 +140,7 @@ export function SettingsPanel(props: SettingsPanelProps) {
       const response = await chatApi.uploadAvatar(token, file);
       setAuth(token, response.user);
       trackTelemetry({
-        name: 'avatar_upload_succeeded',
+        name: 'avatar.upload.succeeded',
         context: { sizeBytes: file.size, mimeType: file.type },
       });
       setAvatarUploadFeedback({
@@ -147,7 +148,7 @@ export function SettingsPanel(props: SettingsPanelProps) {
         message: 'Avatar updated successfully.',
       });
     } catch (error) {
-      trackTelemetryError('avatar_upload_failed', error, {
+      trackTelemetryError('avatar.upload.failed', error, {
         sizeBytes: file.size,
         mimeType: file.type,
       });
@@ -761,6 +762,9 @@ export function SettingsPanel(props: SettingsPanelProps) {
           <section id="about" className="settings-section">
             <h3>About Harmony</h3>
             <p className="muted">© {currentYear} Harmony. All rights reserved.</p>
+            <p className="muted-inline">
+              <Link to="/privacy">Privacy Policy</Link>
+            </p>
             <div className="settings-shortcuts">
               <p>Contributors:</p>
               <p>@Max Staneker</p>

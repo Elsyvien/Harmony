@@ -178,8 +178,8 @@ export function useVoiceSignaling({
         try {
           await connection.setRemoteDescription(signal.sdp);
         } catch (err) {
-          trackTelemetryError('voice_signal_offer_remote_description_failed', err, {
-            peerUserId: payload.fromUserId,
+          trackTelemetryError('voice.signal.offer.failed', err, {
+            targetUserId: payload.fromUserId,
             channelId: payload.channelId,
             signalingState: connection.signalingState,
           });
@@ -213,8 +213,8 @@ export function useVoiceSignaling({
       try {
         await connection.setRemoteDescription(signal.sdp);
       } catch (err) {
-        trackTelemetryError('voice_signal_answer_remote_description_failed', err, {
-          peerUserId: payload.fromUserId,
+        trackTelemetryError('voice.signal.answer.failed', err, {
+          targetUserId: payload.fromUserId,
           channelId: payload.channelId,
           signalingState: connection.signalingState,
         });

@@ -1,7 +1,17 @@
 import { useCallback, useState } from 'react';
 import { chatApi } from '../../../api/chat-api';
-import type { AdminSettings, AdminStats, AdminUserSummary, UserRole } from '../../../types/api';
+import type {
+  AdminAnalyticsOverview,
+  AdminAnalyticsTimeseries,
+  AdminSettings,
+  AdminStats,
+  AdminUserSummary,
+  AnalyticsCategory,
+  AnalyticsWindow,
+  UserRole,
+} from '../../../types/api';
 import { getErrorMessage } from '../../../utils/error-message';
+import { trackTelemetry } from '../../../utils/telemetry';
 
 interface UseAdminFeatureOptions {
   authToken: string | null;
@@ -23,6 +33,10 @@ export function useAdminFeature(options: UseAdminFeatureOptions) {
   const [adminUsers, setAdminUsers] = useState<AdminUserSummary[]>([]);
   const [loadingAdminUsers, setLoadingAdminUsers] = useState(false);
   const [adminUsersError, setAdminUsersError] = useState<string | null>(null);
+  const [adminAnalyticsOverview, setAdminAnalyticsOverview] = useState<AdminAnalyticsOverview | null>(null);
+  const [adminAnalyticsTimeseries, setAdminAnalyticsTimeseries] = useState<AdminAnalyticsTimeseries | null>(null);
+  const [loadingAdminAnalytics, setLoadingAdminAnalytics] = useState(false);
+  const [adminAnalyticsError, setAdminAnalyticsError] = useState<string | null>(null);
   const [updatingAdminUserId, setUpdatingAdminUserId] = useState<string | null>(null);
   const [deletingAdminUserId, setDeletingAdminUserId] = useState<string | null>(null);
   const [clearingAdminUsers, setClearingAdminUsers] = useState(false);
@@ -94,6 +108,29 @@ export function useAdminFeature(options: UseAdminFeatureOptions) {
     }
   }, [authToken, isAdmin]);
 
+  const loadAdminAnalytics = useCallback(
+    async (input?: { window?: AnalyticsWindow; category?: AnalyticsCategory; name?: string }) => {
+      if (!authToken || !isAdmin) {
+        return;
+      }
+      setLoadingAdminAnalytics(true);
+      try {
+        const [overviewResponse, timeseriesResponse] = await Promise.all([
+          chatApi.adminAnalyticsOverview(authToken, input),
+          chatApi.adminAnalyticsTimeseries(authToken, input),
+        ]);
+        setAdminAnalyticsOverview(overviewResponse.overview);
+        setAdminAnalyticsTimeseries(timeseriesResponse.timeseries);
+        setAdminAnalyticsError(null);
+      } catch (err) {
+        setAdminAnalyticsError(getErrorMessage(err, 'Could not load analytics'));
+      } finally {
+        setLoadingAdminAnalytics(false);
+      }
+    },
+    [authToken, isAdmin],
+  );
+
   const updateAdminUser = useCallback(
     async (
       userId: string,
@@ -112,6 +149,34 @@ export function useAdminFeature(options: UseAdminFeatureOptions) {
         const response = await chatApi.updateAdminUser(authToken, userId, input);
         setAdminUsers((prev) => prev.map((user) => (user.id === userId ? response.user : user)));
         setAdminUsersError(null);
+        if (input.role) {
+          trackTelemetry({
+            name: 'moderation.role.updated',
+            success: true,
+            context: {
+              targetUserId: userId,
+              role: input.role,
+            },
+          });
+        }
+        if (input.isSuspended === true) {
+          trackTelemetry({
+            name: 'moderation.user.suspended',
+            success: true,
+            context: {
+              targetUserId: userId,
+              suspensionHours: input.suspensionHours ?? 0,
+            },
+          });
+        } else if (input.isSuspended === false) {
+          trackTelemetry({
+            name: 'moderation.user.unsuspended',
+            success: true,
+            context: {
+              targetUserId: userId,
+            },
+          });
+        }
       } catch (err) {
         setAdminUsersError(getErrorMessage(err, 'Could not update user'));
       } finally {
@@ -131,6 +196,13 @@ export function useAdminFeature(options: UseAdminFeatureOptions) {
         await chatApi.deleteAdminUser(authToken, userId);
         setAdminUsers((prev) => prev.filter((user) => user.id !== userId));
         setAdminUsersError(null);
+        trackTelemetry({
+          name: 'moderation.user.deleted',
+          success: true,
+          context: {
+            targetUserId: userId,
+          },
+        });
       } catch (err) {
         setAdminUsersError(getErrorMessage(err, 'Could not delete user'));
       } finally {
@@ -149,6 +221,13 @@ export function useAdminFeature(options: UseAdminFeatureOptions) {
       const response = await chatApi.clearAdminUsersExceptSelf(authToken);
       setAdminUsers((prev) => prev.filter((user) => user.id === currentUserId));
       setAdminUsersError(null);
+      trackTelemetry({
+        name: 'moderation.users.cleared',
+        success: true,
+        context: {
+          deletedCount: response.deletedCount,
+        },
+      });
       onNotice(
         response.deletedCount === 1
           ? 'Deleted 1 user. Your account was kept.'
@@ -172,6 +251,10 @@ export function useAdminFeature(options: UseAdminFeatureOptions) {
     adminUsers,
     loadingAdminUsers,
     adminUsersError,
+    adminAnalyticsOverview,
+    adminAnalyticsTimeseries,
+    loadingAdminAnalytics,
+    adminAnalyticsError,
     updatingAdminUserId,
     deletingAdminUserId,
     clearingAdminUsers,
@@ -179,6 +262,7 @@ export function useAdminFeature(options: UseAdminFeatureOptions) {
     loadAdminSettings,
     saveAdminSettings,
     loadAdminUsers,
+    loadAdminAnalytics,
     updateAdminUser,
     deleteAdminUser,
     clearAdminUsersExceptCurrent,

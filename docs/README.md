@@ -18,8 +18,9 @@ If documentation and implementation disagree, treat code as source of truth and 
 4. `docs/BACKEND_REFERENCE.md` - complete backend contract, including REST + WebSocket behavior.
 5. `docs/FRONTEND_REFERENCE.md` - frontend state flow, socket/polling behavior, and component contracts.
 6. `docs/DATA_MODEL.md` - Prisma schema, constraints, and domain invariants.
-7. `docs/OPERATIONS.md` - environment setup, local runbook, test and release operations.
-8. `docs/FILE_MAP.md` - file-by-file repository map (tracked files only).
+7. `docs/ANALYTICS.md` - analytics taxonomy, ingestion contract, retention, and privacy boundaries.
+8. `docs/OPERATIONS.md` - environment setup, local runbook, test and release operations.
+9. `docs/FILE_MAP.md` - file-by-file repository map (tracked files only).
 
 ## Quick Start
 
@@ -48,6 +49,8 @@ npm run dev
   - Routing, auth/session handling, API client, hooks, `ChatPage` orchestration, UI module contracts.
 - `docs/DATA_MODEL.md`
   - Prisma enums/models, relationships, indexes, and behavior constraints.
+- `docs/ANALYTICS.md`
+  - Analytics event taxonomy, ingestion limits, admin analytics APIs, retention, and privacy policy surfaces.
 - `docs/OPERATIONS.md`
   - Setup, scripts, env vars, DB workflows, build/deploy/checklist, troubleshooting.
 - `docs/FILE_MAP.md`

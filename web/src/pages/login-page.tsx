@@ -4,6 +4,7 @@ import { chatApi } from '../api/chat-api';
 import { AuthForm } from '../components/auth-form';
 import { useAuth } from '../store/auth-store';
 import { getErrorMessage } from '../utils/error-message';
+import { trackTelemetry } from '../utils/telemetry';
 
 export function LoginPage() {
   const navigate = useNavigate();
@@ -33,9 +34,28 @@ export function LoginPage() {
             setLoading(true);
             setError(null);
             const response = await chatApi.login({ email, password });
+            trackTelemetry({
+              name: 'auth.login.succeeded',
+              success: true,
+              context: {
+                method: 'password',
+              },
+            });
             auth.setAuth(response.token, response.user);
             navigate('/chat');
-          } catch (err) {
+          } catch (err: unknown) {
+            const errorCode = typeof err === 'object' && err && 'code' in err && typeof (err as { code?: unknown }).code === 'string'
+              ? (err as { code: string }).code
+              : undefined;
+            trackTelemetry({
+              name: 'auth.login.failed',
+              level: 'warn',
+              success: false,
+              context: {
+                method: 'password',
+                code: errorCode,
+              },
+            });
             setError(getErrorMessage(err, 'Login failed'));
           } finally {
             setLoading(false);

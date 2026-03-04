@@ -1,5 +1,6 @@
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { MemoryRouter } from 'react-router-dom';
 import { SettingsPanel } from '../src/components/settings-panel';
 import { chatApi } from '../src/api/chat-api';
 import { useAuth } from '../src/store/auth-store';
@@ -66,18 +67,20 @@ describe('SettingsPanel avatar upload flow', () => {
     uploadAvatarMock.mockResolvedValue({ user: updatedUser });
 
     const { container } = render(
-      <SettingsPanel
-        user={baseUser}
-        wsConnected
-        preferences={basePreferences}
-        audioInputDevices={[]}
-        microphonePermission="granted"
-        requestingMicrophonePermission={false}
-        onUpdatePreferences={vi.fn()}
-        onResetPreferences={vi.fn()}
-        onRequestMicrophonePermission={async () => {}}
-        onLogout={async () => {}}
-      />,
+      <MemoryRouter>
+        <SettingsPanel
+          user={baseUser}
+          wsConnected
+          preferences={basePreferences}
+          audioInputDevices={[]}
+          microphonePermission="granted"
+          requestingMicrophonePermission={false}
+          onUpdatePreferences={vi.fn()}
+          onResetPreferences={vi.fn()}
+          onRequestMicrophonePermission={async () => {}}
+          onLogout={async () => {}}
+        />
+      </MemoryRouter>,
     );
 
     const fileInput = container.querySelector('input[type="file"]') as HTMLInputElement | null;
@@ -96,18 +99,20 @@ describe('SettingsPanel avatar upload flow', () => {
     uploadAvatarMock.mockRejectedValue(new Error('Upload failed'));
 
     const { container } = render(
-      <SettingsPanel
-        user={baseUser}
-        wsConnected
-        preferences={basePreferences}
-        audioInputDevices={[]}
-        microphonePermission="granted"
-        requestingMicrophonePermission={false}
-        onUpdatePreferences={vi.fn()}
-        onResetPreferences={vi.fn()}
-        onRequestMicrophonePermission={async () => {}}
-        onLogout={async () => {}}
-      />,
+      <MemoryRouter>
+        <SettingsPanel
+          user={baseUser}
+          wsConnected
+          preferences={basePreferences}
+          audioInputDevices={[]}
+          microphonePermission="granted"
+          requestingMicrophonePermission={false}
+          onUpdatePreferences={vi.fn()}
+          onResetPreferences={vi.fn()}
+          onRequestMicrophonePermission={async () => {}}
+          onLogout={async () => {}}
+        />
+      </MemoryRouter>,
     );
 
     const fileInput = container.querySelector('input[type="file"]') as HTMLInputElement | null;

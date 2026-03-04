@@ -22,9 +22,11 @@ import { channelRoutes } from './routes/channel.routes.js';
 import { friendRoutes } from './routes/friend.routes.js';
 import { adminRoutes } from './routes/admin.routes.js';
 import { rtcRoutes } from './routes/rtc.routes.js';
+import { analyticsRoutes } from './routes/analytics.routes.js';
 import { AdminService } from './services/admin.service.js';
 import { AdminSettingsService } from './services/admin-settings.service.js';
 import { AdminUserService } from './services/admin-user.service.js';
+import { AnalyticsService } from './services/analytics.service.js';
 import { AuthService } from './services/auth.service.js';
 import { UserService } from './services/user.service.js';
 import { userRoutes } from './routes/user.routes.js';
@@ -123,6 +125,7 @@ export async function buildApp() {
   const userService = new UserService();
   const adminService = new AdminService();
   const adminUserService = new AdminUserService();
+  const analyticsService = new AnalyticsService();
 
   const usingMediasoupSfu = env.SFU_ENABLED && env.SFU_PROVIDER === 'mediasoup';
   const usingCloudflareManagedSfu = env.SFU_ENABLED && env.SFU_PROVIDER === 'cloudflare';
@@ -240,12 +243,61 @@ export async function buildApp() {
 
   await channelService.ensureDefaultChannel();
 
-  await app.register(wsPlugin, { channelService, messageService, voiceSfuService });
+  const requestStartField = '__harmonyRequestStartMs';
+  app.addHook('onRequest', async (request) => {
+    (request as unknown as { [key: string]: number | undefined })[requestStartField] = Date.now();
+  });
+
+  app.addHook('onResponse', async (request, reply) => {
+    const routePath = request.routeOptions.url;
+    if (!routePath || routePath.startsWith('/analytics/events')) {
+      return;
+    }
+
+    const statusCode = reply.statusCode;
+    const startedAt =
+      (request as unknown as { [key: string]: number | undefined })[requestStartField] ?? Date.now();
+    const durationMs = Math.max(0, Date.now() - startedAt);
+    const level = statusCode >= 500 ? 'error' : statusCode >= 400 ? 'warn' : 'info';
+    const category = statusCode >= 400 ? 'reliability' : 'operations';
+
+    void analyticsService.trackServerEvent({
+      name: 'backend.http.request',
+      category,
+      level,
+      source: 'backend_http',
+      userId: request.user?.userId ?? null,
+      requestId: request.id,
+      channelId:
+        typeof (request.params as { channelId?: unknown } | undefined)?.channelId === 'string'
+          ? (request.params as { channelId: string }).channelId
+          : null,
+      success: statusCode < 400,
+      durationMs,
+      statusCode,
+      context: {
+        method: request.method,
+        path: routePath,
+        statusCode,
+      },
+    });
+  });
+
+  const analyticsRetentionIntervalMs = 6 * 60 * 60 * 1000;
+  const retentionInterval = setInterval(() => {
+    void analyticsService.cleanupExpiredEvents(30).catch((error) => {
+      app.log.error({ err: error }, 'analytics-retention-cleanup-failed');
+    });
+  }, analyticsRetentionIntervalMs);
+  retentionInterval.unref?.();
+
+  await app.register(wsPlugin, { channelService, messageService, voiceSfuService, analyticsService });
   await app.register(authRoutes, { authService, env });
+  await app.register(analyticsRoutes, { analyticsService });
   await app.register(channelRoutes, { channelService, messageService });
   await app.register(friendRoutes, { friendService });
   await app.register(userRoutes, { userService });
-  await app.register(adminRoutes, { adminService, adminSettingsService, adminUserService });
+  await app.register(adminRoutes, { adminService, adminSettingsService, adminUserService, analyticsService });
   await app.register(rtcRoutes, { cloudflareRealtimeSfuApi });
 
   const parseTurnUrls = (value: string) =>
@@ -450,6 +502,7 @@ export async function buildApp() {
   app.get('/health', async () => ({ ok: true }));
 
   app.addHook('onClose', async () => {
+    clearInterval(retentionInterval);
     await voiceSfuService.close();
   });
 

@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 import type { AdminService } from '../src/services/admin.service.js';
 import type { AdminSettingsService } from '../src/services/admin-settings.service.js';
 import type { AdminUserService } from '../src/services/admin-user.service.js';
+import type { AnalyticsService } from '../src/services/analytics.service.js';
 import { adminRoutes } from '../src/routes/admin.routes.js';
 
 type RouteHandler = (request: any, reply: any) => Promise<unknown>;
@@ -39,6 +40,10 @@ async function registerRoutes() {
     getSettings: getSettingsMock,
     updateSettings: updateSettingsMock,
   } as unknown as AdminSettingsService;
+  const analyticsService = {
+    getOverview: vi.fn(),
+    getTimeseries: vi.fn(),
+  } as unknown as AnalyticsService;
   const adminUserService = {} as unknown as AdminUserService;
   const broadcastSystem = vi.fn();
 
@@ -69,6 +74,7 @@ async function registerRoutes() {
     adminService,
     adminSettingsService,
     adminUserService,
+    analyticsService,
   });
 
   const getSettingsRoute = routes.find((route) => route.method === 'GET' && route.path === '/admin/settings');
