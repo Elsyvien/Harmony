@@ -596,6 +596,51 @@ export function SettingsPanel(props: SettingsPanelProps) {
 
             <label className="settings-row">
               <span className="settings-row-copy">
+                <strong>Noise suppression</strong>
+                <small>Reduce persistent background noise from your microphone.</small>
+              </span>
+              <input
+                className="settings-toggle"
+                type="checkbox"
+                checked={props.preferences.voiceNoiseSuppression}
+                onChange={(event) =>
+                  props.onUpdatePreferences({ voiceNoiseSuppression: event.target.checked })
+                }
+              />
+            </label>
+
+            <label className="settings-row">
+              <span className="settings-row-copy">
+                <strong>Echo cancellation</strong>
+                <small>Reduce speaker echo picked up by your microphone.</small>
+              </span>
+              <input
+                className="settings-toggle"
+                type="checkbox"
+                checked={props.preferences.voiceEchoCancellation}
+                onChange={(event) =>
+                  props.onUpdatePreferences({ voiceEchoCancellation: event.target.checked })
+                }
+              />
+            </label>
+
+            <label className="settings-row">
+              <span className="settings-row-copy">
+                <strong>Auto gain control</strong>
+                <small>Automatically normalize microphone loudness.</small>
+              </span>
+              <input
+                className="settings-toggle"
+                type="checkbox"
+                checked={props.preferences.voiceAutoGainControl}
+                onChange={(event) =>
+                  props.onUpdatePreferences({ voiceAutoGainControl: event.target.checked })
+                }
+              />
+            </label>
+
+            <label className="settings-row">
+              <span className="settings-row-copy">
                 <strong>Show speaking indicators</strong>
                 <small>Highlight users while they are actively speaking.</small>
               </span>

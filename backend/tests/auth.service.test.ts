@@ -181,6 +181,9 @@ describe('AuthService', () => {
         readOnlyMode: false,
         slowModeSeconds: 0,
         idleTimeoutMinutes: 15,
+        voiceNoiseSuppressionDefault: true,
+        voiceEchoCancellationDefault: true,
+        voiceAutoGainControlDefault: true,
       }),
     } as unknown as AdminSettingsService;
     const gatedService = new AuthService(repo, 8, adminSettingsService);

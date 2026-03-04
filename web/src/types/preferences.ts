@@ -13,6 +13,9 @@ export interface UserPreferences {
   voiceInputSensitivity: number;
   voiceInputGain: number;
   voiceOutputVolume: number;
+  voiceNoiseSuppression: boolean;
+  voiceEchoCancellation: boolean;
+  voiceAutoGainControl: boolean;
   showVoiceActivity: boolean;
   autoMuteOnJoin: boolean;
   voiceInputDeviceId: string | null;
@@ -30,6 +33,9 @@ export const DEFAULT_USER_PREFERENCES: UserPreferences = {
   voiceInputSensitivity: 0.01,
   voiceInputGain: 100,
   voiceOutputVolume: 100,
+  voiceNoiseSuppression: true,
+  voiceEchoCancellation: true,
+  voiceAutoGainControl: true,
   showVoiceActivity: true,
   autoMuteOnJoin: false,
   voiceInputDeviceId: null,

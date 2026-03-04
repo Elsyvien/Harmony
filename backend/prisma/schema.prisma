@@ -159,4 +159,7 @@ model AppSettings {
   readOnlyMode       Boolean @default(false)
   slowModeSeconds    Int     @default(0)
   idleTimeoutMinutes Int     @default(15)
+  voiceNoiseSuppressionDefault Boolean @default(true)
+  voiceEchoCancellationDefault Boolean @default(true)
+  voiceAutoGainControlDefault  Boolean @default(true)
 }

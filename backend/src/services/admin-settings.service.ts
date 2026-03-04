@@ -5,6 +5,9 @@ export interface AdminSettings {
   readOnlyMode: boolean;
   slowModeSeconds: number;
   idleTimeoutMinutes: number;
+  voiceNoiseSuppressionDefault: boolean;
+  voiceEchoCancellationDefault: boolean;
+  voiceAutoGainControlDefault: boolean;
 }
 
 const SETTINGS_ID = 'global';
@@ -62,12 +65,18 @@ export class AdminSettingsService {
     readOnlyMode: boolean;
     slowModeSeconds: number;
     idleTimeoutMinutes: number;
+    voiceNoiseSuppressionDefault: boolean;
+    voiceEchoCancellationDefault: boolean;
+    voiceAutoGainControlDefault: boolean;
   }): AdminSettings {
     return {
       allowRegistrations: row.allowRegistrations,
       readOnlyMode: row.readOnlyMode,
       slowModeSeconds: row.slowModeSeconds,
       idleTimeoutMinutes: row.idleTimeoutMinutes,
+      voiceNoiseSuppressionDefault: row.voiceNoiseSuppressionDefault,
+      voiceEchoCancellationDefault: row.voiceEchoCancellationDefault,
+      voiceAutoGainControlDefault: row.voiceAutoGainControlDefault,
     };
   }
 
@@ -91,6 +100,15 @@ export class AdminSettingsService {
           : {}),
         ...(typeof next.idleTimeoutMinutes === 'number'
           ? { idleTimeoutMinutes: next.idleTimeoutMinutes }
+          : {}),
+        ...(typeof next.voiceNoiseSuppressionDefault === 'boolean'
+          ? { voiceNoiseSuppressionDefault: next.voiceNoiseSuppressionDefault }
+          : {}),
+        ...(typeof next.voiceEchoCancellationDefault === 'boolean'
+          ? { voiceEchoCancellationDefault: next.voiceEchoCancellationDefault }
+          : {}),
+        ...(typeof next.voiceAutoGainControlDefault === 'boolean'
+          ? { voiceAutoGainControlDefault: next.voiceAutoGainControlDefault }
           : {}),
       },
     });
