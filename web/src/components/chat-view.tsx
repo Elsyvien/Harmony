@@ -25,6 +25,14 @@ interface ChatViewProps {
   onDeleteMessage?: (messageId: string) => Promise<void> | void;
   onRetryMessage?: (messageId: string) => Promise<void> | void;
   canManageAllMessages?: boolean;
+  knownUsersById?: Record<
+    string,
+    {
+      id: string;
+      username: string;
+      avatarUrl?: string | null;
+    }
+  >;
 }
 
 function stringToColor(str: string) {
@@ -300,6 +308,36 @@ export function ChatView(props: ChatViewProps) {
               ? message.deliveredUserIds
               : [];
             const readUserIds = Array.isArray(message.readUserIds) ? message.readUserIds : [];
+            const readUsers = Array.isArray(message.readUsers) ? message.readUsers : [];
+            const readReceiptUsersById = new Map<
+              string,
+              { id: string; username: string; avatarUrl?: string | null }
+            >();
+            for (const user of readUsers) {
+              if (!user || typeof user.id !== 'string') {
+                continue;
+              }
+              if (user.id === message.userId) {
+                continue;
+              }
+              readReceiptUsersById.set(user.id, {
+                id: user.id,
+                username: user.username || user.id.slice(0, 4),
+                avatarUrl: user.avatarUrl,
+              });
+            }
+            for (const userId of readUserIds) {
+              if (userId === message.userId || readReceiptUsersById.has(userId)) {
+                continue;
+              }
+              const knownUser = props.knownUsersById?.[userId];
+              readReceiptUsersById.set(userId, {
+                id: userId,
+                username: knownUser?.username || userId.slice(0, 4),
+                avatarUrl: knownUser?.avatarUrl,
+              });
+            }
+            const readReceiptUsers = Array.from(readReceiptUsersById.values());
             
             // Check if messages were sent within 5 minutes of each other
             const timeDiff = previousMessage 
@@ -413,6 +451,43 @@ export function ChatView(props: ChatViewProps) {
                         }
                       >
                         {receiptLabel}
+                      </span>
+                    ) : null}
+                    {isOwnMessage &&
+                    !message.optimistic &&
+                    !message.failed &&
+                    !message.deletedAt &&
+                    readReceiptUsers.length > 0 ? (
+                      <span
+                        className="receipt-readers"
+                        title={`Read by ${readReceiptUsers.map((user) => user.username).join(', ')}`}
+                      >
+                        {readReceiptUsers.slice(0, 4).map((user) => {
+                          const receiptAvatarUrl = resolveMediaUrl(user.avatarUrl);
+                          return (
+                            <span
+                              key={`${message.id}:read:${user.id}`}
+                              className="receipt-reader-avatar"
+                              style={{
+                                backgroundColor: receiptAvatarUrl ? 'transparent' : stringToColor(user.username),
+                              }}
+                              aria-label={user.username}
+                            >
+                              {receiptAvatarUrl ? (
+                                <img
+                                  crossOrigin="anonymous"
+                                  src={receiptAvatarUrl}
+                                  alt={user.username}
+                                />
+                              ) : (
+                                user.username.slice(0, 1).toUpperCase()
+                              )}
+                            </span>
+                          );
+                        })}
+                        {readReceiptUsers.length > 4 ? (
+                          <small className="receipt-reader-more">+{readReceiptUsers.length - 4}</small>
+                        ) : null}
                       </span>
                     ) : null}
                   </header>

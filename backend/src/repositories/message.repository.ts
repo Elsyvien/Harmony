@@ -6,6 +6,12 @@ export interface MessageReactionSummary {
   userIds: string[];
 }
 
+export interface MessageReceiptUserSummary {
+  id: string;
+  username: string;
+  avatarUrl: string | null;
+}
+
 export interface MessageReplyPreview {
   id: string;
   userId: string;
@@ -37,6 +43,8 @@ export interface MessageWithAuthor {
   reactions: MessageReactionSummary[];
   deliveredUserIds: string[];
   readUserIds: string[];
+  deliveredUsers: MessageReceiptUserSummary[];
+  readUsers: MessageReceiptUserSummary[];
   createdAt: Date;
   user: {
     id: string;
@@ -86,6 +94,13 @@ const messageInclude = {
       userId: true,
       deliveredAt: true,
       readAt: true,
+      user: {
+        select: {
+          id: true,
+          username: true,
+          avatarUrl: true,
+        },
+      },
     },
   },
 } satisfies Prisma.MessageInclude;
@@ -94,6 +109,14 @@ type MessageRow = Prisma.MessageGetPayload<{ include: typeof messageInclude }>;
 
 function sortedUniqueUserIds(userIds: string[]) {
   return Array.from(new Set(userIds)).sort((a, b) => a.localeCompare(b));
+}
+
+function sortedUniqueUsers(users: MessageReceiptUserSummary[]) {
+  const map = new Map<string, MessageReceiptUserSummary>();
+  for (const user of users) {
+    map.set(user.id, user);
+  }
+  return Array.from(map.values()).sort((a, b) => a.username.localeCompare(b.username));
 }
 
 function toMessageWithAuthor(row: MessageRow): MessageWithAuthor {
@@ -111,12 +134,18 @@ function toMessageWithAuthor(row: MessageRow): MessageWithAuthor {
     }))
     .sort((a, b) => a.emoji.localeCompare(b.emoji));
 
-  const deliveredUserIds = sortedUniqueUserIds(
-    row.receipts.filter((receipt) => Boolean(receipt.deliveredAt)).map((receipt) => receipt.userId),
+  const deliveredUsers = sortedUniqueUsers(
+    row.receipts
+      .filter((receipt) => Boolean(receipt.deliveredAt))
+      .map((receipt) => receipt.user),
   );
-  const readUserIds = sortedUniqueUserIds(
-    row.receipts.filter((receipt) => Boolean(receipt.readAt)).map((receipt) => receipt.userId),
+  const readUsers = sortedUniqueUsers(
+    row.receipts
+      .filter((receipt) => Boolean(receipt.readAt))
+      .map((receipt) => receipt.user),
   );
+  const deliveredUserIds = sortedUniqueUserIds(deliveredUsers.map((user) => user.id));
+  const readUserIds = sortedUniqueUserIds(readUsers.map((user) => user.id));
 
   return {
     id: row.id,
@@ -148,6 +177,8 @@ function toMessageWithAuthor(row: MessageRow): MessageWithAuthor {
     reactions,
     deliveredUserIds,
     readUserIds,
+    deliveredUsers,
+    readUsers,
     createdAt: row.createdAt,
     user: row.user,
   };

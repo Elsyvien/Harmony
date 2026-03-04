@@ -14,6 +14,14 @@ function sortUnique(userIds: string[]) {
   return Array.from(new Set(userIds)).sort((a, b) => a.localeCompare(b));
 }
 
+function toReceiptUsers(userIds: string[]) {
+  return sortUnique(userIds).map((userId) => ({
+    id: userId,
+    username: `user-${userId}`,
+    avatarUrl: null,
+  }));
+}
+
 class InMemoryMessageRepo implements MessageRepository {
   private items: MessageWithAuthor[] = [];
 
@@ -69,6 +77,8 @@ class InMemoryMessageRepo implements MessageRepository {
       reactions: [],
       deliveredUserIds: [params.userId],
       readUserIds: [params.userId],
+      deliveredUsers: toReceiptUsers([params.userId]),
+      readUsers: toReceiptUsers([params.userId]),
       createdAt: new Date(),
       user: {
         id: params.userId,
@@ -149,6 +159,7 @@ class InMemoryMessageRepo implements MessageRepository {
       const nextDelivered = sortUnique([...target.deliveredUserIds, params.userId]);
       if (nextDelivered.length !== target.deliveredUserIds.length) {
         target.deliveredUserIds = nextDelivered;
+        target.deliveredUsers = toReceiptUsers(nextDelivered);
         changed = true;
       }
     }
@@ -185,12 +196,14 @@ class InMemoryMessageRepo implements MessageRepository {
       const nextDelivered = sortUnique([...target.deliveredUserIds, params.userId]);
       if (nextDelivered.length !== target.deliveredUserIds.length) {
         target.deliveredUserIds = nextDelivered;
+        target.deliveredUsers = toReceiptUsers(nextDelivered);
         changed = true;
       }
 
       const nextRead = sortUnique([...target.readUserIds, params.userId]);
       if (nextRead.length !== target.readUserIds.length) {
         target.readUserIds = nextRead;
+        target.readUsers = toReceiptUsers(nextRead);
         changed = true;
       }
     }

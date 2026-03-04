@@ -56,6 +56,16 @@ export interface Message {
   }>;
   deliveredUserIds: string[];
   readUserIds: string[];
+  deliveredUsers?: Array<{
+    id: string;
+    username: string;
+    avatarUrl?: string | null;
+  }>;
+  readUsers?: Array<{
+    id: string;
+    username: string;
+    avatarUrl?: string | null;
+  }>;
   createdAt: string;
   optimistic?: boolean;
   failed?: boolean;

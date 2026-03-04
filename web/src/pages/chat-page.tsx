@@ -1232,6 +1232,59 @@ export function ChatPage() {
     }
     ws.sendPresence(normalizedState);
   };
+  const knownUsersById = useMemo(() => {
+    const map: Record<
+      string,
+      {
+        id: string;
+        username: string;
+        avatarUrl?: string | null;
+      }
+    > = {};
+    const upsert = (user: { id?: string; username?: string; avatarUrl?: string | null } | null | undefined) => {
+      if (!user?.id || !user.username) {
+        return;
+      }
+      map[user.id] = {
+        id: user.id,
+        username: user.username,
+        avatarUrl: user.avatarUrl,
+      };
+    };
+
+    upsert(auth.user);
+    for (const user of onlineUsers) {
+      upsert(user);
+    }
+    for (const message of messages) {
+      upsert(message.user);
+      for (const readUser of message.readUsers ?? []) {
+        upsert(readUser);
+      }
+    }
+    for (const friend of friends) {
+      upsert(friend.user);
+    }
+    for (const request of incomingRequests) {
+      upsert(request.from);
+      upsert(request.to);
+    }
+    for (const request of outgoingRequests) {
+      upsert(request.from);
+      upsert(request.to);
+    }
+    for (const participants of Object.values(voiceParticipantsByChannel)) {
+      for (const participant of participants) {
+        upsert({
+          id: participant.userId,
+          username: participant.username,
+          avatarUrl: participant.avatarUrl,
+        });
+      }
+    }
+
+    return map;
+  }, [auth.user, onlineUsers, messages, friends, incomingRequests, outgoingRequests, voiceParticipantsByChannel]);
 
   return (
     <ChatPageShell
@@ -1367,6 +1420,7 @@ export function ChatPage() {
         messages: filteredMessages,
         wsConnected: ws.connected,
         currentUserId: auth.user.id,
+        knownUsersById,
         use24HourClock: preferences.use24HourClock,
         showSeconds: preferences.showSeconds,
         reducedMotion: preferences.reducedMotion,
