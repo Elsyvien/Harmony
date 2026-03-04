@@ -721,16 +721,9 @@ body.theme-light .profile-body {
   background-color: rgba(255, 255, 255, 0.03);
 }
 
-/* 3. Brutalist Active State: Invert/High-contrast */
+/* Pressed state for touch/click without forcing high-contrast inversion */
 .message-item:active {
-  background-color: var(--text-header);
-  filter: invert(1);
-}
-
-.message-item:active .message-author,
-.message-item:active .message-content p,
-.message-item:active .message-content time {
-  color: black;
+  background-color: rgba(255, 255, 255, 0.08);
 }
 
 body.compact-chat .message-item {
