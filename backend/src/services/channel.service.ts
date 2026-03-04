@@ -2,12 +2,14 @@ import { Prisma } from '@prisma/client';
 import type { ChannelWithMembers, ChannelRepository } from '../repositories/channel.repository.js';
 import type { FriendshipRepository } from '../repositories/friendship.repository.js';
 import type { UserRepository } from '../repositories/user.repository.js';
+import type { ServerService } from './server.service.js';
 import { AppError } from '../utils/app-error.js';
 
 export interface ChannelSummary {
   id: string;
   name: string;
   createdAt: Date;
+  serverId: string | null;
   isDirect: boolean;
   isVoice: boolean;
   voiceBitrateKbps: number | null;
@@ -38,6 +40,7 @@ export class ChannelService {
     private readonly channelRepo: ChannelRepository,
     private readonly userRepo: UserRepository,
     private readonly friendshipRepo: FriendshipRepository,
+    private readonly serverService: ServerService,
   ) {}
 
   private toSummary(channel: ChannelWithMembers, viewerUserId: string): ChannelSummary {
@@ -46,6 +49,7 @@ export class ChannelService {
         id: channel.id,
         name: channel.name,
         createdAt: channel.createdAt,
+        serverId: channel.serverId,
         isDirect: false,
         isVoice: channel.type === 'VOICE',
         voiceBitrateKbps:
@@ -61,6 +65,7 @@ export class ChannelService {
       id: channel.id,
       name: channel.name,
       createdAt: channel.createdAt,
+      serverId: null,
       isDirect: true,
       isVoice: false,
       voiceBitrateKbps: null,
@@ -74,8 +79,8 @@ export class ChannelService {
     };
   }
 
-  async ensureDefaultChannel() {
-    await this.channelRepo.ensurePublicByName('global');
+  async ensureDefaultChannel(preferredOwnerUserId?: string) {
+    await this.serverService.bootstrapDefaultServer(preferredOwnerUserId);
   }
 
   async listChannels(userId: string): Promise<ChannelSummary[]> {
@@ -83,20 +88,34 @@ export class ChannelService {
     return channels.map((channel) => this.toSummary(channel, userId));
   }
 
-  async createChannel(name: string, type: 'TEXT' | 'VOICE' = 'TEXT') {
-    const normalizedName = name.trim().toLowerCase();
-    const existing = await this.channelRepo.findByName(normalizedName);
+  async listServerChannels(serverId: string, userId: string): Promise<ChannelSummary[]> {
+    await this.serverService.getServerForUser(serverId, userId);
+    const channels = await this.channelRepo.listByServerForUser(serverId, userId);
+    return channels.map((channel) => this.toSummary(channel, userId));
+  }
+
+  async createChannel(input: {
+    name: string;
+    type?: 'TEXT' | 'VOICE';
+    actorUserId: string;
+    serverId?: string;
+  }) {
+    const normalizedName = input.name.trim().toLowerCase();
+    const serverId = input.serverId ?? (await this.serverService.ensureDefaultServerForUser(input.actorUserId));
+    await this.serverService.assertCanManageServer(serverId, input.actorUserId);
+
+    const existing = await this.channelRepo.findByNameInServer({ serverId, name: normalizedName });
     if (existing) {
       throw new AppError('CHANNEL_EXISTS', 409, 'Channel already exists');
     }
     const created =
-      type === 'VOICE'
-        ? await this.channelRepo.createVoice({ name: normalizedName })
-        : await this.channelRepo.createPublic({ name: normalizedName });
-    return this.toSummary(created, '');
+      input.type === 'VOICE'
+        ? await this.channelRepo.createVoice({ name: normalizedName, serverId })
+        : await this.channelRepo.createPublic({ name: normalizedName, serverId });
+    return this.toSummary(created, input.actorUserId);
   }
 
-  async deleteChannel(channelId: string) {
+  async deleteChannel(channelId: string, actorUserId: string) {
     const channel = await this.channelRepo.findById(channelId);
     if (!channel) {
       throw new AppError('CHANNEL_NOT_FOUND', 404, 'Channel not found');
@@ -104,12 +123,13 @@ export class ChannelService {
     if (channel.type === 'DIRECT') {
       throw new AppError('CHANNEL_DELETE_FORBIDDEN', 400, 'Direct channels cannot be deleted');
     }
-    if (channel.type === 'PUBLIC' && channel.name === 'global') {
-      throw new AppError('CHANNEL_DELETE_FORBIDDEN', 400, 'The global channel cannot be deleted');
+    if (!channel.serverId) {
+      throw new AppError('CHANNEL_DELETE_FORBIDDEN', 400, 'Server-scoped channel is required');
     }
+    await this.serverService.assertCanManageServer(channel.serverId, actorUserId);
 
     if (channel.type === 'PUBLIC') {
-      const publicChannels = await this.channelRepo.countPublicChannels();
+      const publicChannels = await this.channelRepo.countPublicChannels(channel.serverId);
       if (publicChannels <= 1) {
         throw new AppError('CHANNEL_DELETE_FORBIDDEN', 400, 'At least one public channel must remain');
       }
@@ -121,6 +141,7 @@ export class ChannelService {
 
   async updateVoiceChannelSettings(
     channelId: string,
+    actorUserId: string,
     input: { voiceBitrateKbps?: number; streamBitrateKbps?: number },
   ) {
     const channel = await this.channelRepo.findById(channelId);
@@ -130,17 +151,21 @@ export class ChannelService {
     if (channel.type !== 'VOICE') {
       throw new AppError('INVALID_VOICE_CHANNEL', 400, 'Channel is not a voice channel');
     }
+    if (!channel.serverId) {
+      throw new AppError('INVALID_VOICE_CHANNEL', 400, 'Direct channels do not support voice settings');
+    }
+    await this.serverService.assertCanManageServer(channel.serverId, actorUserId);
 
     const updated = await this.channelRepo.updateVoiceSettings({
       id: channelId,
       voiceBitrateKbps: input.voiceBitrateKbps,
       streamBitrateKbps: input.streamBitrateKbps,
     });
-    return this.toSummary(updated, '');
+    return this.toSummary(updated, actorUserId);
   }
 
-  async updateVoiceChannelBitrate(channelId: string, voiceBitrateKbps: number) {
-    return this.updateVoiceChannelSettings(channelId, { voiceBitrateKbps });
+  async updateVoiceChannelBitrate(channelId: string, actorUserId: string, voiceBitrateKbps: number) {
+    return this.updateVoiceChannelSettings(channelId, actorUserId, { voiceBitrateKbps });
   }
 
   async ensureChannelExists(channelId: string) {

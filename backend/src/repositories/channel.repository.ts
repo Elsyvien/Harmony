@@ -9,25 +9,33 @@ interface ChannelMemberPreview {
   };
 }
 
+interface ChannelServerPreview {
+  id: string;
+  name: string;
+}
+
 export interface ChannelWithMembers extends Channel {
   members: ChannelMemberPreview[];
+  server: ChannelServerPreview | null;
 }
 
 export interface ChannelRepository {
   listForUser(userId: string): Promise<ChannelWithMembers[]>;
+  listByServerForUser(serverId: string, userId: string): Promise<ChannelWithMembers[]>;
   findById(id: string): Promise<ChannelWithMembers | null>;
   findByIdForUser(id: string, userId: string): Promise<ChannelWithMembers | null>;
-  findByName(name: string): Promise<ChannelWithMembers | null>;
-  countPublicChannels(): Promise<number>;
+  findByNameInServer(params: { serverId: string; name: string }): Promise<ChannelWithMembers | null>;
+  countPublicChannels(serverId: string): Promise<number>;
   deleteById(id: string): Promise<void>;
-  createPublic(params: { name: string }): Promise<ChannelWithMembers>;
-  createVoice(params: { name: string }): Promise<ChannelWithMembers>;
+  createPublic(params: { name: string; serverId: string }): Promise<ChannelWithMembers>;
+  createVoice(params: { name: string; serverId: string }): Promise<ChannelWithMembers>;
   updateVoiceSettings(params: {
     id: string;
     voiceBitrateKbps?: number;
     streamBitrateKbps?: number;
   }): Promise<ChannelWithMembers>;
-  ensurePublicByName(name: string): Promise<ChannelWithMembers>;
+  ensurePublicByName(params: { name: string; serverId: string }): Promise<ChannelWithMembers>;
+  attachLegacyChannelsToServer(serverId: string): Promise<number>;
   findDirectByDmKey(dmKey: string): Promise<ChannelWithMembers | null>;
   createDirect(params: {
     name: string;
@@ -37,6 +45,12 @@ export interface ChannelRepository {
 }
 
 const includeMembers = {
+  server: {
+    select: {
+      id: true,
+      name: true,
+    },
+  },
   members: {
     select: {
       userId: true,
@@ -54,9 +68,27 @@ export class PrismaChannelRepository implements ChannelRepository {
   listForUser(userId: string) {
     return prisma.channel.findMany({
       where: {
-        OR: [{ type: { in: ['PUBLIC', 'VOICE'] } }, { members: { some: { userId } } }],
+        OR: [
+          { type: 'DIRECT', members: { some: { userId } } },
+          {
+            type: { in: ['PUBLIC', 'VOICE'] },
+            server: { members: { some: { userId } } },
+          },
+        ],
       },
-      orderBy: { createdAt: 'asc' },
+      orderBy: [{ createdAt: 'asc' }],
+      include: includeMembers,
+    });
+  }
+
+  listByServerForUser(serverId: string, userId: string) {
+    return prisma.channel.findMany({
+      where: {
+        serverId,
+        type: { in: ['PUBLIC', 'VOICE'] },
+        server: { members: { some: { userId } } },
+      },
+      orderBy: [{ createdAt: 'asc' }],
       include: includeMembers,
     });
   }
@@ -72,22 +104,34 @@ export class PrismaChannelRepository implements ChannelRepository {
     return prisma.channel.findFirst({
       where: {
         id,
-        OR: [{ type: { in: ['PUBLIC', 'VOICE'] } }, { members: { some: { userId } } }],
+        OR: [
+          { type: 'DIRECT', members: { some: { userId } } },
+          {
+            type: { in: ['PUBLIC', 'VOICE'] },
+            server: { members: { some: { userId } } },
+          },
+        ],
       },
       include: includeMembers,
     });
   }
 
-  findByName(name: string) {
-    return prisma.channel.findUnique({
-      where: { name },
+  findByNameInServer(params: { serverId: string; name: string }) {
+    return prisma.channel.findFirst({
+      where: {
+        serverId: params.serverId,
+        name: params.name,
+      },
       include: includeMembers,
     });
   }
 
-  countPublicChannels() {
+  countPublicChannels(serverId: string) {
     return prisma.channel.count({
-      where: { type: 'PUBLIC' },
+      where: {
+        serverId,
+        type: 'PUBLIC',
+      },
     });
   }
 
@@ -97,11 +141,12 @@ export class PrismaChannelRepository implements ChannelRepository {
     });
   }
 
-  createPublic(params: { name: string }) {
+  createPublic(params: { name: string; serverId: string }) {
     return prisma.channel.create({
       data: {
         name: params.name,
         type: 'PUBLIC',
+        serverId: params.serverId,
         voiceBitrateKbps: null,
         streamBitrateKbps: null,
       },
@@ -109,11 +154,12 @@ export class PrismaChannelRepository implements ChannelRepository {
     });
   }
 
-  createVoice(params: { name: string }) {
+  createVoice(params: { name: string; serverId: string }) {
     return prisma.channel.create({
       data: {
         name: params.name,
         type: 'VOICE',
+        serverId: params.serverId,
         voiceBitrateKbps: 64,
         streamBitrateKbps: 2500,
       },
@@ -136,23 +182,55 @@ export class PrismaChannelRepository implements ChannelRepository {
     });
   }
 
-  ensurePublicByName(name: string) {
-    return prisma.channel.upsert({
-      where: { name },
-      update: {
-        type: 'PUBLIC',
-        dmKey: null,
-        voiceBitrateKbps: null,
-        streamBitrateKbps: null,
+  async ensurePublicByName(params: { name: string; serverId: string }) {
+    const existing = await prisma.channel.findFirst({
+      where: {
+        serverId: params.serverId,
+        name: params.name,
       },
-      create: {
-        name,
+      include: includeMembers,
+    });
+    if (existing) {
+      if (existing.type !== 'PUBLIC') {
+        return prisma.channel.update({
+          where: { id: existing.id },
+          data: {
+            type: 'PUBLIC',
+            dmKey: null,
+            voiceBitrateKbps: null,
+            streamBitrateKbps: null,
+          },
+          include: includeMembers,
+        });
+      }
+      return existing;
+    }
+
+    return prisma.channel.create({
+      data: {
+        serverId: params.serverId,
+        name: params.name,
         type: 'PUBLIC',
         voiceBitrateKbps: null,
         streamBitrateKbps: null,
       },
       include: includeMembers,
     });
+  }
+
+  async attachLegacyChannelsToServer(serverId: string) {
+    const updated = await prisma.channel.updateMany({
+      where: {
+        serverId: null,
+        type: {
+          in: ['PUBLIC', 'VOICE'],
+        },
+      },
+      data: {
+        serverId,
+      },
+    });
+    return updated.count;
   }
 
   findDirectByDmKey(dmKey: string) {
@@ -169,6 +247,7 @@ export class PrismaChannelRepository implements ChannelRepository {
           name: params.name,
           type: 'DIRECT',
           dmKey: params.dmKey,
+          serverId: null,
           voiceBitrateKbps: null,
           streamBitrateKbps: null,
         },

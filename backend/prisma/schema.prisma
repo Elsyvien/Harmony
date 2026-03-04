@@ -25,6 +25,19 @@ enum ChannelType {
   DIRECT
 }
 
+enum ServerVisibility {
+  INVITE_ONLY
+  PUBLIC
+}
+
+enum ModerationActionType {
+  WARN
+  TIMEOUT
+  KICK
+  BAN
+  UNBAN
+}
+
 model User {
   id             String    @id @default(uuid())
   username       String    @unique
@@ -44,19 +57,31 @@ model User {
   friendshipsA     Friendship[] @relation("UserA")
   friendshipsB     Friendship[] @relation("UserB")
   friendRequests   Friendship[] @relation("RequestedBy")
+  ownedServers     Server[] @relation("ServerOwner")
+  serverMemberships ServerMember[]
+  createdInvites   ServerInvite[] @relation("ServerInviteCreator")
+  moderationActionsAuthored ModerationAction[] @relation("ModerationActionActor")
+  moderationActionsTargeted ModerationAction[] @relation("ModerationActionTarget")
+  auditLogsAuthored AuditLog[] @relation("AuditLogActor")
+  auditLogsTargeted AuditLog[] @relation("AuditLogTarget")
 }
 
 model Channel {
   id                String      @id @default(uuid())
-  name              String      @unique
+  name              String
   type              ChannelType @default(PUBLIC)
   dmKey             String?     @unique
+  serverId          String?
   voiceBitrateKbps  Int?
   streamBitrateKbps Int?
   createdAt         DateTime    @default(now())
 
+  server   Server? @relation(fields: [serverId], references: [id], onDelete: Cascade)
   members  ChannelMember[]
   messages Message[]
+
+  @@unique([serverId, name])
+  @@index([serverId, type])
 }
 
 model ChannelMember {
@@ -151,6 +176,103 @@ model Friendship {
   requestedBy   User             @relation("RequestedBy", fields: [requestedById], references: [id], onDelete: Cascade)
 
   @@unique([userAId, userBId])
+}
+
+model Server {
+  id          String           @id @default(uuid())
+  slug        String           @unique
+  name        String
+  description String?
+  iconUrl     String?
+  tags        String[]         @default([])
+  visibility  ServerVisibility @default(INVITE_ONLY)
+  createdAt   DateTime         @default(now())
+  updatedAt   DateTime         @updatedAt
+
+  ownerId String
+  owner   User @relation("ServerOwner", fields: [ownerId], references: [id], onDelete: Cascade)
+
+  members           ServerMember[]
+  channels          Channel[]
+  invites           ServerInvite[]
+  moderationActions ModerationAction[]
+  auditLogs         AuditLog[]
+}
+
+model ServerMember {
+  id        String   @id @default(uuid())
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  role UserRole @default(MEMBER)
+
+  serverId String
+  server   Server @relation(fields: [serverId], references: [id], onDelete: Cascade)
+
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([serverId, userId])
+  @@index([userId])
+  @@index([serverId, role])
+}
+
+model ServerInvite {
+  id        String   @id @default(uuid())
+  code      String   @unique
+  createdAt DateTime @default(now())
+  expiresAt DateTime?
+  maxUses   Int?
+  usesCount Int      @default(0)
+  revokedAt DateTime?
+
+  serverId String
+  server   Server @relation(fields: [serverId], references: [id], onDelete: Cascade)
+
+  createdById String
+  createdBy   User   @relation("ServerInviteCreator", fields: [createdById], references: [id], onDelete: Cascade)
+
+  @@index([serverId, revokedAt])
+  @@index([expiresAt])
+}
+
+model ModerationAction {
+  id        String               @id @default(uuid())
+  type      ModerationActionType
+  reason    String?
+  createdAt DateTime             @default(now())
+  expiresAt DateTime?
+
+  serverId String
+  server   Server @relation(fields: [serverId], references: [id], onDelete: Cascade)
+
+  actorId String
+  actor   User   @relation("ModerationActionActor", fields: [actorId], references: [id], onDelete: Cascade)
+
+  targetUserId String
+  targetUser   User   @relation("ModerationActionTarget", fields: [targetUserId], references: [id], onDelete: Cascade)
+
+  @@index([serverId, createdAt])
+  @@index([targetUserId, createdAt])
+}
+
+model AuditLog {
+  id        String   @id @default(uuid())
+  action    String
+  metadata  Json?
+  createdAt DateTime @default(now())
+
+  serverId String
+  server   Server @relation(fields: [serverId], references: [id], onDelete: Cascade)
+
+  actorId String?
+  actor   User?   @relation("AuditLogActor", fields: [actorId], references: [id], onDelete: SetNull)
+
+  targetUserId String?
+  targetUser   User?   @relation("AuditLogTarget", fields: [targetUserId], references: [id], onDelete: SetNull)
+
+  @@index([serverId, createdAt])
+  @@index([targetUserId, createdAt])
 }
 
 model AppSettings {

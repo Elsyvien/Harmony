@@ -7,7 +7,7 @@ async function seed() {
   // Create admin user
   const hashedPassword = await bcryptjs.hash('max123456', 10);
 
-  await prisma.user.upsert({
+  const owner = await prisma.user.upsert({
     where: { email: 'max@staneker.com' },
     update: {
       role: 'OWNER',
@@ -52,12 +52,67 @@ async function seed() {
     create: { id: 'global' },
   });
 
-  // Create default channel
-  await prisma.channel.upsert({
-    where: { name: 'global' },
-    update: {},
-    create: { name: 'global' },
+  const defaultServer = await prisma.server.upsert({
+    where: { slug: 'harmony-default' },
+    update: {
+      ownerId: owner.id,
+      visibility: 'INVITE_ONLY',
+    },
+    create: {
+      name: 'Harmony',
+      slug: 'harmony-default',
+      ownerId: owner.id,
+      visibility: 'INVITE_ONLY',
+    },
   });
+
+  const users = await prisma.user.findMany({
+    select: {
+      id: true,
+      role: true,
+    },
+  });
+  if (users.length > 0) {
+    await prisma.serverMember.createMany({
+      data: users.map((user) => ({
+        serverId: defaultServer.id,
+        userId: user.id,
+        role: user.role === 'OWNER' || user.role === 'ADMIN' ? user.role : 'MEMBER',
+      })),
+      skipDuplicates: true,
+    });
+  }
+
+  // Backfill legacy public/voice channels into the default server.
+  await prisma.channel.updateMany({
+    where: {
+      serverId: null,
+      type: {
+        in: ['PUBLIC', 'VOICE'],
+      },
+    },
+    data: {
+      serverId: defaultServer.id,
+    },
+  });
+
+  const existingGlobal = await prisma.channel.findFirst({
+    where: {
+      serverId: defaultServer.id,
+      name: 'global',
+      type: 'PUBLIC',
+    },
+    select: { id: true },
+  });
+  if (!existingGlobal) {
+    await prisma.channel.create({
+      data: {
+        serverId: defaultServer.id,
+        name: 'global',
+        type: 'PUBLIC',
+      },
+    });
+  }
 }
 
 seed()
