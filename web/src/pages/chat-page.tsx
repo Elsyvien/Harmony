@@ -532,9 +532,6 @@ export function ChatPage() {
       if (!auth.token || !auth.user || activeView !== 'chat') {
         return;
       }
-      if (document.hidden) {
-        return;
-      }
       const lastMarkedMessageId = lastReadMessageIdByChannelRef.current.get(channelId);
       if (lastMarkedMessageId === upToMessageId) {
         return;
@@ -601,7 +598,22 @@ export function ChatPage() {
       if (message.channelId !== activeChannelId) {
         return;
       }
-      setMessages((prev) => reconcileIncomingMessage(prev, message));
+      setMessages((prev) => {
+        const withIncoming = reconcileIncomingMessage(prev, message);
+        if (isOwnMessage) {
+          return withIncoming;
+        }
+        // Fallback: if a user can post in the channel, treat previous messages as read by them.
+        return applyReceiptProgress(
+          withIncoming,
+          {
+            channelId: message.channelId,
+            userId: message.userId,
+            upToMessageId: message.id,
+          },
+          'read',
+        );
+      });
       if (!isOwnMessage && isViewedChannel && !activeChannel?.isVoice) {
         void markChannelAsReadUpTo(message.channelId, message.id);
       }
