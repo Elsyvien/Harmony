@@ -107,6 +107,8 @@ describe('avatar display integration', () => {
         replyToMessageId: null,
         replyTo: null,
         reactions: [],
+        deliveredUserIds: ['user-1'],
+        readUserIds: ['user-1'],
         createdAt: '2026-01-01T00:00:00.000Z',
         user: {
           id: 'user-1',
@@ -131,4 +133,52 @@ describe('avatar display integration', () => {
     expect(avatar).toBeInTheDocument();
     expect(avatar).toHaveAttribute('src', 'http://localhost:4000/uploads/avatars/alice.png');
   });
+
+  it('shows read-receipt avatars for own messages', () => {
+    const messages: Message[] = [
+      {
+        id: 'message-read-receipt',
+        channelId: 'channel-1',
+        userId: 'user-1',
+        content: 'seen message',
+        attachment: null,
+        editedAt: null,
+        deletedAt: null,
+        replyToMessageId: null,
+        replyTo: null,
+        reactions: [],
+        deliveredUserIds: ['user-1', 'user-2'],
+        readUserIds: ['user-1', 'user-2'],
+        readUsers: [
+          {
+            id: 'user-2',
+            username: 'bob',
+            avatarUrl: '/uploads/avatars/bob.png',
+          },
+        ],
+        createdAt: '2026-01-01T00:00:00.000Z',
+        user: {
+          id: 'user-1',
+          username: 'alice',
+        },
+      },
+    ];
+
+    render(
+      <ChatView
+        activeChannelId="channel-1"
+        messages={messages}
+        loading={false}
+        wsConnected
+        currentUserId="user-1"
+        onLoadOlder={async () => {}}
+      />,
+    );
+
+    expect(screen.getByText('Read')).toBeInTheDocument();
+    const receiptAvatar = screen.getByRole('img', { name: 'bob' });
+    expect(receiptAvatar).toHaveAttribute('src', 'http://localhost:4000/uploads/avatars/bob.png');
+  });
 });
+
+

@@ -39,6 +39,10 @@ export const updateMessageBodySchema = z.object({
   content: z.string().trim().min(1).max(2000),
 });
 
+export const markChannelReadBodySchema = z.object({
+  upToMessageId: z.string().uuid().optional(),
+});
+
 export const toggleReactionBodySchema = z.object({
   emoji: z.string().trim().min(1).max(32),
 });

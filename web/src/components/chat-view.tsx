@@ -23,7 +23,16 @@ interface ChatViewProps {
   onToggleReaction?: (messageId: string, emoji: string) => Promise<void> | void;
   onEditMessage?: (messageId: string, content: string) => Promise<void> | void;
   onDeleteMessage?: (messageId: string) => Promise<void> | void;
+  onRetryMessage?: (messageId: string) => Promise<void> | void;
   canManageAllMessages?: boolean;
+  knownUsersById?: Record<
+    string,
+    {
+      id: string;
+      username: string;
+      avatarUrl?: string | null;
+    }
+  >;
 }
 
 function stringToColor(str: string) {
@@ -294,6 +303,41 @@ export function ChatView(props: ChatViewProps) {
           (() => {
             const previousMessage = props.messages[index - 1];
             const isSameUser = previousMessage && previousMessage.userId === message.userId;
+            const messageReactions = Array.isArray(message.reactions) ? message.reactions : [];
+            const deliveredUserIds = Array.isArray(message.deliveredUserIds)
+              ? message.deliveredUserIds
+              : [];
+            const readUserIds = Array.isArray(message.readUserIds) ? message.readUserIds : [];
+            const readUsers = Array.isArray(message.readUsers) ? message.readUsers : [];
+            const readReceiptUsersById = new Map<
+              string,
+              { id: string; username: string; avatarUrl?: string | null }
+            >();
+            for (const user of readUsers) {
+              if (!user || typeof user.id !== 'string') {
+                continue;
+              }
+              if (user.id === message.userId) {
+                continue;
+              }
+              readReceiptUsersById.set(user.id, {
+                id: user.id,
+                username: user.username || user.id.slice(0, 4),
+                avatarUrl: user.avatarUrl,
+              });
+            }
+            for (const userId of readUserIds) {
+              if (userId === message.userId || readReceiptUsersById.has(userId)) {
+                continue;
+              }
+              const knownUser = props.knownUsersById?.[userId];
+              readReceiptUsersById.set(userId, {
+                id: userId,
+                username: knownUser?.username || userId.slice(0, 4),
+                avatarUrl: knownUser?.avatarUrl,
+              });
+            }
+            const readReceiptUsers = Array.from(readReceiptUsersById.values());
             
             // Check if messages were sent within 5 minutes of each other
             const timeDiff = previousMessage 
@@ -307,7 +351,21 @@ export function ChatView(props: ChatViewProps) {
             const isImageAttachment = Boolean(
               message.attachment?.type?.toLowerCase().startsWith('image/') && attachmentUrl,
             );
-            const hasReactions = message.reactions.length > 0;
+            const hasReactions = messageReactions.length > 0;
+            const canRetryMessage =
+              message.failed &&
+              !message.deletedAt &&
+              Boolean(props.onRetryMessage) &&
+              (!props.currentUserId || props.currentUserId === message.userId);
+            const isOwnMessage = Boolean(props.currentUserId && props.currentUserId === message.userId);
+            const deliveredRecipientCount = isOwnMessage
+              ? deliveredUserIds.filter((userId) => userId !== message.userId).length
+              : 0;
+            const readRecipientCount = isOwnMessage
+              ? readUserIds.filter((userId) => userId !== message.userId).length
+              : 0;
+            const receiptLabel =
+              readRecipientCount > 0 ? 'Read' : deliveredRecipientCount > 0 ? 'Delivered' : 'Sent';
 
             return (
               <article
@@ -366,6 +424,72 @@ export function ChatView(props: ChatViewProps) {
                     <time>{formatMessageTime(message.createdAt)}</time>
                     {message.optimistic ? <span className="pending-tag">Sending...</span> : null}
                     {message.failed ? <span className="pending-tag failed">Failed</span> : null}
+                    {message.failed ? (
+                      <button
+                        type="button"
+                        className="pending-tag retry-action"
+                        disabled={!canRetryMessage}
+                        onClick={() => {
+                          if (!canRetryMessage || !props.onRetryMessage) {
+                            return;
+                          }
+                          void props.onRetryMessage(message.id);
+                        }}
+                      >
+                        Retry
+                      </button>
+                    ) : null}
+                    {isOwnMessage && !message.optimistic && !message.failed && !message.deletedAt ? (
+                      <span
+                        className={`pending-tag receipt${readRecipientCount > 0 ? ' read' : ''}`}
+                        title={
+                          readRecipientCount > 0
+                            ? `Read by ${readRecipientCount}`
+                            : deliveredRecipientCount > 0
+                              ? `Delivered to ${deliveredRecipientCount}`
+                              : 'Sent'
+                        }
+                      >
+                        {receiptLabel}
+                      </span>
+                    ) : null}
+                    {isOwnMessage &&
+                    !message.optimistic &&
+                    !message.failed &&
+                    !message.deletedAt &&
+                    readReceiptUsers.length > 0 ? (
+                      <span
+                        className="receipt-readers"
+                        title={`Read by ${readReceiptUsers.map((user) => user.username).join(', ')}`}
+                      >
+                        {readReceiptUsers.slice(0, 4).map((user) => {
+                          const receiptAvatarUrl = resolveMediaUrl(user.avatarUrl);
+                          return (
+                            <span
+                              key={`${message.id}:read:${user.id}`}
+                              className="receipt-reader-avatar"
+                              style={{
+                                backgroundColor: receiptAvatarUrl ? 'transparent' : stringToColor(user.username),
+                              }}
+                              aria-label={user.username}
+                            >
+                              {receiptAvatarUrl ? (
+                                <img
+                                  crossOrigin="anonymous"
+                                  src={receiptAvatarUrl}
+                                  alt={user.username}
+                                />
+                              ) : (
+                                user.username.slice(0, 1).toUpperCase()
+                              )}
+                            </span>
+                          );
+                        })}
+                        {readReceiptUsers.length > 4 ? (
+                          <small className="receipt-reader-more">+{readReceiptUsers.length - 4}</small>
+                        ) : null}
+                      </span>
+                    ) : null}
                   </header>
                   {message.replyTo ? (
                     <div className="message-reply-preview">
@@ -400,9 +524,10 @@ export function ChatView(props: ChatViewProps) {
                   ) : null}
                   {hasReactions ? (
                     <div className="message-reactions">
-                      {message.reactions.map((reaction) => {
+                      {messageReactions.map((reaction) => {
+                        const reactionUserIds = Array.isArray(reaction.userIds) ? reaction.userIds : [];
                         const reactedByCurrentUser = props.currentUserId
-                          ? reaction.userIds.includes(props.currentUserId)
+                          ? reactionUserIds.includes(props.currentUserId)
                           : false;
                         return (
                           <button
@@ -419,7 +544,7 @@ export function ChatView(props: ChatViewProps) {
                             title={`React with ${reaction.emoji}`}
                           >
                             <span>{reaction.emoji}</span>
-                            <small>{reaction.userIds.length}</small>
+                            <small>{reactionUserIds.length}</small>
                           </button>
                         );
                       })}
@@ -536,6 +661,11 @@ export function ChatView(props: ChatViewProps) {
             Boolean(props.onEditMessage) &&
             Boolean(messageMenu.message.content);
           const canDeleteMessage = canManageMessage && !messageMenu.message.deletedAt && Boolean(props.onDeleteMessage);
+          const canRetryMessage =
+            Boolean(props.onRetryMessage) &&
+            Boolean(messageMenu.message.failed) &&
+            !messageMenu.message.deletedAt &&
+            (!props.currentUserId || props.currentUserId === messageMenu.message.userId);
           return (
             <div
               className="message-context-menu"
@@ -567,6 +697,18 @@ export function ChatView(props: ChatViewProps) {
                 disabled={!props.onReplyToMessage}
               >
                 Reply
+              </button>
+              <button
+                onClick={() => {
+                  if (!canRetryMessage || !props.onRetryMessage) {
+                    return;
+                  }
+                  void props.onRetryMessage(messageMenu.message.id);
+                  setMessageMenu(null);
+                }}
+                disabled={!canRetryMessage}
+              >
+                Retry Send
               </button>
               <button
                 onClick={() => {
@@ -652,3 +794,5 @@ export function ChatView(props: ChatViewProps) {
     </section>
   );
 }
+
+

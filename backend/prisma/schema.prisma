@@ -37,25 +37,26 @@ model User {
   createdAt      DateTime  @default(now())
   avatarUrl      String?
 
-  messages       Message[]
+  messages         Message[]
   messageReactions MessageReaction[]
-  channelMembers ChannelMember[]
-  friendshipsA   Friendship[] @relation("UserA")
-  friendshipsB   Friendship[] @relation("UserB")
-  friendRequests Friendship[] @relation("RequestedBy")
+  messageReceipts  MessageReceipt[]
+  channelMembers   ChannelMember[]
+  friendshipsA     Friendship[] @relation("UserA")
+  friendshipsB     Friendship[] @relation("UserB")
+  friendRequests   Friendship[] @relation("RequestedBy")
 }
 
 model Channel {
-  id               String      @id @default(uuid())
-  name             String      @unique
-  type             ChannelType @default(PUBLIC)
-  dmKey            String?     @unique
-  voiceBitrateKbps Int?
+  id                String      @id @default(uuid())
+  name              String      @unique
+  type              ChannelType @default(PUBLIC)
+  dmKey             String?     @unique
+  voiceBitrateKbps  Int?
   streamBitrateKbps Int?
-  createdAt        DateTime    @default(now())
+  createdAt         DateTime    @default(now())
 
-  members   ChannelMember[]
-  messages  Message[]
+  members  ChannelMember[]
+  messages Message[]
 }
 
 model ChannelMember {
@@ -65,34 +66,35 @@ model ChannelMember {
   channelId String
   channel   Channel  @relation(fields: [channelId], references: [id], onDelete: Cascade)
 
-  userId    String
-  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@unique([channelId, userId])
   @@index([userId])
 }
 
 model Message {
-  id        String   @id @default(uuid())
-  content   String
+  id             String   @id @default(uuid())
+  content        String
   attachmentUrl  String?
   attachmentName String?
   attachmentType String?
   attachmentSize Int?
-  editedAt  DateTime?
-  deletedAt DateTime?
+  editedAt       DateTime?
+  deletedAt      DateTime?
   replyToMessageId String?
-  createdAt DateTime @default(now())
+  createdAt      DateTime @default(now())
 
   channelId String
-  channel   Channel  @relation(fields: [channelId], references: [id], onDelete: Cascade)
+  channel   Channel @relation(fields: [channelId], references: [id], onDelete: Cascade)
 
-  userId    String
-  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
 
-  replyTo Message? @relation("MessageReplies", fields: [replyToMessageId], references: [id], onDelete: SetNull)
-  replies Message[] @relation("MessageReplies")
+  replyTo   Message?          @relation("MessageReplies", fields: [replyToMessageId], references: [id], onDelete: SetNull)
+  replies   Message[]         @relation("MessageReplies")
   reactions MessageReaction[]
+  receipts  MessageReceipt[]
 
   @@index([channelId, createdAt])
   @@index([replyToMessageId])
@@ -106,12 +108,30 @@ model MessageReaction {
   messageId String
   message   Message @relation(fields: [messageId], references: [id], onDelete: Cascade)
 
-  userId    String
-  user      User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userId String
+  user   User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@unique([messageId, userId, emoji])
   @@index([messageId])
   @@index([userId])
+}
+
+model MessageReceipt {
+  id          String   @id @default(uuid())
+  deliveredAt DateTime?
+  readAt      DateTime?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  messageId String
+  message   Message @relation(fields: [messageId], references: [id], onDelete: Cascade)
+
+  userId String
+  user   User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([messageId, userId])
+  @@index([userId, readAt])
+  @@index([userId, deliveredAt])
 }
 
 model Friendship {

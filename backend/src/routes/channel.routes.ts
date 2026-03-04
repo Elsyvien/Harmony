@@ -13,6 +13,7 @@ import {
   createMessageBodySchema,
   directChannelParamsSchema,
   listMessagesQuerySchema,
+  markChannelReadBodySchema,
   toggleReactionBodySchema,
   updateMessageBodySchema,
   updateVoiceSettingsBodySchema,
@@ -212,7 +213,59 @@ export const channelRoutes: FastifyPluginAsync<ChannelRoutesOptions> = async (fa
         before,
         limit: query.limit,
       });
+
+      const delivered = await options.messageService.markChannelDelivered({
+        channelId,
+        userId: request.user.userId,
+        upToMessageId: messages[messages.length - 1]?.id,
+      });
+      if (delivered.upToMessageId) {
+        fastify.wsGateway.broadcastMessageDelivered(channelId, {
+          channelId,
+          userId: request.user.userId,
+          upToMessageId: delivered.upToMessageId,
+          at: delivered.at.toISOString(),
+        });
+      }
+
       return { messages };
+    },
+  );
+
+  fastify.post(
+    '/channels/:id/read',
+    {
+      preHandler: [authPreHandler],
+      config: {
+        rateLimit: { max: 120, timeWindow: 60_000 },
+      },
+    },
+    async (request) => {
+      const { id: channelId } = channelIdParamsSchema.parse(request.params);
+      const body = markChannelReadBodySchema.parse(request.body ?? {});
+      const receipt = await options.messageService.markChannelRead({
+        channelId,
+        userId: request.user.userId,
+        upToMessageId: body.upToMessageId,
+      });
+
+      if (receipt.upToMessageId) {
+        fastify.wsGateway.broadcastMessageRead(channelId, {
+          channelId,
+          userId: request.user.userId,
+          upToMessageId: receipt.upToMessageId,
+          at: receipt.at.toISOString(),
+        });
+      }
+
+      return {
+        receipt: {
+          channelId,
+          userId: request.user.userId,
+          upToMessageId: receipt.upToMessageId,
+          at: receipt.at.toISOString(),
+        },
+      };
     },
   );
 
@@ -320,3 +373,8 @@ export const channelRoutes: FastifyPluginAsync<ChannelRoutesOptions> = async (fa
     },
   );
 };
+
+
+
+
+

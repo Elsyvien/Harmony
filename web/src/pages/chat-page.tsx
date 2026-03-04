@@ -9,6 +9,7 @@ import { useChatSocket } from '../hooks/use-chat-socket';
 import type { PresenceUser, RealtimeErrorPayload, VoiceParticipant } from '../hooks/use-chat-socket';
 import { useUserPreferences } from '../hooks/use-user-preferences';
 import {
+  applyReceiptProgress,
   messageSignature,
   reconcileIncomingMessage,
   useMessageLifecycleFeature,
@@ -204,6 +205,8 @@ export function ChatPage() {
     setOnlineUsers,
   });
   const previousIncomingRequestCountRef = useRef<number | null>(null);
+  const lastReadMessageIdByChannelRef = useRef(new Map<string, string>());
+  const markReadInFlightByChannelRef = useRef(new Set<string>());
   const pendingSignaturesRef = useRef(new Set<string>());
   const pendingTimeoutsRef = useRef(new Map<string, number>());
   const localScreenStreamRef = useRef<MediaStream | null>(null);
@@ -517,6 +520,54 @@ export function ChatPage() {
     logVoiceDebug,
   });
 
+  const applyMessageReceipt = useCallback(
+    (payload: { channelId: string; userId: string; upToMessageId: string }, kind: 'delivered' | 'read') => {
+      setMessages((prev) => applyReceiptProgress(prev, payload, kind));
+    },
+    [],
+  );
+
+  const markChannelAsReadUpTo = useCallback(
+    async (channelId: string, upToMessageId: string) => {
+      if (!auth.token || !auth.user || activeView !== 'chat') {
+        return;
+      }
+      const lastMarkedMessageId = lastReadMessageIdByChannelRef.current.get(channelId);
+      if (lastMarkedMessageId === upToMessageId) {
+        return;
+      }
+      if (markReadInFlightByChannelRef.current.has(channelId)) {
+        return;
+      }
+      markReadInFlightByChannelRef.current.add(channelId);
+
+      try {
+        const response = await chatApi.markChannelRead(auth.token, channelId, upToMessageId);
+        const confirmedUpToMessageId = response.receipt.upToMessageId;
+        if (!confirmedUpToMessageId) {
+          return;
+        }
+        lastReadMessageIdByChannelRef.current.set(channelId, confirmedUpToMessageId);
+        setMessages((prev) =>
+          applyReceiptProgress(
+            prev,
+            {
+              channelId,
+              userId: response.receipt.userId,
+              upToMessageId: confirmedUpToMessageId,
+            },
+            'read',
+          ),
+        );
+      } catch {
+        // Ignore read-receipt failures and retry on next state change.
+      } finally {
+        markReadInFlightByChannelRef.current.delete(channelId);
+      }
+    },
+    [auth.token, auth.user, activeView],
+  );
+
   const ws = useChatSocket({
     token: auth.token,
     subscribedChannelIds,
@@ -547,7 +598,25 @@ export function ChatPage() {
       if (message.channelId !== activeChannelId) {
         return;
       }
-      setMessages((prev) => reconcileIncomingMessage(prev, message));
+      setMessages((prev) => {
+        const withIncoming = reconcileIncomingMessage(prev, message);
+        if (isOwnMessage) {
+          return withIncoming;
+        }
+        // Fallback: if a user can post in the channel, treat previous messages as read by them.
+        return applyReceiptProgress(
+          withIncoming,
+          {
+            channelId: message.channelId,
+            userId: message.userId,
+            upToMessageId: message.id,
+          },
+          'read',
+        );
+      });
+      if (!isOwnMessage && isViewedChannel && !activeChannel?.isVoice) {
+        void markChannelAsReadUpTo(message.channelId, message.id);
+      }
     },
     onMessageUpdated: (message) => {
       if (message.channelId !== activeChannelId) {
@@ -577,6 +646,12 @@ export function ChatPage() {
       setMessages((prev) =>
         prev.map((item) => (item.id === payload.message.id ? payload.message : item)),
       );
+    },
+    onMessageDelivered: (payload) => {
+      applyMessageReceipt(payload, 'delivered');
+    },
+    onMessageRead: (payload) => {
+      applyMessageReceipt(payload, 'read');
     },
     onFriendEvent: () => {
       void loadFriendData();
@@ -811,6 +886,44 @@ export function ChatPage() {
     messageSearchInputRef,
   });
 
+  const markActiveChannelAsRead = useCallback(async () => {
+    if (!activeChannelId || activeChannel?.isVoice) {
+      return;
+    }
+
+    const latestPersisted = [...messages]
+      .reverse()
+      .find((message) => !message.id.startsWith('tmp-'));
+    if (!latestPersisted) {
+      return;
+    }
+
+    await markChannelAsReadUpTo(activeChannelId, latestPersisted.id);
+  }, [activeChannelId, activeChannel?.isVoice, messages, markChannelAsReadUpTo]);
+
+  useEffect(() => {
+    void markActiveChannelAsRead();
+  }, [markActiveChannelAsRead]);
+
+  useEffect(() => {
+    const handleVisibilityChange = () => {
+      if (document.hidden) {
+        return;
+      }
+      void markActiveChannelAsRead();
+    };
+    const handleFocus = () => {
+      void markActiveChannelAsRead();
+    };
+
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    window.addEventListener('focus', handleFocus);
+    return () => {
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+      window.removeEventListener('focus', handleFocus);
+    };
+  }, [markActiveChannelAsRead]);
+
   useEffect(() => {
     if (!ws.connected || !auth.user || !activeVoiceChannelId) {
       return;
@@ -967,6 +1080,8 @@ export function ChatPage() {
     reconnectVoiceIntentRef.current = null;
     setOnlineUsers([]);
     setUnreadChannelCounts({});
+    lastReadMessageIdByChannelRef.current.clear();
+    markReadInFlightByChannelRef.current.clear();
     setVoiceParticipantsByChannel({});
     resetVoiceSignalingState();
     setActiveVoiceChannelId(null);
@@ -1036,7 +1151,7 @@ export function ChatPage() {
     setError,
   });
 
-  const { editMessage, deleteMessage, sendMessage } = useMessageLifecycleFeature({
+  const { editMessage, deleteMessage, sendMessage, retryMessage } = useMessageLifecycleFeature({
     authToken: auth.token,
     authUser: auth.user ? { id: auth.user.id, username: auth.user.username } : null,
     activeChannelId,
@@ -1129,6 +1244,59 @@ export function ChatPage() {
     }
     ws.sendPresence(normalizedState);
   };
+  const knownUsersById = useMemo(() => {
+    const map: Record<
+      string,
+      {
+        id: string;
+        username: string;
+        avatarUrl?: string | null;
+      }
+    > = {};
+    const upsert = (user: { id?: string; username?: string; avatarUrl?: string | null } | null | undefined) => {
+      if (!user?.id || !user.username) {
+        return;
+      }
+      map[user.id] = {
+        id: user.id,
+        username: user.username,
+        avatarUrl: user.avatarUrl,
+      };
+    };
+
+    upsert(auth.user);
+    for (const user of onlineUsers) {
+      upsert(user);
+    }
+    for (const message of messages) {
+      upsert(message.user);
+      for (const readUser of message.readUsers ?? []) {
+        upsert(readUser);
+      }
+    }
+    for (const friend of friends) {
+      upsert(friend.user);
+    }
+    for (const request of incomingRequests) {
+      upsert(request.from);
+      upsert(request.to);
+    }
+    for (const request of outgoingRequests) {
+      upsert(request.from);
+      upsert(request.to);
+    }
+    for (const participants of Object.values(voiceParticipantsByChannel)) {
+      for (const participant of participants) {
+        upsert({
+          id: participant.userId,
+          username: participant.username,
+          avatarUrl: participant.avatarUrl,
+        });
+      }
+    }
+
+    return map;
+  }, [auth.user, onlineUsers, messages, friends, incomingRequests, outgoingRequests, voiceParticipantsByChannel]);
 
   return (
     <ChatPageShell
@@ -1264,6 +1432,7 @@ export function ChatPage() {
         messages: filteredMessages,
         wsConnected: ws.connected,
         currentUserId: auth.user.id,
+        knownUsersById,
         use24HourClock: preferences.use24HourClock,
         showSeconds: preferences.showSeconds,
         reducedMotion: preferences.reducedMotion,
@@ -1286,6 +1455,7 @@ export function ChatPage() {
         onToggleReaction: toggleMessageReaction,
         onEditMessage: editMessage,
         onDeleteMessage: deleteMessage,
+        onRetryMessage: retryMessage,
         canManageAllMessages: auth.user.isAdmin,
       }}
       composerProps={{
@@ -1513,3 +1683,14 @@ export function ChatPage() {
     </ChatPageShell>
   );
 }
+
+
+
+
+
+
+
+
+
+
+

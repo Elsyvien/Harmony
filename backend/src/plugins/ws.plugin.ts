@@ -214,19 +214,6 @@ const wsPluginImpl: FastifyPluginAsync<WsPluginOptions> = async (fastify, option
     }
   };
 
-  const broadcastVoiceStateAll = () => {
-    // Send full voice state snapshot to all connected users
-    for (const voiceState of voiceHandler.getAllVoiceStates()) {
-      const delivered = new Set<ClientContext>();
-      for (const subscribers of userSubscribers.values()) {
-        for (const client of subscribers) {
-          if (delivered.has(client)) continue;
-          send(client, 'voice:state', voiceState);
-          delivered.add(client);
-        }
-      }
-    }
-  };
 
   const sendVoiceStateSnapshot = (ctx: ClientContext) => {
     for (const voiceState of voiceHandler.getAllVoiceStates()) {
@@ -344,6 +331,26 @@ const wsPluginImpl: FastifyPluginAsync<WsPluginOptions> = async (fastify, option
       if (!subscribers) return;
       for (const client of subscribers) {
         send(client, 'message:reaction', { message, ...meta });
+      }
+    },
+    broadcastMessageDelivered: (
+      channelId: string,
+      payload: { channelId: string; userId: string; upToMessageId: string; at: string },
+    ) => {
+      const subscribers = channelSubscribers.get(channelId);
+      if (!subscribers) return;
+      for (const client of subscribers) {
+        send(client, 'message:delivered', payload);
+      }
+    },
+    broadcastMessageRead: (
+      channelId: string,
+      payload: { channelId: string; userId: string; upToMessageId: string; at: string },
+    ) => {
+      const subscribers = channelSubscribers.get(channelId);
+      if (!subscribers) return;
+      for (const client of subscribers) {
+        send(client, 'message:read', payload);
       }
     },
     notifyUsers: (userIds: string[], type: string, payload: unknown) => {
@@ -508,6 +515,19 @@ const wsPluginImpl: FastifyPluginAsync<WsPluginOptions> = async (fastify, option
           channelSubscribers.set(payload.channelId, subscribers);
           ctx.joinedChannels.add(payload.channelId);
           send(ctx, 'channel:joined', { channelId: payload.channelId });
+
+          const delivered = await options.messageService.markChannelDelivered({
+            channelId: payload.channelId,
+            userId: ctx.userId,
+          });
+          if (delivered.upToMessageId) {
+            fastify.wsGateway.broadcastMessageDelivered(payload.channelId, {
+              channelId: payload.channelId,
+              userId: ctx.userId,
+              upToMessageId: delivered.upToMessageId,
+              at: delivered.at.toISOString(),
+            });
+          }
           return;
         }
 
@@ -759,3 +779,6 @@ const wsPluginImpl: FastifyPluginAsync<WsPluginOptions> = async (fastify, option
 export const wsPlugin = fp(wsPluginImpl, {
   name: 'ws-plugin',
 });
+
+
+

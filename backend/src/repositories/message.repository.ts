@@ -6,6 +6,12 @@ export interface MessageReactionSummary {
   userIds: string[];
 }
 
+export interface MessageReceiptUserSummary {
+  id: string;
+  username: string;
+  avatarUrl: string | null;
+}
+
 export interface MessageReplyPreview {
   id: string;
   userId: string;
@@ -35,12 +41,22 @@ export interface MessageWithAuthor {
   replyToMessageId: string | null;
   replyTo: MessageReplyPreview | null;
   reactions: MessageReactionSummary[];
+  deliveredUserIds: string[];
+  readUserIds: string[];
+  deliveredUsers: MessageReceiptUserSummary[];
+  readUsers: MessageReceiptUserSummary[];
   createdAt: Date;
   user: {
     id: string;
     username: string;
     avatarUrl: string | null;
   };
+}
+
+export interface ChannelReceiptUpdateResult {
+  updated: boolean;
+  upToMessageId: string | null;
+  at: Date;
 }
 
 const messageInclude = {
@@ -73,9 +89,35 @@ const messageInclude = {
       userId: true,
     },
   },
+  receipts: {
+    select: {
+      userId: true,
+      deliveredAt: true,
+      readAt: true,
+      user: {
+        select: {
+          id: true,
+          username: true,
+          avatarUrl: true,
+        },
+      },
+    },
+  },
 } satisfies Prisma.MessageInclude;
 
 type MessageRow = Prisma.MessageGetPayload<{ include: typeof messageInclude }>;
+
+function sortedUniqueUserIds(userIds: string[]) {
+  return Array.from(new Set(userIds)).sort((a, b) => a.localeCompare(b));
+}
+
+function sortedUniqueUsers(users: MessageReceiptUserSummary[]) {
+  const map = new Map<string, MessageReceiptUserSummary>();
+  for (const user of users) {
+    map.set(user.id, user);
+  }
+  return Array.from(map.values()).sort((a, b) => a.username.localeCompare(b.username));
+}
 
 function toMessageWithAuthor(row: MessageRow): MessageWithAuthor {
   const groupedReactions = new Map<string, Set<string>>();
@@ -92,6 +134,19 @@ function toMessageWithAuthor(row: MessageRow): MessageWithAuthor {
     }))
     .sort((a, b) => a.emoji.localeCompare(b.emoji));
 
+  const deliveredUsers = sortedUniqueUsers(
+    row.receipts
+      .filter((receipt) => Boolean(receipt.deliveredAt))
+      .map((receipt) => receipt.user),
+  );
+  const readUsers = sortedUniqueUsers(
+    row.receipts
+      .filter((receipt) => Boolean(receipt.readAt))
+      .map((receipt) => receipt.user),
+  );
+  const deliveredUserIds = sortedUniqueUserIds(deliveredUsers.map((user) => user.id));
+  const readUserIds = sortedUniqueUserIds(readUsers.map((user) => user.id));
+
   return {
     id: row.id,
     channelId: row.channelId,
@@ -100,26 +155,30 @@ function toMessageWithAuthor(row: MessageRow): MessageWithAuthor {
     attachment:
       row.attachmentUrl && row.attachmentName && row.attachmentType && row.attachmentSize
         ? {
-          url: row.attachmentUrl,
-          name: row.attachmentName,
-          type: row.attachmentType,
-          size: row.attachmentSize,
-        }
+            url: row.attachmentUrl,
+            name: row.attachmentName,
+            type: row.attachmentType,
+            size: row.attachmentSize,
+          }
         : null,
     editedAt: row.editedAt,
     deletedAt: row.deletedAt,
     replyToMessageId: row.replyToMessageId,
     replyTo: row.replyTo
       ? {
-        id: row.replyTo.id,
-        userId: row.replyTo.userId,
-        content: row.replyTo.content,
-        createdAt: row.replyTo.createdAt,
-        deletedAt: row.replyTo.deletedAt,
-        user: row.replyTo.user,
-      }
+          id: row.replyTo.id,
+          userId: row.replyTo.userId,
+          content: row.replyTo.content,
+          createdAt: row.replyTo.createdAt,
+          deletedAt: row.replyTo.deletedAt,
+          user: row.replyTo.user,
+        }
       : null,
     reactions,
+    deliveredUserIds,
+    readUserIds,
+    deliveredUsers,
+    readUsers,
     createdAt: row.createdAt,
     user: row.user,
   };
@@ -147,6 +206,16 @@ export interface MessageRepository {
     userId: string;
     emoji: string;
   }): Promise<{ message: MessageWithAuthor; reacted: boolean }>;
+  markDeliveredInChannel(params: {
+    channelId: string;
+    userId: string;
+    upToCreatedAt?: Date;
+  }): Promise<ChannelReceiptUpdateResult>;
+  markReadInChannel(params: {
+    channelId: string;
+    userId: string;
+    upToCreatedAt?: Date;
+  }): Promise<ChannelReceiptUpdateResult>;
 }
 
 export class PrismaMessageRepository implements MessageRepository {
@@ -187,6 +256,7 @@ export class PrismaMessageRepository implements MessageRepository {
       size: number;
     };
   }) {
+    const now = new Date();
     const created = await prisma.message.create({
       data: {
         channelId: params.channelId,
@@ -197,6 +267,13 @@ export class PrismaMessageRepository implements MessageRepository {
         attachmentName: params.attachment?.name ?? null,
         attachmentType: params.attachment?.type ?? null,
         attachmentSize: params.attachment?.size ?? null,
+        receipts: {
+          create: {
+            userId: params.userId,
+            deliveredAt: now,
+            readAt: now,
+          },
+        },
       },
       include: messageInclude,
     });
@@ -276,5 +353,135 @@ export class PrismaMessageRepository implements MessageRepository {
         reacted,
       };
     });
+  }
+
+  async markDeliveredInChannel(params: {
+    channelId: string;
+    userId: string;
+    upToCreatedAt?: Date;
+  }): Promise<ChannelReceiptUpdateResult> {
+    const at = new Date();
+    const targets = await prisma.message.findMany({
+      where: {
+        channelId: params.channelId,
+        userId: {
+          not: params.userId,
+        },
+        ...(params.upToCreatedAt ? { createdAt: { lte: params.upToCreatedAt } } : {}),
+      },
+      select: {
+        id: true,
+      },
+      orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
+    });
+
+    if (targets.length === 0) {
+      return {
+        updated: false,
+        upToMessageId: null,
+        at,
+      };
+    }
+
+    const messageIds = targets.map((item) => item.id);
+    const created = await prisma.messageReceipt.createMany({
+      data: messageIds.map((messageId) => ({
+        messageId,
+        userId: params.userId,
+        deliveredAt: at,
+      })),
+      skipDuplicates: true,
+    });
+
+    const updated = await prisma.messageReceipt.updateMany({
+      where: {
+        messageId: {
+          in: messageIds,
+        },
+        userId: params.userId,
+        deliveredAt: null,
+      },
+      data: {
+        deliveredAt: at,
+      },
+    });
+
+    return {
+      updated: created.count + updated.count > 0,
+      upToMessageId: messageIds[messageIds.length - 1] ?? null,
+      at,
+    };
+  }
+
+  async markReadInChannel(params: {
+    channelId: string;
+    userId: string;
+    upToCreatedAt?: Date;
+  }): Promise<ChannelReceiptUpdateResult> {
+    const at = new Date();
+    const targets = await prisma.message.findMany({
+      where: {
+        channelId: params.channelId,
+        userId: {
+          not: params.userId,
+        },
+        ...(params.upToCreatedAt ? { createdAt: { lte: params.upToCreatedAt } } : {}),
+      },
+      select: {
+        id: true,
+      },
+      orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
+    });
+
+    if (targets.length === 0) {
+      return {
+        updated: false,
+        upToMessageId: null,
+        at,
+      };
+    }
+
+    const messageIds = targets.map((item) => item.id);
+    const created = await prisma.messageReceipt.createMany({
+      data: messageIds.map((messageId) => ({
+        messageId,
+        userId: params.userId,
+        deliveredAt: at,
+        readAt: at,
+      })),
+      skipDuplicates: true,
+    });
+
+    const deliveredUpdated = await prisma.messageReceipt.updateMany({
+      where: {
+        messageId: {
+          in: messageIds,
+        },
+        userId: params.userId,
+        deliveredAt: null,
+      },
+      data: {
+        deliveredAt: at,
+      },
+    });
+
+    const readUpdated = await prisma.messageReceipt.updateMany({
+      where: {
+        messageId: {
+          in: messageIds,
+        },
+        userId: params.userId,
+        readAt: null,
+      },
+      data: {
+        readAt: at,
+      },
+    });
+
+    return {
+      updated: created.count + deliveredUpdated.count + readUpdated.count > 0,
+      upToMessageId: messageIds[messageIds.length - 1] ?? null,
+      at,
+    };
   }
 }

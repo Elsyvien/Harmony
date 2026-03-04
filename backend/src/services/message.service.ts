@@ -1,4 +1,5 @@
 import type {
+  ChannelReceiptUpdateResult,
   MessageRepository,
   MessageWithAuthor,
 } from '../repositories/message.repository.js';
@@ -49,6 +50,26 @@ export interface ToggleReactionInput {
   emoji: string;
 }
 
+export interface MarkChannelDeliveredInput {
+  channelId: string;
+  userId: string;
+  upToMessageId?: string;
+}
+
+export interface MarkChannelReadInput {
+  channelId: string;
+  userId: string;
+  upToMessageId?: string;
+}
+
+export interface ChannelReceiptProgress {
+  channelId: string;
+  userId: string;
+  upToMessageId: string | null;
+  at: Date;
+  changed: boolean;
+}
+
 export class MessageService {
   constructor(
     private readonly messageRepo: MessageRepository,
@@ -77,11 +98,12 @@ export class MessageService {
     }
 
     if (settings && settings.slowModeSeconds > 0 && !input.userIsAdmin) {
-      const retryAfterSec = this.adminSettingsService?.getSlowModeRetrySeconds(
-        input.userId,
-        input.channelId,
-        settings.slowModeSeconds,
-      ) ?? 0;
+      const retryAfterSec =
+        this.adminSettingsService?.getSlowModeRetrySeconds(
+          input.userId,
+          input.channelId,
+          settings.slowModeSeconds,
+        ) ?? 0;
       if (retryAfterSec > 0) {
         throw new AppError(
           'SLOW_MODE_ACTIVE',
@@ -226,5 +248,66 @@ export class MessageService {
       userId: input.userId,
       emoji,
     });
+  }
+
+  private async resolveReceiptUpperBound(channelId: string, upToMessageId?: string): Promise<Date | undefined> {
+    if (!upToMessageId) {
+      return undefined;
+    }
+
+    const target = await this.messageRepo.findByIdInChannel({
+      channelId,
+      messageId: upToMessageId,
+    });
+    if (!target) {
+      throw new AppError('MESSAGE_NOT_FOUND', 404, 'Message not found');
+    }
+
+    return target.createdAt;
+  }
+
+  private toChannelReceiptProgress(
+    input: { channelId: string; userId: string },
+    update: ChannelReceiptUpdateResult,
+  ): ChannelReceiptProgress {
+    return {
+      channelId: input.channelId,
+      userId: input.userId,
+      upToMessageId: update.upToMessageId,
+      at: update.at,
+      changed: update.updated,
+    };
+  }
+
+  async markChannelDelivered(input: MarkChannelDeliveredInput): Promise<ChannelReceiptProgress> {
+    const canAccessChannel = await this.channelService.ensureChannelAccess(input.channelId, input.userId);
+    if (!canAccessChannel) {
+      throw new AppError('CHANNEL_NOT_FOUND', 404, 'Channel not found');
+    }
+
+    const upToCreatedAt = await this.resolveReceiptUpperBound(input.channelId, input.upToMessageId);
+    const update = await this.messageRepo.markDeliveredInChannel({
+      channelId: input.channelId,
+      userId: input.userId,
+      upToCreatedAt,
+    });
+
+    return this.toChannelReceiptProgress(input, update);
+  }
+
+  async markChannelRead(input: MarkChannelReadInput): Promise<ChannelReceiptProgress> {
+    const canAccessChannel = await this.channelService.ensureChannelAccess(input.channelId, input.userId);
+    if (!canAccessChannel) {
+      throw new AppError('CHANNEL_NOT_FOUND', 404, 'Channel not found');
+    }
+
+    const upToCreatedAt = await this.resolveReceiptUpperBound(input.channelId, input.upToMessageId);
+    const update = await this.messageRepo.markReadInChannel({
+      channelId: input.channelId,
+      userId: input.userId,
+      upToCreatedAt,
+    });
+
+    return this.toChannelReceiptProgress(input, update);
   }
 }

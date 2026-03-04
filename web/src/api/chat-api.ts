@@ -329,6 +329,24 @@ export const chatApi = {
     return apiRequest<{ messages: Message[] }>(`/channels/${channelId}/messages${suffix}`, {}, token);
   },
 
+  markChannelRead(token: string, channelId: string, upToMessageId?: string) {
+    return apiRequest<{
+      receipt: {
+        channelId: string;
+        userId: string;
+        upToMessageId: string | null;
+        at: string;
+      };
+    }>(
+      `/channels/${channelId}/read`,
+      {
+        method: 'POST',
+        body: JSON.stringify({ ...(upToMessageId ? { upToMessageId } : {}) }),
+      },
+      token,
+    );
+  },
+
   sendMessage(
     token: string,
     channelId: string,
@@ -388,3 +406,4 @@ export const chatApi = {
     );
   },
 };
+
