@@ -295,6 +295,11 @@ export function ChatView(props: ChatViewProps) {
           (() => {
             const previousMessage = props.messages[index - 1];
             const isSameUser = previousMessage && previousMessage.userId === message.userId;
+            const messageReactions = Array.isArray(message.reactions) ? message.reactions : [];
+            const deliveredUserIds = Array.isArray(message.deliveredUserIds)
+              ? message.deliveredUserIds
+              : [];
+            const readUserIds = Array.isArray(message.readUserIds) ? message.readUserIds : [];
             
             // Check if messages were sent within 5 minutes of each other
             const timeDiff = previousMessage 
@@ -308,7 +313,7 @@ export function ChatView(props: ChatViewProps) {
             const isImageAttachment = Boolean(
               message.attachment?.type?.toLowerCase().startsWith('image/') && attachmentUrl,
             );
-            const hasReactions = message.reactions.length > 0;
+            const hasReactions = messageReactions.length > 0;
             const canRetryMessage =
               message.failed &&
               !message.deletedAt &&
@@ -316,10 +321,10 @@ export function ChatView(props: ChatViewProps) {
               (!props.currentUserId || props.currentUserId === message.userId);
             const isOwnMessage = Boolean(props.currentUserId && props.currentUserId === message.userId);
             const deliveredRecipientCount = isOwnMessage
-              ? message.deliveredUserIds.filter((userId) => userId !== message.userId).length
+              ? deliveredUserIds.filter((userId) => userId !== message.userId).length
               : 0;
             const readRecipientCount = isOwnMessage
-              ? message.readUserIds.filter((userId) => userId !== message.userId).length
+              ? readUserIds.filter((userId) => userId !== message.userId).length
               : 0;
             const receiptLabel =
               readRecipientCount > 0 ? 'Read' : deliveredRecipientCount > 0 ? 'Delivered' : 'Sent';
@@ -444,9 +449,10 @@ export function ChatView(props: ChatViewProps) {
                   ) : null}
                   {hasReactions ? (
                     <div className="message-reactions">
-                      {message.reactions.map((reaction) => {
+                      {messageReactions.map((reaction) => {
+                        const reactionUserIds = Array.isArray(reaction.userIds) ? reaction.userIds : [];
                         const reactedByCurrentUser = props.currentUserId
-                          ? reaction.userIds.includes(props.currentUserId)
+                          ? reactionUserIds.includes(props.currentUserId)
                           : false;
                         return (
                           <button
@@ -463,7 +469,7 @@ export function ChatView(props: ChatViewProps) {
                             title={`React with ${reaction.emoji}`}
                           >
                             <span>{reaction.emoji}</span>
-                            <small>{reaction.userIds.length}</small>
+                            <small>{reactionUserIds.length}</small>
                           </button>
                         );
                       })}

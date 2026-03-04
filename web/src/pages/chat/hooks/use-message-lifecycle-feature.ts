@@ -127,11 +127,14 @@ export type MessageReceiptProgressPayload = {
   upToMessageId: string;
 };
 
-function addUniqueSorted(existing: string[], userId: string) {
-  if (existing.includes(userId)) {
-    return existing;
+function addUniqueSorted(existing: string[] | null | undefined, userId: string) {
+  const safeExisting = Array.isArray(existing)
+    ? existing.filter((value): value is string => typeof value === 'string')
+    : [];
+  if (safeExisting.includes(userId)) {
+    return safeExisting;
   }
-  return [...existing, userId].sort((a, b) => a.localeCompare(b));
+  return [...safeExisting, userId].sort((a, b) => a.localeCompare(b));
 }
 
 export function applyReceiptProgress(
@@ -150,11 +153,14 @@ export function applyReceiptProgress(
       return message;
     }
 
-    const nextDelivered = addUniqueSorted(message.deliveredUserIds, payload.userId);
-    const nextRead =
-      kind === 'read' ? addUniqueSorted(message.readUserIds, payload.userId) : message.readUserIds;
+    const deliveredUserIds = Array.isArray(message.deliveredUserIds)
+      ? message.deliveredUserIds
+      : [];
+    const readUserIds = Array.isArray(message.readUserIds) ? message.readUserIds : [];
+    const nextDelivered = addUniqueSorted(deliveredUserIds, payload.userId);
+    const nextRead = kind === 'read' ? addUniqueSorted(readUserIds, payload.userId) : readUserIds;
 
-    if (nextDelivered === message.deliveredUserIds && nextRead === message.readUserIds) {
+    if (nextDelivered === deliveredUserIds && nextRead === readUserIds) {
       return message;
     }
 

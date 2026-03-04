@@ -4,6 +4,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { chatApi } from '../src/api/chat-api';
 import { ChatView } from '../src/components/chat-view';
 import {
+  applyReceiptProgress,
   reconcileConfirmedMessage,
   useMessageLifecycleFeature,
 } from '../src/pages/chat/hooks/use-message-lifecycle-feature';
@@ -146,6 +147,64 @@ describe('ChatView failed retry action', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Retry' }));
 
     expect(onRetryMessage).toHaveBeenCalledWith('tmp-failed');
+  });
+
+  it('renders safely when receipt arrays are missing on a message', () => {
+    const legacyMessage = createMessage({
+      id: 'legacy-message-1',
+      deliveredUserIds: undefined as unknown as string[],
+      readUserIds: undefined as unknown as string[],
+    });
+
+    expect(() =>
+      render(
+        <ChatView
+          activeChannelId="channel-1"
+          messages={[legacyMessage]}
+          loading={false}
+          wsConnected={true}
+          currentUserId="user-1"
+          onLoadOlder={async () => undefined}
+        />,
+      ),
+    ).not.toThrow();
+
+    expect(screen.getByText('Sent')).toBeInTheDocument();
+  });
+});
+
+describe('applyReceiptProgress', () => {
+  it('handles missing receipt arrays from legacy payloads', () => {
+    const legacyMessage = createMessage({
+      deliveredUserIds: undefined as unknown as string[],
+      readUserIds: undefined as unknown as string[],
+    });
+
+    const delivered = applyReceiptProgress(
+      [legacyMessage],
+      {
+        channelId: 'channel-1',
+        userId: 'user-2',
+        upToMessageId: legacyMessage.id,
+      },
+      'delivered',
+    );
+
+    expect(delivered[0]?.deliveredUserIds).toEqual(['user-2']);
+    expect(delivered[0]?.readUserIds).toEqual([]);
+
+    const read = applyReceiptProgress(
+      [legacyMessage],
+      {
+        channelId: 'channel-1',
+        userId: 'user-2',
+        upToMessageId: legacyMessage.id,
+      },
+      'read',
+    );
+
+    expect(read[0]?.deliveredUserIds).toEqual(['user-2']);
+    expect(read[0]?.readUserIds).toEqual(['user-2']);
   });
 });
 
