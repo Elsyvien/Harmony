@@ -432,6 +432,25 @@ export async function buildApp() {
       });
     }
 
+    let voiceDefaults = {
+      noiseSuppression: true,
+      echoCancellation: true,
+      autoGainControl: true,
+    };
+    try {
+      const settings = await adminSettingsService.getSettings();
+      voiceDefaults = {
+        noiseSuppression: settings.voiceNoiseSuppressionDefault,
+        echoCancellation: settings.voiceEchoCancellationDefault,
+        autoGainControl: settings.voiceAutoGainControlDefault,
+      };
+    } catch (error) {
+      app.log.warn(
+        { err: error },
+        'Failed to load admin voice defaults for /rtc/config; using built-in defaults.',
+      );
+    }
+
     return {
       rtc: {
         iceServers,
@@ -444,6 +463,7 @@ export async function buildApp() {
         audioOnly: env.SFU_AUDIO_ONLY,
         preferTcp: env.SFU_PREFER_TCP,
       },
+      voiceDefaults,
     };
   });
 

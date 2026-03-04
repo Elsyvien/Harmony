@@ -22,12 +22,18 @@ function buildSettingsRow(overrides?: Partial<{
   readOnlyMode: boolean;
   slowModeSeconds: number;
   idleTimeoutMinutes: number;
+  voiceNoiseSuppressionDefault: boolean;
+  voiceEchoCancellationDefault: boolean;
+  voiceAutoGainControlDefault: boolean;
 }>) {
   return {
     allowRegistrations: true,
     readOnlyMode: false,
     slowModeSeconds: 0,
     idleTimeoutMinutes: 15,
+    voiceNoiseSuppressionDefault: true,
+    voiceEchoCancellationDefault: true,
+    voiceAutoGainControlDefault: true,
     ...(overrides ?? {}),
   };
 }
@@ -49,6 +55,7 @@ describe('AdminSettingsService slow mode tracking', () => {
       readOnlyMode: true,
       slowModeSeconds: 9,
       idleTimeoutMinutes: 45,
+      voiceNoiseSuppressionDefault: false,
     }));
     const service = new AdminSettingsService();
 
@@ -64,6 +71,9 @@ describe('AdminSettingsService slow mode tracking', () => {
       readOnlyMode: true,
       slowModeSeconds: 9,
       idleTimeoutMinutes: 45,
+      voiceNoiseSuppressionDefault: false,
+      voiceEchoCancellationDefault: true,
+      voiceAutoGainControlDefault: true,
     });
   });
 
@@ -72,12 +82,14 @@ describe('AdminSettingsService slow mode tracking', () => {
     prismaAppSettingsMock.update.mockResolvedValue(buildSettingsRow({
       allowRegistrations: false,
       idleTimeoutMinutes: 30,
+      voiceEchoCancellationDefault: false,
     }));
     const service = new AdminSettingsService();
 
     const updated = await service.updateSettings({
       allowRegistrations: false,
       idleTimeoutMinutes: 30,
+      voiceEchoCancellationDefault: false,
     });
 
     expect(prismaAppSettingsMock.update).toHaveBeenCalledWith({
@@ -85,6 +97,7 @@ describe('AdminSettingsService slow mode tracking', () => {
       data: {
         allowRegistrations: false,
         idleTimeoutMinutes: 30,
+        voiceEchoCancellationDefault: false,
       },
     });
     expect(updated).toEqual({
@@ -92,6 +105,9 @@ describe('AdminSettingsService slow mode tracking', () => {
       readOnlyMode: false,
       slowModeSeconds: 0,
       idleTimeoutMinutes: 30,
+      voiceNoiseSuppressionDefault: true,
+      voiceEchoCancellationDefault: false,
+      voiceAutoGainControlDefault: true,
     });
   });
 
