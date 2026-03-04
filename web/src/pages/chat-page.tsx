@@ -522,12 +522,53 @@ export function ChatPage() {
 
   const applyMessageReceipt = useCallback(
     (payload: { channelId: string; userId: string; upToMessageId: string }, kind: 'delivered' | 'read') => {
-      if (payload.channelId !== activeChannelId) {
-        return;
-      }
       setMessages((prev) => applyReceiptProgress(prev, payload, kind));
     },
-    [activeChannelId],
+    [],
+  );
+
+  const markChannelAsReadUpTo = useCallback(
+    async (channelId: string, upToMessageId: string) => {
+      if (!auth.token || !auth.user || activeView !== 'chat') {
+        return;
+      }
+      if (document.hidden) {
+        return;
+      }
+      const lastMarkedMessageId = lastReadMessageIdByChannelRef.current.get(channelId);
+      if (lastMarkedMessageId === upToMessageId) {
+        return;
+      }
+      if (markReadInFlightByChannelRef.current.has(channelId)) {
+        return;
+      }
+      markReadInFlightByChannelRef.current.add(channelId);
+
+      try {
+        const response = await chatApi.markChannelRead(auth.token, channelId, upToMessageId);
+        const confirmedUpToMessageId = response.receipt.upToMessageId;
+        if (!confirmedUpToMessageId) {
+          return;
+        }
+        lastReadMessageIdByChannelRef.current.set(channelId, confirmedUpToMessageId);
+        setMessages((prev) =>
+          applyReceiptProgress(
+            prev,
+            {
+              channelId,
+              userId: response.receipt.userId,
+              upToMessageId: confirmedUpToMessageId,
+            },
+            'read',
+          ),
+        );
+      } catch {
+        // Ignore read-receipt failures and retry on next state change.
+      } finally {
+        markReadInFlightByChannelRef.current.delete(channelId);
+      }
+    },
+    [auth.token, auth.user, activeView],
   );
 
   const ws = useChatSocket({
@@ -561,6 +602,9 @@ export function ChatPage() {
         return;
       }
       setMessages((prev) => reconcileIncomingMessage(prev, message));
+      if (!isOwnMessage && isViewedChannel && !activeChannel?.isVoice) {
+        void markChannelAsReadUpTo(message.channelId, message.id);
+      }
     },
     onMessageUpdated: (message) => {
       if (message.channelId !== activeChannelId) {
@@ -831,10 +875,7 @@ export function ChatPage() {
   });
 
   const markActiveChannelAsRead = useCallback(async () => {
-    if (!auth.token || !auth.user || activeView !== 'chat' || !activeChannelId || activeChannel?.isVoice) {
-      return;
-    }
-    if (document.hidden) {
+    if (!activeChannelId || activeChannel?.isVoice) {
       return;
     }
 
@@ -845,39 +886,8 @@ export function ChatPage() {
       return;
     }
 
-    const lastMarkedMessageId = lastReadMessageIdByChannelRef.current.get(activeChannelId);
-    if (lastMarkedMessageId === latestPersisted.id) {
-      return;
-    }
-
-    if (markReadInFlightByChannelRef.current.has(activeChannelId)) {
-      return;
-    }
-    markReadInFlightByChannelRef.current.add(activeChannelId);
-
-    try {
-      const response = await chatApi.markChannelRead(auth.token, activeChannelId, latestPersisted.id);
-      const upToMessageId = response.receipt.upToMessageId;
-      if (upToMessageId) {
-        lastReadMessageIdByChannelRef.current.set(activeChannelId, upToMessageId);
-        setMessages((prev) =>
-          applyReceiptProgress(
-            prev,
-            {
-              channelId: activeChannelId,
-              userId: response.receipt.userId,
-              upToMessageId,
-            },
-            'read',
-          ),
-        );
-      }
-    } catch {
-      // Ignore read-receipt failures and retry on next state change.
-    } finally {
-      markReadInFlightByChannelRef.current.delete(activeChannelId);
-    }
-  }, [auth.token, auth.user, activeView, activeChannelId, activeChannel?.isVoice, messages]);
+    await markChannelAsReadUpTo(activeChannelId, latestPersisted.id);
+  }, [activeChannelId, activeChannel?.isVoice, messages, markChannelAsReadUpTo]);
 
   useEffect(() => {
     void markActiveChannelAsRead();

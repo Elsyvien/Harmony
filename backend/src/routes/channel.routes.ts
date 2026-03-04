@@ -219,7 +219,7 @@ export const channelRoutes: FastifyPluginAsync<ChannelRoutesOptions> = async (fa
         userId: request.user.userId,
         upToMessageId: messages[messages.length - 1]?.id,
       });
-      if (delivered.changed && delivered.upToMessageId) {
+      if (delivered.upToMessageId) {
         fastify.wsGateway.broadcastMessageDelivered(channelId, {
           channelId,
           userId: request.user.userId,
@@ -249,7 +249,7 @@ export const channelRoutes: FastifyPluginAsync<ChannelRoutesOptions> = async (fa
         upToMessageId: body.upToMessageId,
       });
 
-      if (receipt.changed && receipt.upToMessageId) {
+      if (receipt.upToMessageId) {
         fastify.wsGateway.broadcastMessageRead(channelId, {
           channelId,
           userId: request.user.userId,

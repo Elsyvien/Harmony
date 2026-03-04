@@ -520,7 +520,7 @@ const wsPluginImpl: FastifyPluginAsync<WsPluginOptions> = async (fastify, option
             channelId: payload.channelId,
             userId: ctx.userId,
           });
-          if (delivered.changed && delivered.upToMessageId) {
+          if (delivered.upToMessageId) {
             fastify.wsGateway.broadcastMessageDelivered(payload.channelId, {
               channelId: payload.channelId,
               userId: ctx.userId,
