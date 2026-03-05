@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { Channel, Message } from '../types/api';
+import { trackTelemetry } from '../utils/telemetry';
 
 const WS_URL = import.meta.env.VITE_WS_URL ?? 'ws://localhost:4000/ws';
 
@@ -119,6 +120,7 @@ export function useChatSocket(params: {
 }) {
   const socketRef = useRef<WebSocket | null>(null);
   const reconnectTimerRef = useRef<number | null>(null);
+  const reconnectAttemptRef = useRef(0);
   const joinedChannelIdsRef = useRef<Set<string>>(new Set());
   const pendingVoiceJoinRequestsRef = useRef(
     new Map<
@@ -196,6 +198,22 @@ export function useChatSocket(params: {
         return;
       }
 
+      if (reconnectAttemptRef.current > 0) {
+        trackTelemetry({
+          name: 'ws.reconnect.attempted',
+          context: {
+            attempt: reconnectAttemptRef.current,
+          },
+        });
+      } else {
+        trackTelemetry({
+          name: 'ws.connect.attempted',
+          context: {
+            url: WS_URL,
+          },
+        });
+      }
+
       const socket = new WebSocket(WS_URL);
       socketRef.current = socket;
 
@@ -219,6 +237,22 @@ export function useChatSocket(params: {
           if (parsed.type === 'auth:ok') {
             authenticatedRef.current = true;
             setConnected(true);
+            if (reconnectAttemptRef.current > 0) {
+              trackTelemetry({
+                name: 'ws.reconnect.succeeded',
+                context: {
+                  attempt: reconnectAttemptRef.current,
+                },
+              });
+            } else {
+              trackTelemetry({
+                name: 'ws.connect.succeeded',
+                context: {
+                  url: WS_URL,
+                },
+              });
+            }
+            reconnectAttemptRef.current = 0;
             joinedChannelIds.clear();
             for (const channelId of subscribedChannelIdsRef.current) {
               if (!channelId) {
@@ -370,6 +404,16 @@ export function useChatSocket(params: {
           if (parsed.type === 'error') {
             const payload = parsed.payload as RealtimeErrorPayload | undefined;
             if (typeof payload?.code === 'string' || typeof payload?.message === 'string') {
+              if (payload.code === 'VOICE_SIGNAL_RATE_LIMITED') {
+                trackTelemetry({
+                  name: 'voice.signal.rate_limited',
+                  level: 'warn',
+                  success: false,
+                  context: {
+                    channelId: undefined,
+                  },
+                });
+              }
               onErrorRef.current?.(payload);
             }
             return;
@@ -388,10 +432,43 @@ export function useChatSocket(params: {
         }
       };
 
-      socket.onclose = () => {
+      socket.onerror = () => {
+        if (reconnectAttemptRef.current > 0) {
+          trackTelemetry({
+            name: 'ws.reconnect.failed',
+            level: 'warn',
+            success: false,
+            context: {
+              attempt: reconnectAttemptRef.current,
+              reason: 'socket_error',
+            },
+          });
+        } else {
+          trackTelemetry({
+            name: 'ws.connect.failed',
+            level: 'warn',
+            success: false,
+            context: {
+              url: WS_URL,
+              reason: 'socket_error',
+            },
+          });
+        }
+      };
+
+      socket.onclose = (event) => {
         authenticatedRef.current = false;
         setConnected(false);
         setPing(null);
+        trackTelemetry({
+          name: 'ws.disconnected.warn',
+          level: 'warn',
+          success: false,
+          context: {
+            code: event.code,
+            reason: event.reason || 'socket_closed',
+          },
+        });
         for (const pending of pendingVoiceSfuRequestsRef.current.values()) {
           window.clearTimeout(pending.timeoutId);
           pending.reject(new Error('Socket connection closed'));
@@ -404,6 +481,7 @@ export function useChatSocket(params: {
         pendingVoiceJoinRequestsRef.current.clear();
         socketRef.current = null;
         if (!isClosed) {
+          reconnectAttemptRef.current += 1;
           reconnectTimerRef.current = window.setTimeout(connect, 2000);
         }
       };
@@ -419,6 +497,7 @@ export function useChatSocket(params: {
       isClosed = true;
       setConnected(false);
       setPing(null);
+      reconnectAttemptRef.current = 0;
       if (reconnectTimerRef.current) {
         window.clearTimeout(reconnectTimerRef.current);
       }
@@ -472,6 +551,14 @@ export function useChatSocket(params: {
 
   const joinVoice = useCallback(
     (channelId: string, options?: { muted?: boolean; deafened?: boolean }) => {
+      trackTelemetry({
+        name: 'voice.join.attempted',
+        context: {
+          channelId,
+          muted: Boolean(options?.muted),
+          deafened: Boolean(options?.deafened),
+        },
+      });
       return sendEvent('voice:join', {
         channelId,
         ...(options?.muted !== undefined ? { muted: options.muted } : {}),
@@ -489,8 +576,28 @@ export function useChatSocket(params: {
     ): Promise<VoiceJoinAckPayload> => {
       const socket = socketRef.current;
       if (!socket || socket.readyState !== WebSocket.OPEN || !authenticatedRef.current) {
+        trackTelemetry({
+          name: 'voice.join.failed',
+          level: 'warn',
+          success: false,
+          context: {
+            channelId,
+            muted: Boolean(options?.muted),
+            deafened: Boolean(options?.deafened),
+            code: 'REALTIME_NOT_ACTIVE',
+          },
+        });
         return Promise.reject(new Error('Realtime connection is not active'));
       }
+      const startedAt = Date.now();
+      trackTelemetry({
+        name: 'voice.join.attempted',
+        context: {
+          channelId,
+          muted: Boolean(options?.muted),
+          deafened: Boolean(options?.deafened),
+        },
+      });
       const requestId =
         typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
           ? crypto.randomUUID()
@@ -498,10 +605,34 @@ export function useChatSocket(params: {
       return new Promise<VoiceJoinAckPayload>((resolve, reject) => {
         const timeoutId = window.setTimeout(() => {
           pendingVoiceJoinRequestsRef.current.delete(requestId);
+          trackTelemetry({
+            name: 'voice.join.failed',
+            level: 'warn',
+            success: false,
+            durationMs: Date.now() - startedAt,
+            context: {
+              channelId,
+              muted: Boolean(options?.muted),
+              deafened: Boolean(options?.deafened),
+              code: 'VOICE_JOIN_TIMEOUT',
+            },
+          });
           reject(new Error('Voice join timed out'));
         }, timeoutMs);
         pendingVoiceJoinRequestsRef.current.set(requestId, {
-          resolve,
+          resolve: (payload) => {
+            trackTelemetry({
+              name: 'voice.join.succeeded',
+              success: true,
+              durationMs: Date.now() - startedAt,
+              context: {
+                channelId: payload.channelId,
+                muted: Boolean(options?.muted),
+                deafened: Boolean(options?.deafened),
+              },
+            });
+            resolve(payload);
+          },
           reject,
           timeoutId,
         });
@@ -520,6 +651,18 @@ export function useChatSocket(params: {
         } catch (error) {
           window.clearTimeout(timeoutId);
           pendingVoiceJoinRequestsRef.current.delete(requestId);
+          trackTelemetry({
+            name: 'voice.join.failed',
+            level: 'warn',
+            success: false,
+            durationMs: Date.now() - startedAt,
+            context: {
+              channelId,
+              muted: Boolean(options?.muted),
+              deafened: Boolean(options?.deafened),
+              code: 'VOICE_JOIN_SEND_FAILED',
+            },
+          });
           reject(error);
         }
       });
@@ -529,7 +672,17 @@ export function useChatSocket(params: {
 
   const leaveVoice = useCallback(
     (channelId?: string) => {
-      return sendEvent('voice:leave', channelId ? { channelId } : {});
+      const sent = sendEvent('voice:leave', channelId ? { channelId } : {});
+      if (sent) {
+        trackTelemetry({
+          name: 'voice.leave.succeeded',
+          success: true,
+          context: {
+            channelId: channelId ?? 'active',
+          },
+        });
+      }
+      return sent;
     },
     [sendEvent],
   );

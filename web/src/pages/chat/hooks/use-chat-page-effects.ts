@@ -25,6 +25,7 @@ type UseChatPageEffectsOptions = {
   loadAdminStats: () => Promise<void>;
   loadAdminSettings: () => Promise<void>;
   loadAdminUsers: () => Promise<void>;
+  loadAdminAnalytics: () => Promise<void>;
   loadFriendData: () => Promise<void>;
   messageSearchInputRef: RefObject<HTMLInputElement | null>;
 };
@@ -105,6 +106,7 @@ export function useChatPageEffects({
   loadAdminStats,
   loadAdminSettings,
   loadAdminUsers,
+  loadAdminAnalytics,
   loadFriendData,
   messageSearchInputRef,
 }: UseChatPageEffectsOptions) {
@@ -161,14 +163,19 @@ export function useChatPageEffects({
     }
 
     return startPollingLoop({
-      intervalMs: 5000,
+      intervalMs: 30_000,
       jitterMs: 500,
       immediate: true,
       task: async () => {
-        await Promise.allSettled([loadAdminStats(), loadAdminSettings(), loadAdminUsers()]);
+        await Promise.allSettled([
+          loadAdminStats(),
+          loadAdminSettings(),
+          loadAdminUsers(),
+          loadAdminAnalytics(),
+        ]);
       },
     });
-  }, [activeView, isAdminUser, loadAdminStats, loadAdminSettings, loadAdminUsers]);
+  }, [activeView, isAdminUser, loadAdminStats, loadAdminSettings, loadAdminUsers, loadAdminAnalytics]);
 
   useEffect(() => {
     if (activeView !== 'friends' || !authToken) {

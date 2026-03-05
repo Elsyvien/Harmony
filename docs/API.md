@@ -17,6 +17,10 @@ Canonical details:
 - `POST /auth/logout`
 - `GET /me`
 
+## Analytics
+
+- `POST /analytics/events`
+
 ## Channels, Messages, Uploads
 
 - `GET /channels`
@@ -46,6 +50,8 @@ Canonical details:
 - `GET /admin/stats`
 - `GET /admin/settings`
 - `PUT /admin/settings`
+- `GET /admin/analytics/overview`
+- `GET /admin/analytics/timeseries`
 - `GET /admin/users`
 - `PATCH /admin/users/:id`
 - `DELETE /admin/users/:id`

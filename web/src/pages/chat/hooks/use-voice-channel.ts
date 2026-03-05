@@ -431,7 +431,7 @@ export function useVoiceChannel(params: UseVoiceChannelParams) {
         const [track] = stream.getVideoTracks();
         if (!track) return;
         void track.applyConstraints(toVideoTrackConstraints(preset)).catch((err) => {
-            trackTelemetryError('stream_constraints_apply_failed', err, { presetLabel: label, source: source ?? 'unknown' });
+            trackTelemetryError('stream.constraints.failed', err, { presetLabel: label, source: source ?? 'unknown' });
             showStreamStatusBannerFn('info', 'The selected stream quality could not be fully applied by this browser.');
         });
     }, [showStreamStatusBannerFn]);
@@ -491,7 +491,7 @@ export function useVoiceChannel(params: UseVoiceChannelParams) {
                 sendRequestOffer(peerUserId, chId);
             }
         } catch (err) {
-            trackTelemetryError('video_share_start_failed', err, { source, qualityPreset: streamQualityLabel });
+            trackTelemetryError('video.share.failed', err, { source, qualityPreset: streamQualityLabel });
             showStreamStatusBannerFn('error', getErrorMessage(err, 'Could not start sharing. Check browser permissions and try again.'));
         }
     }, [localStreamSource, stopLocalVideoShare, applyStreamQualityToStream, streamQualityLabel, showStreamStatusBannerFn, applyVideoBitrateToConnection, activeStreamBitrateKbps, sendRequestOffer, getOrCreateVideoSender, peerConnectionsRef, videoSenderByPeerRef]);

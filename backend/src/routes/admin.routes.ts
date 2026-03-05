@@ -4,13 +4,28 @@ import { UserRole } from '@prisma/client';
 import type { AdminService } from '../services/admin.service.js';
 import type { AdminSettingsService } from '../services/admin-settings.service.js';
 import type { AdminUserService } from '../services/admin-user.service.js';
+import type { AnalyticsService } from '../services/analytics.service.js';
 import { createAuthGuard } from './guards.js';
 
 interface AdminRoutesOptions {
   adminService: AdminService;
   adminSettingsService: AdminSettingsService;
   adminUserService: AdminUserService;
+  analyticsService: AnalyticsService;
 }
+
+const analyticsEventNamePattern = /^[a-z0-9]+(?:\.[a-z0-9]+){2,}$/;
+
+const adminAnalyticsQuerySchema = z.object({
+  window: z.enum(['24h', '7d', '30d']).default('24h'),
+  category: z.enum(['reliability', 'usage', 'moderation', 'operations']).optional(),
+  name: z
+    .string()
+    .trim()
+    .max(120)
+    .regex(analyticsEventNamePattern)
+    .optional(),
+});
 
 const updateAdminSettingsSchema = z
   .object({
@@ -82,6 +97,44 @@ export const adminRoutes: FastifyPluginAsync<AdminRoutesOptions> = async (fastif
     async () => {
       const settings = await options.adminSettingsService.getSettings();
       return { settings };
+    },
+  );
+
+  fastify.get(
+    '/admin/analytics/overview',
+    {
+      preHandler: [authPreHandler],
+      config: {
+        rateLimit: { max: 30, timeWindow: 60_000 },
+      },
+    },
+    async (request) => {
+      const query = adminAnalyticsQuerySchema.parse(request.query);
+      const overview = await options.analyticsService.getOverview({
+        window: query.window,
+        category: query.category,
+        name: query.name?.toLowerCase(),
+      });
+      return { overview };
+    },
+  );
+
+  fastify.get(
+    '/admin/analytics/timeseries',
+    {
+      preHandler: [authPreHandler],
+      config: {
+        rateLimit: { max: 30, timeWindow: 60_000 },
+      },
+    },
+    async (request) => {
+      const query = adminAnalyticsQuerySchema.parse(request.query);
+      const timeseries = await options.analyticsService.getTimeseries({
+        window: query.window,
+        category: query.category,
+        name: query.name?.toLowerCase(),
+      });
+      return { timeseries };
     },
   );
 

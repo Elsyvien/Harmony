@@ -1,5 +1,10 @@
 import { apiRequest } from './client';
 import type {
+  AdminAnalyticsOverview,
+  AdminAnalyticsTimeseries,
+  AnalyticsCategory,
+  AnalyticsEventEnvelope,
+  AnalyticsWindow,
   AdminSettings,
   AdminStats,
   AdminUserSummary,
@@ -23,6 +28,17 @@ export interface AuthResponse {
 }
 
 export const chatApi = {
+  analyticsIngest(events: AnalyticsEventEnvelope[], token?: string) {
+    return apiRequest<{ accepted: number; dropped: number }>(
+      '/analytics/events',
+      {
+        method: 'POST',
+        body: JSON.stringify({ events }),
+      },
+      token,
+    );
+  },
+
   rtcConfig() {
     return apiRequest<{
       rtc: {
@@ -304,6 +320,46 @@ export const chatApi = {
 
   adminSettings(token: string) {
     return apiRequest<{ settings: AdminSettings }>('/admin/settings', {}, token);
+  },
+
+  adminAnalyticsOverview(
+    token: string,
+    input?: { window?: AnalyticsWindow; category?: AnalyticsCategory; name?: string },
+  ) {
+    const query = new URLSearchParams();
+    if (input?.window) {
+      query.set('window', input.window);
+    }
+    if (input?.category) {
+      query.set('category', input.category);
+    }
+    if (input?.name) {
+      query.set('name', input.name);
+    }
+    const suffix = query.toString() ? `?${query.toString()}` : '';
+    return apiRequest<{ overview: AdminAnalyticsOverview }>(`/admin/analytics/overview${suffix}`, {}, token);
+  },
+
+  adminAnalyticsTimeseries(
+    token: string,
+    input?: { window?: AnalyticsWindow; category?: AnalyticsCategory; name?: string },
+  ) {
+    const query = new URLSearchParams();
+    if (input?.window) {
+      query.set('window', input.window);
+    }
+    if (input?.category) {
+      query.set('category', input.category);
+    }
+    if (input?.name) {
+      query.set('name', input.name);
+    }
+    const suffix = query.toString() ? `?${query.toString()}` : '';
+    return apiRequest<{ timeseries: AdminAnalyticsTimeseries }>(
+      `/admin/analytics/timeseries${suffix}`,
+      {},
+      token,
+    );
   },
 
   updateAdminSettings(

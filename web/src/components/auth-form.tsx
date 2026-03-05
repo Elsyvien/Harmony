@@ -92,6 +92,9 @@ export function AuthForm(props: AuthFormProps) {
       <p className="auth-switch-copy">
         {props.switchCopy} <Link to={props.switchHref}>{props.switchLabel}</Link>
       </p>
+      <p className="auth-switch-copy">
+        <Link to="/privacy">Privacy Policy</Link>
+      </p>
     </form>
   );
 }

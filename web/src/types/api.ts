@@ -216,6 +216,76 @@ export interface AdminUserSummary {
   createdAt: string;
 }
 
+export type AnalyticsWindow = '24h' | '7d' | '30d';
+export type AnalyticsCategory = 'reliability' | 'usage' | 'moderation' | 'operations';
+export type AnalyticsLevel = 'info' | 'warn' | 'error';
+
+export interface AnalyticsEventEnvelope {
+  name: string;
+  category: AnalyticsCategory;
+  level: AnalyticsLevel;
+  timestamp?: string;
+  source?: 'web_client';
+  sessionId?: string;
+  requestId?: string;
+  channelId?: string;
+  success?: boolean;
+  durationMs?: number;
+  statusCode?: number;
+  context?: Record<string, string | number | boolean | null>;
+}
+
+export interface AdminAnalyticsOverview {
+  window: AnalyticsWindow;
+  range: {
+    start: string;
+    end: string;
+  };
+  totals: {
+    events: number;
+    errors: number;
+    warnings: number;
+    uniqueUsers: number;
+  };
+  reliability: {
+    errorRatePercent: number;
+    p95LatencyMs: number | null;
+    voiceJoinSuccessRatePercent: number | null;
+    wsReconnectSuccessRatePercent: number | null;
+    topFailures: Array<{ name: string; count: number }>;
+  };
+  usage: {
+    dau: number;
+    wau: number;
+    signupToFirstMessageRatePercent: number | null;
+  };
+  moderation: {
+    totalActions: number;
+    byEvent: Array<{ name: string; count: number }>;
+  };
+  operations: {
+    eventsPerMinute: number;
+  };
+}
+
+export interface AdminAnalyticsTimeseries {
+  window: AnalyticsWindow;
+  interval: 'hourly' | '6h' | 'daily';
+  range: {
+    start: string;
+    end: string;
+  };
+  points: Array<{
+    bucketStart: string;
+    totalEvents: number;
+    errorEvents: number;
+    p95LatencyMs: number | null;
+    moderationActions: number;
+  }>;
+  topEvents: Array<{ name: string; count: number }>;
+  topFailures: Array<{ name: string; count: number }>;
+}
+
 export interface FriendSummary {
   id: string;
   user: {

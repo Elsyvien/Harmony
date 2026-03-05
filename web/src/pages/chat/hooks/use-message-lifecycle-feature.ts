@@ -3,6 +3,7 @@ import type { Dispatch, SetStateAction } from 'react';
 import { chatApi } from '../../../api/chat-api';
 import type { Message, MessageAttachment } from '../../../types/api';
 import { getErrorMessage } from '../../../utils/error-message';
+import { trackTelemetry } from '../../../utils/telemetry';
 
 export type ReplyTarget = { id: string; userId: string; username: string; content: string };
 
@@ -175,6 +176,14 @@ export function applyReceiptProgress(
   return changed ? next : existing;
 }
 
+function getErrorCode(error: unknown): string | undefined {
+  if (!error || typeof error !== 'object') {
+    return undefined;
+  }
+  const record = error as { code?: unknown };
+  return typeof record.code === 'string' ? record.code : undefined;
+}
+
 type SendMessagePayload = {
   content: string;
   attachment?: MessageAttachment;
@@ -262,6 +271,7 @@ export function useMessageLifecycleFeature({
         !attachment && trimmedContent && wsConnected && !replyToMessageId
           ? sendRealtimeMessage(optimisticMessage.channelId, trimmedContent)
           : false;
+      const transport = wsSent ? 'ws' : 'http';
 
       if (wsSent) {
         return;
@@ -279,6 +289,18 @@ export function useMessageLifecycleFeature({
         setMessages((prev) =>
           reconcileConfirmedMessage(prev, optimisticMessage.id, response.message),
         );
+        trackTelemetry({
+          name: 'message.send.acked',
+          success: true,
+          statusCode: 200,
+          context: {
+            channelId: optimisticMessage.channelId,
+            transport,
+            hasAttachment: Boolean(attachment),
+            hasReply: Boolean(replyToMessageId),
+            statusCode: 200,
+          },
+        });
       } catch (err) {
         try {
           const verification = await chatApi.messages(authToken, optimisticMessage.channelId, { limit: 100 });
@@ -302,6 +324,19 @@ export function useMessageLifecycleFeature({
             item.id === optimisticMessage.id ? { ...item, failed: true, optimistic: false } : item,
           ),
         );
+        const errorCode = getErrorCode(err);
+        trackTelemetry({
+          name: 'message.send.failed',
+          level: 'warn',
+          success: false,
+          context: {
+            channelId: optimisticMessage.channelId,
+            transport,
+            hasAttachment: Boolean(attachment),
+            hasReply: Boolean(replyToMessageId),
+            code: errorCode,
+          },
+        });
         throw err;
       }
     },
@@ -333,6 +368,15 @@ export function useMessageLifecycleFeature({
       }
       addPendingSignature(signature);
       schedulePendingTimeout(signature);
+      trackTelemetry({
+        name: 'message.send.attempted',
+        success: true,
+        context: {
+          channelId: activeChannelId,
+          hasAttachment: Boolean(attachment),
+          hasReply: Boolean(replyToMessageId),
+        },
+      });
 
       const optimisticMessage: Message = {
         id: `tmp-${crypto.randomUUID()}`,
@@ -435,14 +479,45 @@ export function useMessageLifecycleFeature({
       if (!retrySignature || !optimisticRetryMessage) {
         return;
       }
+      const retryMessageSnapshot = optimisticRetryMessage as unknown as Message;
 
       addPendingSignature(retrySignature);
       schedulePendingTimeout(retrySignature);
+      trackTelemetry({
+        name: 'message.retry.attempted',
+        success: true,
+        context: {
+          channelId: activeChannelId,
+          hasAttachment: Boolean(retryMessageSnapshot.attachment),
+          hasReply: Boolean(retryMessageSnapshot.replyToMessageId),
+        },
+      });
 
       try {
-        await dispatchOptimisticMessage(optimisticRetryMessage, retrySignature);
+        await dispatchOptimisticMessage(retryMessageSnapshot, retrySignature);
         setError(null);
+        trackTelemetry({
+          name: 'message.retry.succeeded',
+          success: true,
+          context: {
+            channelId: activeChannelId,
+            hasAttachment: Boolean(retryMessageSnapshot.attachment),
+            hasReply: Boolean(retryMessageSnapshot.replyToMessageId),
+          },
+        });
       } catch (err) {
+        const errorCode = getErrorCode(err);
+        trackTelemetry({
+          name: 'message.retry.failed',
+          level: 'warn',
+          success: false,
+          context: {
+            channelId: activeChannelId,
+            hasAttachment: Boolean(retryMessageSnapshot.attachment),
+            hasReply: Boolean(retryMessageSnapshot.replyToMessageId),
+            code: errorCode,
+          },
+        });
         setError(getErrorMessage(err, 'Could not resend message'));
       }
     },

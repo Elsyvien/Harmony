@@ -4,6 +4,7 @@ import type { FastifyPluginAsync } from 'fastify';
 import type { ChannelService } from '../services/channel.service.js';
 import type { MessageService } from '../services/message.service.js';
 import type { VoiceSfuProvider } from '../services/voice-sfu-provider.js';
+import type { AnalyticsService } from '../services/analytics.service.js';
 import { VoiceWsHandler, type VoiceClientContext, type VoiceSfuRequestPayload } from '../handlers/voice-ws.handler.js';
 import { prisma } from '../repositories/prisma.js';
 import { AppError } from '../utils/app-error.js';
@@ -16,6 +17,7 @@ interface WsPluginOptions {
   channelService: ChannelService;
   messageService: MessageService;
   voiceSfuService: VoiceSfuProvider;
+  analyticsService: AnalyticsService;
 }
 
 // ─── Types ───────────────────────────────────────────────────────────
@@ -129,10 +131,40 @@ const wsPluginImpl: FastifyPluginAsync<WsPluginOptions> = async (fastify, option
 
     if (details.stage === 'handler_exception' || details.code === 'SFU_REQUEST_FAILED') {
       fastify.log.error(meta, 'voice-event');
+      void options.analyticsService.trackServerEvent({
+        name: 'sfu.request.failed',
+        category: 'reliability',
+        source: 'backend_voice',
+        level: 'error',
+        userId: ctx.userId,
+        requestId: details.requestId,
+        channelId: details.channelId,
+        success: false,
+        context: {
+          stage: details.stage,
+          action: details.action ?? 'unknown',
+          code: details.code ?? 'SFU_REQUEST_FAILED',
+        },
+      });
       return;
     }
 
     fastify.log.warn(meta, 'voice-event');
+    void options.analyticsService.trackServerEvent({
+      name: 'sfu.request.failed',
+      category: 'reliability',
+      source: 'backend_voice',
+      level: 'warn',
+      userId: ctx.userId,
+      requestId: details.requestId,
+      channelId: details.channelId,
+      success: false,
+      context: {
+        stage: details.stage,
+        action: details.action ?? 'unknown',
+        code: details.code ?? 'UNKNOWN',
+      },
+    });
   };
 
   const consumeVoiceSignalBudget = (ctx: ClientContext): 'ok' | 'limited-notify' | 'limited-silent' => {
@@ -395,6 +427,16 @@ const wsPluginImpl: FastifyPluginAsync<WsPluginOptions> = async (fastify, option
       voiceSignalRateLimitNotified: false,
       socket: socket,
     };
+    void options.analyticsService.trackServerEvent({
+      name: 'backend.ws.event',
+      category: 'operations',
+      source: 'backend_ws',
+      level: 'info',
+      success: true,
+      context: {
+        eventType: 'socket_open',
+      },
+    });
 
     /** Build a VoiceClientContext from the current ClientContext */
     const toVoiceCtx = (): VoiceClientContext => ({
@@ -468,6 +510,17 @@ const wsPluginImpl: FastifyPluginAsync<WsPluginOptions> = async (fastify, option
           subscribers.add(ctx);
           userSubscribers.set(user.userId, subscribers);
           send(ctx, 'auth:ok', { userId: user.userId });
+          void options.analyticsService.trackServerEvent({
+            name: 'backend.ws.event',
+            category: 'operations',
+            source: 'backend_ws',
+            level: 'info',
+            userId: ctx.userId,
+            success: true,
+            context: {
+              eventType: 'auth_ok',
+            },
+          });
           broadcastPresence();
           sendVoiceStateSnapshot(ctx);
           return;
@@ -565,6 +618,18 @@ const wsPluginImpl: FastifyPluginAsync<WsPluginOptions> = async (fastify, option
           send(ctx, 'voice:join:ack', {
             ...(payload.requestId ? { requestId: payload.requestId } : {}),
             channelId: payload.channelId,
+          });
+          void options.analyticsService.trackServerEvent({
+            name: 'backend.ws.event',
+            category: 'operations',
+            source: 'backend_ws',
+            level: 'info',
+            userId: ctx.userId,
+            channelId: payload.channelId,
+            success: true,
+            context: {
+              eventType: 'voice_join',
+            },
           });
           return;
         }
@@ -697,6 +762,18 @@ const wsPluginImpl: FastifyPluginAsync<WsPluginOptions> = async (fastify, option
                 { event: 'voice_signal_rate_limited', userId: ctx.userId, channelId: payload.channelId },
                 'voice-event',
               );
+              void options.analyticsService.trackServerEvent({
+                name: 'voice.signal.rate_limited',
+                category: 'reliability',
+                source: 'backend_voice',
+                level: 'warn',
+                userId: ctx.userId,
+                channelId: payload.channelId,
+                success: false,
+                context: {
+                  channelId: payload.channelId,
+                },
+              });
               send(ctx, 'error', {
                 code: 'VOICE_SIGNAL_RATE_LIMITED',
                 message: 'Voice signaling rate limit exceeded. Please wait and retry.',
@@ -751,9 +828,46 @@ const wsPluginImpl: FastifyPluginAsync<WsPluginOptions> = async (fastify, option
         throw new AppError('UNKNOWN_EVENT', 400, `Unknown event: ${parsed.type}`);
       } catch (error) {
         if (error instanceof AppError) {
+          void options.analyticsService.trackServerEvent({
+            name: error.code.startsWith('VOICE_') || error.code.startsWith('SFU_')
+              ? 'backend.voice.failure'
+              : 'backend.ws.error',
+            category: 'reliability',
+            source: error.code.startsWith('VOICE_') || error.code.startsWith('SFU_')
+              ? 'backend_voice'
+              : 'backend_ws',
+            level: error.statusCode >= 500 ? 'error' : 'warn',
+            userId: ctx.userId,
+            channelId: ctx.activeVoiceChannelId,
+            success: false,
+            context:
+              error.code.startsWith('VOICE_') || error.code.startsWith('SFU_')
+                ? {
+                    stage: 'ws_handler',
+                    action: 'event_dispatch',
+                    code: error.code,
+                  }
+                : {
+                    eventType: 'app_error',
+                    code: error.code,
+                  },
+          });
           send(ctx, 'error', { code: error.code, message: error.message });
           return;
         }
+        void options.analyticsService.trackServerEvent({
+          name: 'backend.ws.error',
+          category: 'reliability',
+          source: 'backend_ws',
+          level: 'error',
+          userId: ctx.userId,
+          channelId: ctx.activeVoiceChannelId,
+          success: false,
+          context: {
+            eventType: 'unexpected_error',
+            code: 'WS_ERROR',
+          },
+        });
         send(ctx, 'error', { code: 'WS_ERROR', message: 'Could not process websocket event' });
       }
     });
@@ -761,6 +875,18 @@ const wsPluginImpl: FastifyPluginAsync<WsPluginOptions> = async (fastify, option
     // ── Socket Close ─────────────────────────────────────────────────
 
     socket.on('close', () => {
+      void options.analyticsService.trackServerEvent({
+        name: 'backend.ws.event',
+        category: 'operations',
+        source: 'backend_ws',
+        level: 'info',
+        userId: ctx.userId,
+        channelId: ctx.activeVoiceChannelId,
+        success: true,
+        context: {
+          eventType: 'socket_close',
+        },
+      });
       leaveAllChannels(ctx);
 
       // Start voice disconnect grace period instead of immediate teardown

@@ -37,6 +37,7 @@ import type {
   Message,
 } from '../types/api';
 import { getErrorMessage } from '../utils/error-message';
+import { trackTelemetry } from '../utils/telemetry';
 
 type MainView = 'chat' | 'friends' | 'settings' | 'admin';
 type MobilePane = 'none' | 'channels' | 'users';
@@ -160,6 +161,10 @@ export function ChatPage() {
     adminUsers,
     loadingAdminUsers,
     adminUsersError,
+    adminAnalyticsOverview,
+    adminAnalyticsTimeseries,
+    loadingAdminAnalytics,
+    adminAnalyticsError,
     updatingAdminUserId,
     deletingAdminUserId,
     clearingAdminUsers,
@@ -167,6 +172,7 @@ export function ChatPage() {
     loadAdminSettings,
     saveAdminSettings,
     loadAdminUsers,
+    loadAdminAnalytics,
     updateAdminUser,
     deleteAdminUser,
     clearAdminUsersExceptCurrent,
@@ -224,6 +230,7 @@ export function ChatPage() {
   const setRemoteScreenSharesStateRef = useRef((() => undefined) as (updater: any) => void);
   const setRemoteAdvertisedVideoSourceStateRef = useRef((() => undefined) as (updater: any) => void);
   const messageSearchInputRef = useRef<HTMLInputElement | null>(null);
+  const lastTrackedOpenedChannelRef = useRef<string | null>(null);
   const hasTurnRelayConfigured = useMemo(() => hasTurnRelayInIceConfig(voiceIceConfig), [voiceIceConfig]);
 
   const logVoiceDebug = useCallback((event: string, details?: Record<string, unknown>) => {
@@ -250,6 +257,29 @@ export function ChatPage() {
     () => channels.find((channel) => channel.id === activeChannelId) ?? null,
     [channels, activeChannelId],
   );
+
+  useEffect(() => {
+    if (activeView !== 'chat') {
+      lastTrackedOpenedChannelRef.current = null;
+      return;
+    }
+    if (!activeChannel) {
+      return;
+    }
+    if (lastTrackedOpenedChannelRef.current === activeChannel.id) {
+      return;
+    }
+    lastTrackedOpenedChannelRef.current = activeChannel.id;
+    trackTelemetry({
+      name: 'channel.opened.succeeded',
+      success: true,
+      context: {
+        channelId: activeChannel.id,
+        channelType: activeChannel.isVoice ? 'voice' : activeChannel.isDirect ? 'direct' : 'text',
+        isDirect: activeChannel.isDirect,
+      },
+    });
+  }, [activeView, activeChannel]);
 
   const handleDirectChannelOpened = useCallback((channel: Channel) => {
     setChannels((prev) => upsertChannel(prev, channel));
@@ -588,7 +618,22 @@ export function ChatPage() {
           message.content,
           message.attachment?.url,
         );
+        const hadPending = hasPendingSignature(signature);
         clearPendingSignature(signature);
+        if (message.userId === auth.user.id && hadPending) {
+          trackTelemetry({
+            name: 'message.send.acked',
+            success: true,
+            statusCode: 200,
+            context: {
+              channelId: message.channelId,
+              transport: 'ws',
+              hasAttachment: Boolean(message.attachment),
+              hasReply: Boolean(message.replyToMessageId),
+              statusCode: 200,
+            },
+          });
+        }
         if (message.userId !== auth.user.id && message.channelId === activeChannelId) {
           playIncomingMessageSound();
         }
@@ -883,6 +928,7 @@ export function ChatPage() {
     loadAdminStats,
     loadAdminSettings,
     loadAdminUsers,
+    loadAdminAnalytics,
     loadFriendData,
     messageSearchInputRef,
   });
@@ -1527,9 +1573,14 @@ export function ChatPage() {
             users: adminUsers,
             usersLoading: loadingAdminUsers,
             usersError: adminUsersError,
+            analyticsOverview: adminAnalyticsOverview,
+            analyticsTimeseries: adminAnalyticsTimeseries,
+            analyticsLoading: loadingAdminAnalytics,
+            analyticsError: adminAnalyticsError,
             updatingUserId: updatingAdminUserId,
             deletingUserId: deletingAdminUserId,
             onRefreshUsers: loadAdminUsers,
+            onRefreshAnalytics: loadAdminAnalytics,
             onUpdateUser: updateAdminUser,
             onDeleteUser: deleteAdminUser,
             onClearUsersExceptCurrent: clearAdminUsersExceptCurrent,

@@ -1,5 +1,6 @@
 import type { ApiError } from '../types/api';
 import { clearStoredAuth, dispatchAuthUnauthorizedEvent } from '../config/auth';
+import { trackTelemetry } from '../utils/telemetry';
 
 const API_BASE_URL = import.meta.env.VITE_API_URL ?? 'http://localhost:4000';
 
@@ -91,11 +92,23 @@ async function fetchWithRetry(url: string, options: RequestInit): Promise<Respon
   throw new Error('REQUEST_RETRY_EXHAUSTED');
 }
 
+function normalizePathForTelemetry(path: string) {
+  const [pathname] = path.split('?');
+  return pathname || path;
+}
+
+function shouldTrackApiRequest(path: string) {
+  return !normalizePathForTelemetry(path).startsWith('/analytics/events');
+}
+
 export async function apiRequest<T>(
   path: string,
   options: RequestInit = {},
   token?: string,
 ): Promise<T> {
+  const startedAt = Date.now();
+  const method = normalizeMethod(options);
+  const telemetryPath = normalizePathForTelemetry(path);
   const hasBody = options.body !== undefined && options.body !== null;
   const hasFormDataBody = typeof FormData !== 'undefined' && options.body instanceof FormData;
 
@@ -109,11 +122,41 @@ export async function apiRequest<T>(
   });
 
   if (!response.ok) {
+    const parsedError = await parseError(response);
+    if (shouldTrackApiRequest(path)) {
+      trackTelemetry({
+        name: 'api.request.failed',
+        level: response.status >= 500 ? 'error' : 'warn',
+        success: false,
+        durationMs: Date.now() - startedAt,
+        statusCode: response.status,
+        context: {
+          method,
+          path: telemetryPath,
+          statusCode: response.status,
+          code: parsedError.code,
+        },
+      });
+    }
     if (response.status === 401 && token) {
       clearStoredAuth();
       dispatchAuthUnauthorizedEvent();
     }
-    throw await parseError(response);
+    throw parsedError;
+  }
+
+  if (shouldTrackApiRequest(path)) {
+    trackTelemetry({
+      name: 'api.request.succeeded',
+      success: true,
+      durationMs: Date.now() - startedAt,
+      statusCode: response.status,
+      context: {
+        method,
+        path: telemetryPath,
+        statusCode: response.status,
+      },
+    });
   }
 
   if (response.status === 204) {

@@ -1,5 +1,15 @@
 import { useEffect, useMemo, useState } from 'react';
-import type { AdminSettings, AdminStats, AdminUserSummary, UserRole } from '../types/api';
+import type {
+  AdminAnalyticsOverview,
+  AdminAnalyticsTimeseries,
+  AdminSettings,
+  AdminStats,
+  AdminUserSummary,
+  AnalyticsCategory,
+  AnalyticsWindow,
+  UserRole,
+} from '../types/api';
+import { AdminAnalyticsPanel } from './admin-analytics-panel';
 
 interface AdminSettingsPanelProps {
   stats: AdminStats | null;
@@ -15,9 +25,18 @@ interface AdminSettingsPanelProps {
   users: AdminUserSummary[];
   usersLoading: boolean;
   usersError: string | null;
+  analyticsOverview: AdminAnalyticsOverview | null;
+  analyticsTimeseries: AdminAnalyticsTimeseries | null;
+  analyticsLoading: boolean;
+  analyticsError: string | null;
   updatingUserId: string | null;
   deletingUserId: string | null;
   onRefreshUsers: () => Promise<void>;
+  onRefreshAnalytics: (input?: {
+    window?: AnalyticsWindow;
+    category?: AnalyticsCategory;
+    name?: string;
+  }) => Promise<void>;
   onUpdateUser: (
     userId: string,
     input: Partial<{
@@ -552,6 +571,16 @@ export function AdminSettingsPanel(props: AdminSettingsPanelProps) {
           </table>
         </div>
       </article>
+
+      <AdminAnalyticsPanel
+        overview={props.analyticsOverview}
+        timeseries={props.analyticsTimeseries}
+        loading={props.analyticsLoading}
+        error={props.analyticsError}
+        onRefresh={async (input) => {
+          await props.onRefreshAnalytics(input);
+        }}
+      />
 
       {props.stats ? (
         <div className="admin-stats-grid">

@@ -3,6 +3,7 @@ import type { Dispatch, SetStateAction } from 'react';
 import { chatApi } from '../../../api/chat-api';
 import type { FriendRequestSummary, FriendSummary } from '../../../types/api';
 import { getErrorMessage } from '../../../utils/error-message';
+import { trackTelemetry } from '../../../utils/telemetry';
 
 type UseFriendsFeatureOptions = {
   authToken: string | null;
@@ -60,8 +61,27 @@ export function useFriendsFeature({ authToken, onNotice }: UseFriendsFeatureOpti
         await loadFriendData();
         setFriendsError(null);
         onNotice(`Friend request sent to ${normalizedUsername}.`);
+        trackTelemetry({
+          name: 'friends.request.sent',
+          success: true,
+          context: {
+            fromView: 'friends',
+          },
+        });
         return true;
       } catch (err) {
+        const errorCode = typeof err === 'object' && err && 'code' in err && typeof (err as { code?: unknown }).code === 'string'
+          ? (err as { code: string }).code
+          : undefined;
+        trackTelemetry({
+          name: 'friends.request.failed',
+          level: 'warn',
+          success: false,
+          context: {
+            fromView: 'friends',
+            code: errorCode,
+          },
+        });
         setFriendsError(getErrorMessage(err, 'Could not send friend request'));
         onNotice(null);
         return false;

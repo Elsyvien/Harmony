@@ -25,6 +25,27 @@ enum ChannelType {
   DIRECT
 }
 
+enum AnalyticsSource {
+  WEB_CLIENT
+  BACKEND_HTTP
+  BACKEND_WS
+  BACKEND_VOICE
+  BACKEND_SYSTEM
+}
+
+enum AnalyticsCategory {
+  RELIABILITY
+  USAGE
+  MODERATION
+  OPERATIONS
+}
+
+enum AnalyticsLevel {
+  INFO
+  WARN
+  ERROR
+}
+
 enum ServerVisibility {
   INVITE_ONLY
   PUBLIC
@@ -284,4 +305,31 @@ model AppSettings {
   voiceNoiseSuppressionDefault Boolean @default(true)
   voiceEchoCancellationDefault Boolean @default(true)
   voiceAutoGainControlDefault  Boolean @default(true)
+}
+
+model AnalyticsEvent {
+  id         String            @id @default(uuid())
+  receivedAt DateTime          @default(now())
+  occurredAt DateTime?
+  source     AnalyticsSource
+  category   AnalyticsCategory
+  name       String
+  level      AnalyticsLevel    @default(INFO)
+  userId     String?
+  sessionId  String?
+  channelId  String?
+  requestId  String?
+  success    Boolean?
+  durationMs Int?
+  statusCode Int?
+  context    Json?
+
+  @@index([receivedAt])
+  @@index([category, receivedAt])
+  @@index([name, receivedAt])
+  @@index([level, receivedAt])
+  @@index([source, receivedAt])
+  @@index([userId, receivedAt])
+  @@index([channelId, receivedAt])
+  @@index([success, receivedAt])
 }
