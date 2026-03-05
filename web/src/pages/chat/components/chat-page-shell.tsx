@@ -4,11 +4,13 @@ import { ChannelSidebar } from '../../../components/channel-sidebar';
 import { ChatView } from '../../../components/chat-view';
 import { FriendsPanel } from '../../../components/friends-panel';
 import { MessageComposer } from '../../../components/message-composer';
+import { ServerManagementPanel } from '../../../components/server-management-panel';
+import { ServerRail } from '../../../components/server-rail';
 import { SettingsPanel } from '../../../components/settings-panel';
 import { UserSidebar } from '../../../components/user-sidebar';
 import { VoiceChannelPanel } from '../../../components/voice-channel-panel';
 
-type MainView = 'chat' | 'friends' | 'settings' | 'admin';
+type MainView = 'chat' | 'friends' | 'settings' | 'admin' | 'server';
 type MobilePane = 'none' | 'channels' | 'users';
 
 type StreamStatusBanner = {
@@ -29,6 +31,7 @@ type ActiveVoiceSession = {
 
 type ChatPageShellProps = {
   chatLayoutClassName: string;
+  serverRailProps: ComponentProps<typeof ServerRail>;
   sidebarProps: ComponentProps<typeof ChannelSidebar>;
   activeView: MainView;
   activeChannelIsVoice: boolean;
@@ -48,12 +51,14 @@ type ChatPageShellProps = {
   friendsPanelProps: ComponentProps<typeof FriendsPanel>;
   settingsPanelProps: ComponentProps<typeof SettingsPanel>;
   adminPanelProps: ComponentProps<typeof AdminSettingsPanel> | null;
+  serverPanelProps: ComponentProps<typeof ServerManagementPanel> | null;
   userSidebarProps: ComponentProps<typeof UserSidebar>;
   children?: ReactNode;
 };
 
 export function ChatPageShell({
   chatLayoutClassName,
+  serverRailProps,
   sidebarProps,
   activeView,
   activeChannelIsVoice,
@@ -73,11 +78,13 @@ export function ChatPageShell({
   friendsPanelProps,
   settingsPanelProps,
   adminPanelProps,
+  serverPanelProps,
   userSidebarProps,
   children,
 }: ChatPageShellProps) {
   return (
     <main className={chatLayoutClassName}>
+      <ServerRail {...serverRailProps} />
       <ChannelSidebar {...sidebarProps} />
 
       <section className="chat-panel">
@@ -170,6 +177,10 @@ export function ChatPageShell({
 
         {activeView === 'admin' && adminPanelProps ? (
           <AdminSettingsPanel {...adminPanelProps} />
+        ) : null}
+
+        {activeView === 'server' && serverPanelProps ? (
+          <ServerManagementPanel {...serverPanelProps} />
         ) : null}
       </section>
 

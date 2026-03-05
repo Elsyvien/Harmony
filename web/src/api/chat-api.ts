@@ -17,6 +17,7 @@ import type {
   ServerAnalytics,
   ServerAuditLog,
   ServerInviteSummary,
+  ServerMemberSummary,
   ServerSummary,
   User,
   UserRole,
@@ -193,6 +194,10 @@ export const chatApi = {
 
   serverChannels(token: string, serverId: string) {
     return apiRequest<{ channels: Channel[] }>(`/servers/${serverId}/channels`, {}, token);
+  },
+
+  serverMembers(token: string, serverId: string) {
+    return apiRequest<{ members: ServerMemberSummary[] }>(`/servers/${serverId}/members`, {}, token);
   },
 
   serverAnalytics(token: string, serverId: string) {

@@ -6,11 +6,11 @@ import type { Channel } from '../../../types/api';
 import { getErrorMessage } from '../../../utils/error-message';
 import { upsertChannel } from './use-profile-dm-feature';
 
-type MainView = 'chat' | 'friends' | 'settings' | 'admin';
+type MainView = 'chat' | 'friends' | 'settings' | 'admin' | 'server';
 
 type UseChannelManagementFeatureOptions = {
   authToken: string | null;
-  isAdmin: boolean | undefined;
+  canManageChannels: boolean;
   canEditVoiceSettings: boolean;
   activeChannelId: string | null;
   activeVoiceChannelId: string | null;
@@ -26,7 +26,7 @@ type UseChannelManagementFeatureOptions = {
 
 export function useChannelManagementFeature({
   authToken,
-  isAdmin,
+  canManageChannels,
   canEditVoiceSettings,
   activeChannelId,
   activeVoiceChannelId,
@@ -43,12 +43,12 @@ export function useChannelManagementFeature({
   const [savingVoiceSettingsChannelId, setSavingVoiceSettingsChannelId] = useState<string | null>(null);
 
   const createChannel = useCallback(
-    async (name: string, type: 'TEXT' | 'VOICE') => {
-      if (!authToken || !isAdmin) {
+    async (name: string, type: 'TEXT' | 'VOICE', serverId?: string) => {
+      if (!authToken || !canManageChannels) {
         return;
       }
       try {
-        const response = await chatApi.createChannel(authToken, name, type);
+        const response = await chatApi.createChannel(authToken, name, type, serverId);
         setChannels((prev) => {
           const exists = prev.some((channel) => channel.id === response.channel.id);
           return exists ? prev : [...prev, response.channel];
@@ -60,7 +60,7 @@ export function useChannelManagementFeature({
         setError(getErrorMessage(err, 'Could not create channel'));
       }
     },
-    [authToken, isAdmin, setChannels, setActiveChannelId, setActiveView, setError],
+    [authToken, canManageChannels, setChannels, setActiveChannelId, setActiveView, setError],
   );
 
   const updateVoiceChannelSettings = useCallback(
@@ -104,7 +104,7 @@ export function useChannelManagementFeature({
 
   const deleteChannel = useCallback(
     async (channelId: string) => {
-      if (!authToken || !isAdmin) {
+      if (!authToken || !canManageChannels) {
         return;
       }
       setDeletingChannelId(channelId);
@@ -144,7 +144,7 @@ export function useChannelManagementFeature({
     },
     [
       authToken,
-      isAdmin,
+      canManageChannels,
       activeVoiceChannelId,
       leaveVoice,
       setActiveVoiceChannelId,

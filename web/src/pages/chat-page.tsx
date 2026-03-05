@@ -34,12 +34,26 @@ import { useVoiceFeature } from './chat/hooks/use-voice-feature';
 import { useAuth } from '../store/auth-store';
 import type {
   Channel,
+  ModerationActionSummary,
   Message,
+  ServerAnalytics,
+  ServerAuditLog,
+  ServerInviteSummary,
+  ServerMemberSummary,
+  ServerSummary,
 } from '../types/api';
 import { getErrorMessage } from '../utils/error-message';
 import { trackTelemetry } from '../utils/telemetry';
+import {
+  filterChannelsForScope,
+  findServerByScope,
+  isChannelVisibleInScope,
+  isServerManagerRole,
+  pickFallbackChannelId,
+  type RailScope,
+} from './chat/utils/server-scope';
 
-type MainView = 'chat' | 'friends' | 'settings' | 'admin';
+type MainView = 'chat' | 'friends' | 'settings' | 'admin' | 'server';
 type MobilePane = 'none' | 'channels' | 'users';
 type StreamSource = 'screen' | 'camera';
 type VoiceReconnectIntent = {
@@ -122,6 +136,8 @@ export function ChatPage() {
   const { preferences, updatePreferences, resetPreferences, applyVoiceDefaults } = useUserPreferences();
 
   const [channels, setChannels] = useState<Channel[]>([]);
+  const [servers, setServers] = useState<ServerSummary[]>([]);
+  const [railScope, setRailScope] = useState<RailScope>({ kind: 'home' });
   const [activeChannelId, setActiveChannelId] = useState<string | null>(null);
   const [messages, setMessages] = useState<Message[]>([]);
   const [messageQuery, setMessageQuery] = useState('');
@@ -144,6 +160,17 @@ export function ChatPage() {
   const [voiceSfuEnabled, setVoiceSfuEnabled] = useState(false);
   const [voiceSfuProvider, setVoiceSfuProvider] = useState<'mediasoup' | 'cloudflare'>('mediasoup');
   const voiceSfuClientRef = useRef<VoiceSfuClientLike | null>(null);
+  const [creatingServer, setCreatingServer] = useState(false);
+  const [joiningServer, setJoiningServer] = useState(false);
+  const [serverPanelLoading, setServerPanelLoading] = useState(false);
+  const [serverPanelError, setServerPanelError] = useState<string | null>(null);
+  const [serverInvites, setServerInvites] = useState<ServerInviteSummary[]>([]);
+  const [serverAnalytics, setServerAnalytics] = useState<ServerAnalytics | null>(null);
+  const [serverAuditLogs, setServerAuditLogs] = useState<ServerAuditLog[]>([]);
+  const [serverMembers, setServerMembers] = useState<ServerMemberSummary[]>([]);
+  const [serverModerationActions, setServerModerationActions] = useState<ModerationActionSummary[]>([]);
+  const [serverInviteBusy, setServerInviteBusy] = useState(false);
+  const [serverModerationBusy, setServerModerationBusy] = useState(false);
 
   const [composerInsertRequest, setComposerInsertRequest] = useState<{
     key: number;
@@ -253,6 +280,13 @@ export function ChatPage() {
     console.debug('[voice-debug]', payload);
   }, []);
 
+  const selectedServer = useMemo(() => findServerByScope(servers, railScope), [servers, railScope]);
+  const selectedServerId = selectedServer?.id ?? null;
+  const scopedChannels = useMemo(() => filterChannelsForScope(channels, railScope), [channels, railScope]);
+  const canManageSelectedServer = useMemo(
+    () => isServerManagerRole(selectedServer?.memberRole),
+    [selectedServer?.memberRole],
+  );
   const activeChannel = useMemo(
     () => channels.find((channel) => channel.id === activeChannelId) ?? null,
     [channels, activeChannelId],
@@ -838,7 +872,6 @@ export function ChatPage() {
     activeVoiceChannel,
     activeVoiceBitrateKbps,
     activeStreamBitrateKbps,
-    canEditVoiceSettings,
     voiceParticipantCounts,
     activeVoiceParticipants,
     voiceStreamingUserIdsByChannel,
@@ -887,8 +920,8 @@ export function ChatPage() {
     deleteChannel,
   } = useChannelManagementFeature({
     authToken: auth.token,
-    isAdmin: auth.user?.isAdmin,
-    canEditVoiceSettings,
+    canManageChannels: canManageSelectedServer,
+    canEditVoiceSettings: canManageSelectedServer,
     activeChannelId,
     activeVoiceChannelId,
     leaveVoice: (channelId) => hookLeaveVoiceRef.current(channelId),
@@ -900,6 +933,184 @@ export function ChatPage() {
     setActiveVoiceChannelId,
     setError,
   });
+
+  const mergeChannels = useCallback((incoming: Channel[]) => {
+    setChannels((prev) => {
+      const byId = new Map(prev.map((channel) => [channel.id, channel]));
+      for (const channel of incoming) {
+        byId.set(channel.id, channel);
+      }
+      return [...byId.values()].sort(
+        (left, right) =>
+          new Date(left.createdAt).getTime() - new Date(right.createdAt).getTime(),
+      );
+    });
+  }, []);
+
+  const selectHomeScope = useCallback(() => {
+    setRailScope({ kind: 'home' });
+    setActiveView('chat');
+    setMobilePane('none');
+  }, []);
+
+  const selectServerScope = useCallback((serverId: string) => {
+    setRailScope({ kind: 'server', serverId });
+    setActiveView('chat');
+    setMobilePane('none');
+  }, []);
+
+  const createScopedChannel = useCallback(
+    async (name: string, type: 'TEXT' | 'VOICE') => {
+      if (!selectedServerId) {
+        setError('Select a server first');
+        return;
+      }
+      await createChannel(name, type, selectedServerId);
+    },
+    [createChannel, selectedServerId, setError],
+  );
+
+  const createServerFromRail = useCallback(async () => {
+    if (!auth.token) {
+      return;
+    }
+    const name = window.prompt('Server name');
+    if (!name || !name.trim()) {
+      return;
+    }
+    setCreatingServer(true);
+    try {
+      const response = await chatApi.createServer(auth.token, { name: name.trim() });
+      setServers((prev) => {
+        const exists = prev.some((server) => server.id === response.server.id);
+        return exists ? prev : [...prev, response.server];
+      });
+      const channelsResponse = await chatApi.serverChannels(auth.token, response.server.id);
+      mergeChannels(channelsResponse.channels);
+      setRailScope({ kind: 'server', serverId: response.server.id });
+      setActiveView('chat');
+      setActiveChannelId(channelsResponse.channels[0]?.id ?? null);
+      setNotice(`Server ${response.server.name} created.`);
+      setError(null);
+    } catch (err) {
+      setError(getErrorMessage(err, 'Could not create server'));
+    } finally {
+      setCreatingServer(false);
+    }
+  }, [auth.token, mergeChannels, setError]);
+
+  const joinServerFromRail = useCallback(async () => {
+    if (!auth.token) {
+      return;
+    }
+    const code = window.prompt('Invite code');
+    if (!code || !code.trim()) {
+      return;
+    }
+    setJoiningServer(true);
+    try {
+      const response = await chatApi.joinServerByInvite(auth.token, code.trim());
+      setServers((prev) => {
+        const exists = prev.some((server) => server.id === response.server.id);
+        return exists ? prev : [...prev, response.server];
+      });
+      const channelsResponse = await chatApi.serverChannels(auth.token, response.server.id);
+      mergeChannels(channelsResponse.channels);
+      setRailScope({ kind: 'server', serverId: response.server.id });
+      setActiveView('chat');
+      setActiveChannelId(channelsResponse.channels[0]?.id ?? null);
+      setNotice(`Joined ${response.server.name}.`);
+      setError(null);
+    } catch (err) {
+      setError(getErrorMessage(err, 'Could not join server'));
+    } finally {
+      setJoiningServer(false);
+    }
+  }, [auth.token, mergeChannels, setError]);
+
+  const loadServerManagementData = useCallback(async () => {
+    if (!auth.token || !selectedServerId || !canManageSelectedServer) {
+      return;
+    }
+    setServerPanelLoading(true);
+    try {
+      const [invitesResponse, analyticsResponse, logsResponse, membersResponse] = await Promise.all([
+        chatApi.serverInvites(auth.token, selectedServerId),
+        chatApi.serverAnalytics(auth.token, selectedServerId),
+        chatApi.serverAuditLogs(auth.token, selectedServerId, 50),
+        chatApi.serverMembers(auth.token, selectedServerId),
+      ]);
+      setServerInvites(invitesResponse.invites);
+      setServerAnalytics(analyticsResponse.analytics);
+      setServerAuditLogs(logsResponse.logs);
+      setServerMembers(membersResponse.members);
+      setServerPanelError(null);
+    } catch (err) {
+      setServerPanelError(getErrorMessage(err, 'Could not load server management data'));
+    } finally {
+      setServerPanelLoading(false);
+    }
+  }, [auth.token, selectedServerId, canManageSelectedServer]);
+
+  const createServerInvite = useCallback(
+    async (input: { maxUses?: number; expiresInHours?: number }) => {
+      if (!auth.token || !selectedServerId) {
+        return;
+      }
+      setServerInviteBusy(true);
+      try {
+        await chatApi.createServerInvite(auth.token, selectedServerId, input);
+        await loadServerManagementData();
+      } catch (err) {
+        setServerPanelError(getErrorMessage(err, 'Could not create invite'));
+      } finally {
+        setServerInviteBusy(false);
+      }
+    },
+    [auth.token, selectedServerId, loadServerManagementData],
+  );
+
+  const revokeServerInvite = useCallback(
+    async (inviteId: string) => {
+      if (!auth.token || !selectedServerId) {
+        return;
+      }
+      setServerInviteBusy(true);
+      try {
+        await chatApi.revokeServerInvite(auth.token, selectedServerId, inviteId);
+        await loadServerManagementData();
+      } catch (err) {
+        setServerPanelError(getErrorMessage(err, 'Could not revoke invite'));
+      } finally {
+        setServerInviteBusy(false);
+      }
+    },
+    [auth.token, selectedServerId, loadServerManagementData],
+  );
+
+  const moderateServerMember = useCallback(
+    async (input: {
+      targetUserId: string;
+      type: 'WARN' | 'TIMEOUT' | 'KICK' | 'BAN' | 'UNBAN';
+      reason?: string;
+      durationHours?: number;
+    }) => {
+      if (!auth.token || !selectedServerId) {
+        return;
+      }
+      setServerModerationBusy(true);
+      try {
+        const response = await chatApi.moderateServerUser(auth.token, selectedServerId, input);
+        setServerModerationActions((prev) => [response.action, ...prev].slice(0, 25));
+        await loadServerManagementData();
+      } catch (err) {
+        setServerPanelError(getErrorMessage(err, 'Could not submit moderation action'));
+      } finally {
+        setServerModerationBusy(false);
+      }
+    },
+    [auth.token, selectedServerId, loadServerManagementData],
+  );
 
   useRemoteSpeakingActivity({
     enabled: preferences.showVoiceActivity,
@@ -1129,6 +1340,14 @@ export function ChatPage() {
     if (auth.token) {
       return;
     }
+    setServers([]);
+    setRailScope({ kind: 'home' });
+    setServerInvites([]);
+    setServerAnalytics(null);
+    setServerAuditLogs([]);
+    setServerMembers([]);
+    setServerModerationActions([]);
+    setServerPanelError(null);
     reconnectVoiceIntentRef.current = null;
     setOnlineUsers([]);
     setUnreadChannelCounts({});
@@ -1148,16 +1367,30 @@ export function ChatPage() {
     const token = auth.token;
     const load = async () => {
       try {
-        const response = await chatApi.channels(token);
+        const [channelsResponse, serversResponse] = await Promise.all([
+          chatApi.channels(token),
+          chatApi.servers(token),
+        ]);
         if (disposed) {
           return;
         }
-        setChannels(response.channels);
+        setChannels(channelsResponse.channels);
+        setServers(serversResponse.servers);
+        const nextScope: RailScope = { kind: 'home' };
+        setRailScope(nextScope);
+        setActiveView('chat');
+        setServerInvites([]);
+        setServerAnalytics(null);
+        setServerAuditLogs([]);
+        setServerMembers([]);
+        setServerModerationActions([]);
+        setServerPanelError(null);
         setError(null);
-        setActiveChannelId((current) => current ?? response.channels[0]?.id ?? null);
+        const firstHomeChannelId = pickFallbackChannelId(channelsResponse.channels, nextScope);
+        setActiveChannelId(firstHomeChannelId);
       } catch (err) {
         if (!disposed) {
-          setError(getErrorMessage(err, 'Could not load channels'));
+          setError(getErrorMessage(err, 'Could not load chat data'));
         }
       }
     };
@@ -1195,6 +1428,64 @@ export function ChatPage() {
         : `You received ${newRequestCount} friend requests.`,
     );
   }, [auth.token, incomingRequests.length]);
+
+  useEffect(() => {
+    if (railScope.kind !== 'server') {
+      return;
+    }
+    if (selectedServer) {
+      return;
+    }
+    setRailScope({ kind: 'home' });
+    setActiveView('chat');
+  }, [railScope, selectedServer]);
+
+  useEffect(() => {
+    if (activeView === 'server' && railScope.kind === 'home') {
+      setActiveView('chat');
+    }
+  }, [activeView, railScope.kind]);
+
+  useEffect(() => {
+    if (activeView !== 'chat') {
+      return;
+    }
+    if (!activeChannelId) {
+      const fallback = pickFallbackChannelId(channels, railScope);
+      if (fallback) {
+        setActiveChannelId(fallback);
+      }
+      return;
+    }
+    const current = channels.find((channel) => channel.id === activeChannelId) ?? null;
+    if (!current) {
+      return;
+    }
+    if (isChannelVisibleInScope(current, railScope)) {
+      return;
+    }
+    setActiveChannelId(pickFallbackChannelId(channels, railScope));
+  }, [activeView, activeChannelId, channels, railScope]);
+
+  useEffect(() => {
+    if (activeView !== 'server' || !selectedServerId || !canManageSelectedServer) {
+      return;
+    }
+    void loadServerManagementData();
+  }, [activeView, selectedServerId, canManageSelectedServer, loadServerManagementData]);
+
+  useEffect(() => {
+    if (railScope.kind === 'server') {
+      setServerPanelError(null);
+      return;
+    }
+    setServerInvites([]);
+    setServerAnalytics(null);
+    setServerAuditLogs([]);
+    setServerMembers([]);
+    setServerModerationActions([]);
+    setServerPanelError(null);
+  }, [railScope.kind, selectedServerId]);
 
   const { toggleMessageReaction } = useReactionsFeature({
     authToken: auth.token,
@@ -1255,6 +1546,7 @@ export function ChatPage() {
     auth.clearAuth();
   };
 
+  const scopeLabel = railScope.kind === 'home' ? 'Home' : (selectedServer?.name ?? 'Server');
   const panelTitle =
     activeView === 'chat'
       ? activeChannel
@@ -1263,12 +1555,16 @@ export function ChatPage() {
           : activeChannel.isVoice
             ? `~${activeChannel.name}`
             : `#${activeChannel.name}`
-        : 'Select channel'
+        : railScope.kind === 'home'
+          ? 'Home'
+          : `${scopeLabel} / Select channel`
       : activeView === 'friends'
         ? 'Friends'
         : activeView === 'settings'
           ? 'Settings'
-          : 'Admin Settings';
+          : activeView === 'server'
+            ? `${scopeLabel} Management`
+            : 'Admin Settings';
   const isVoiceDisconnecting =
     Boolean(activeVoiceChannelId) && voiceBusyChannelId === activeVoiceChannelId;
   const isViewingJoinedVoiceChannel =
@@ -1353,8 +1649,22 @@ export function ChatPage() {
   return (
     <ChatPageShell
       chatLayoutClassName={chatLayoutClassName}
+      serverRailProps={{
+        servers,
+        scope: railScope,
+        onSelectHome: selectHomeScope,
+        onSelectServer: selectServerScope,
+        onCreateServer: () => {
+          void createServerFromRail();
+        },
+        onJoinServer: () => {
+          void joinServerFromRail();
+        },
+        creatingServer,
+        joiningServer,
+      }}
       sidebarProps={{
-        channels,
+        channels: scopedChannels,
         activeChannelId,
         onSelect: (channelId) => {
           setActiveChannelId(channelId);
@@ -1372,11 +1682,16 @@ export function ChatPage() {
         unreadChannelCounts,
         activeView,
         onChangeView: setActiveView,
+        scope: railScope.kind,
+        scopeLabel,
         onLogout: logout,
         userId: auth.user.id,
         username: auth.user.username,
         isAdmin: auth.user.isAdmin,
-        onCreateChannel: createChannel,
+        canManageScope: railScope.kind === 'server' && canManageSelectedServer,
+        canOpenServerView: railScope.kind === 'server' && canManageSelectedServer,
+        onOpenServerView: () => setActiveView('server'),
+        onCreateChannel: createScopedChannel,
         onDeleteChannel: deleteChannel,
         deletingChannelId,
         activeVoiceChannelId,
@@ -1448,7 +1763,10 @@ export function ChatPage() {
             onStreamBitrateChange: (nextBitrate) => {
               void updateVoiceChannelSettings(activeChannel.id, { streamBitrateKbps: nextBitrate });
             },
-            canEditChannelBitrate: canEditVoiceSettings,
+            canEditChannelBitrate:
+              railScope.kind === 'server' &&
+              activeChannel.serverId === railScope.serverId &&
+              canManageSelectedServer,
             qualityBusy: savingVoiceSettingsChannelId === activeChannel.id,
             joined: activeVoiceChannelId === activeChannel.id,
             busy: voiceBusyChannelId === activeChannel.id,
@@ -1589,6 +1907,27 @@ export function ChatPage() {
           }
           : null
       }
+      serverPanelProps={
+        activeView === 'server'
+          ? {
+            server: selectedServer,
+            canManage: canManageSelectedServer,
+            loading: serverPanelLoading,
+            error: serverPanelError,
+            invites: serverInvites,
+            analytics: serverAnalytics,
+            logs: serverAuditLogs,
+            members: serverMembers,
+            moderationActions: serverModerationActions,
+            inviteBusy: serverInviteBusy,
+            moderationBusy: serverModerationBusy,
+            onRefresh: loadServerManagementData,
+            onCreateInvite: createServerInvite,
+            onRevokeInvite: revokeServerInvite,
+            onModerate: moderateServerMember,
+          }
+          : null
+      }
       userSidebarProps={{
         users: onlineUsers,
         onUserClick: (user) => {
@@ -1726,6 +2065,19 @@ export function ChatPage() {
           }}
         >
           Friends
+        </button>
+        <button
+          className={activeView === 'server' ? 'active' : ''}
+          disabled={railScope.kind !== 'server'}
+          onClick={() => {
+            if (railScope.kind !== 'server') {
+              return;
+            }
+            setActiveView('server');
+            setMobilePane('none');
+          }}
+        >
+          Server
         </button>
         <button
           className={activeView === 'settings' ? 'active' : ''}

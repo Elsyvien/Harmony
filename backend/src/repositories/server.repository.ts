@@ -28,6 +28,16 @@ interface ServerMemberPreview {
   user: ServerMemberUserPreview;
 }
 
+interface ServerMemberListUserPreview {
+  id: string;
+  username: string;
+  avatarUrl: string | null;
+}
+
+export interface ServerMemberWithUser extends ServerMember {
+  user: ServerMemberListUserPreview;
+}
+
 export interface ServerWithMembers extends Server {
   owner: ServerOwnerPreview;
   members: ServerMemberPreview[];
@@ -149,6 +159,7 @@ export interface ServerRepository {
   upsertDefault(params: { slug: string; name: string; ownerId: string }): Promise<ServerWithMembers>;
   ensureAllUsersAreMembers(serverId: string): Promise<number>;
   findMember(serverId: string, userId: string): Promise<ServerMember | null>;
+  listMembers(serverId: string): Promise<ServerMemberWithUser[]>;
   ensureMember(params: { serverId: string; userId: string; role?: UserRole }): Promise<ServerMember>;
   createInvite(params: {
     serverId: string;
@@ -321,6 +332,24 @@ export class PrismaServerRepository implements ServerRepository {
         serverId_userId: {
           serverId,
           userId,
+        },
+      },
+    });
+  }
+
+  listMembers(serverId: string): Promise<ServerMemberWithUser[]> {
+    return prisma.serverMember.findMany({
+      where: {
+        serverId,
+      },
+      orderBy: [{ createdAt: 'asc' }],
+      include: {
+        user: {
+          select: {
+            id: true,
+            username: true,
+            avatarUrl: true,
+          },
         },
       },
     });

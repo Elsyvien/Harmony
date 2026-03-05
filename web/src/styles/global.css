@@ -1463,7 +1463,7 @@ body.font-scale-lg {
 
 @media (max-width: 900px) {
   .chat-layout {
-    grid-template-columns: 260px 1fr;
+    grid-template-columns: 72px 260px 1fr;
   }
 
   .user-sidebar {
@@ -1495,6 +1495,10 @@ body.font-scale-lg {
   .chat-layout {
     grid-template-columns: 1fr;
     position: relative;
+  }
+
+  .server-rail {
+    display: none;
   }
 
   .chat-panel {
@@ -1587,7 +1591,7 @@ body.font-scale-lg {
     bottom: 0;
     z-index: 38;
     display: grid;
-    grid-template-columns: repeat(5, minmax(0, 1fr));
+    grid-template-columns: repeat(6, minmax(0, 1fr));
     gap: 6px;
     padding: 8px max(8px, env(safe-area-inset-left)) calc(8px + env(safe-area-inset-bottom)) max(8px, env(safe-area-inset-right));
     border-top: 1px solid var(--panel-border);

@@ -76,6 +76,19 @@ export interface ServerAnalytics {
   inviteJoins30d: number;
 }
 
+export interface ServerMemberSummary {
+  id: string;
+  userId: string;
+  role: UserRole;
+  createdAt: string;
+  updatedAt: string;
+  user: {
+    id: string;
+    username: string;
+    avatarUrl: string | null;
+  };
+}
+
 export interface ServerAuditLog {
   id: string;
   action: string;
