@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it } from 'vitest';
 import type { Channel, UserRole } from '@prisma/client';
 import type { ChannelRepository, ChannelWithMembers } from '../src/repositories/channel.repository.js';
 import type { FriendshipRepository } from '../src/repositories/friendship.repository.js';
+import type { ServerService } from '../src/services/server.service.js';
 import type { UserRepository } from '../src/repositories/user.repository.js';
 import { ChannelService } from '../src/services/channel.service.js';
 import { AppError } from '../src/utils/app-error.js';
@@ -12,9 +13,17 @@ function buildChannel(input: Partial<Channel> & Pick<Channel, 'id' | 'name'>): C
     name: input.name,
     type: input.type ?? 'PUBLIC',
     dmKey: input.dmKey ?? null,
+    serverId: input.serverId ?? (input.type === 'DIRECT' ? null : 'server-1'),
     voiceBitrateKbps: input.voiceBitrateKbps ?? (input.type === 'VOICE' ? 64 : null),
     streamBitrateKbps: input.streamBitrateKbps ?? (input.type === 'VOICE' ? 2500 : null),
     createdAt: input.createdAt ?? new Date('2026-01-01T00:00:00.000Z'),
+    server:
+      input.type === 'DIRECT'
+        ? null
+        : {
+            id: input.serverId ?? 'server-1',
+            name: 'Harmony',
+          },
     members: [],
   };
 }
@@ -26,6 +35,10 @@ class InMemoryChannelRepo implements ChannelRepository {
     return this.channels;
   }
 
+  async listByServerForUser(serverId: string) {
+    return this.channels.filter((channel) => channel.serverId === serverId && channel.type !== 'DIRECT');
+  }
+
   async findById(id: string) {
     return this.channels.find((channel) => channel.id === id) ?? null;
   }
@@ -34,33 +47,39 @@ class InMemoryChannelRepo implements ChannelRepository {
     return this.channels.find((channel) => channel.id === id) ?? null;
   }
 
-  async findByName(name: string) {
-    return this.channels.find((channel) => channel.name === name) ?? null;
+  async findByNameInServer(params: { serverId: string; name: string }) {
+    return this.channels.find(
+      (channel) => channel.serverId === params.serverId && channel.name === params.name,
+    ) ?? null;
   }
 
-  async countPublicChannels() {
-    return this.channels.filter((channel) => channel.type === 'PUBLIC').length;
+  async countPublicChannels(serverId: string) {
+    return this.channels.filter(
+      (channel) => channel.type === 'PUBLIC' && channel.serverId === serverId,
+    ).length;
   }
 
   async deleteById(id: string) {
     this.channels = this.channels.filter((channel) => channel.id !== id);
   }
 
-  async createPublic(params: { name: string }) {
+  async createPublic(params: { name: string; serverId: string }) {
     const created = buildChannel({
       id: `channel-${this.channels.length + 1}`,
       name: params.name,
       type: 'PUBLIC',
+      serverId: params.serverId,
     });
     this.channels.push(created);
     return created;
   }
 
-  async createVoice(params: { name: string }) {
+  async createVoice(params: { name: string; serverId: string }) {
     const created = buildChannel({
       id: `channel-${this.channels.length + 1}`,
       name: params.name,
       type: 'VOICE',
+      serverId: params.serverId,
     });
     this.channels.push(created);
     return created;
@@ -84,12 +103,29 @@ class InMemoryChannelRepo implements ChannelRepository {
     return channel;
   }
 
-  async ensurePublicByName(name: string) {
-    const existing = this.channels.find((channel) => channel.name === name && channel.type === 'PUBLIC');
+  async ensurePublicByName(params: { name: string; serverId: string }) {
+    const existing = this.channels.find(
+      (channel) =>
+        channel.name === params.name &&
+        channel.serverId === params.serverId &&
+        channel.type === 'PUBLIC',
+    );
     if (existing) {
       return existing;
     }
-    return this.createPublic({ name });
+    return this.createPublic({ name: params.name, serverId: params.serverId });
+  }
+
+  async attachLegacyChannelsToServer(serverId: string) {
+    let count = 0;
+    for (const channel of this.channels) {
+      if (!channel.serverId && channel.type !== 'DIRECT') {
+        channel.serverId = serverId;
+        channel.server = { id: serverId, name: 'Harmony' };
+        count += 1;
+      }
+    }
+    return count;
   }
 
   async findDirectByDmKey(dmKey: string) {
@@ -169,6 +205,48 @@ const noOpFriendshipRepo: FriendshipRepository = {
   async deleteById() {},
 };
 
+const noOpServerService: Partial<ServerService> = {
+  async bootstrapDefaultServer() {
+    return {
+      serverId: 'server-1',
+      created: false,
+      backfilledChannelCount: 0,
+      backfilledMemberCount: 0,
+    };
+  },
+  async ensureDefaultServerForUser() {
+    return 'server-1';
+  },
+  async assertCanManageServer() {
+    return {
+      id: 'member-1',
+      serverId: 'server-1',
+      userId: 'admin-1',
+      role: 'OWNER',
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    };
+  },
+  async getServerForUser() {
+    return {
+      id: 'server-1',
+      slug: 'harmony-default',
+      name: 'Harmony',
+      description: null,
+      iconUrl: null,
+      visibility: 'INVITE_ONLY',
+      createdAt: new Date(),
+      owner: {
+        id: 'admin-1',
+        username: 'max',
+        avatarUrl: null,
+      },
+      memberRole: 'OWNER',
+      memberCount: 1,
+    };
+  },
+};
+
 describe('ChannelService deleteChannel', () => {
   let repo: InMemoryChannelRepo;
   let service: ChannelService;
@@ -180,47 +258,55 @@ describe('ChannelService deleteChannel', () => {
       buildChannel({ id: 'voice-id', name: 'party', type: 'VOICE' }),
       buildChannel({ id: 'dm-id', name: 'dm-a-b', type: 'DIRECT', dmKey: 'dm:a:b' }),
     ]);
-    service = new ChannelService(repo, noOpUserRepo, noOpFriendshipRepo);
+    service = new ChannelService(
+      repo,
+      noOpUserRepo,
+      noOpFriendshipRepo,
+      noOpServerService as ServerService,
+    );
   });
 
   it('deletes regular public channels', async () => {
-    const result = await service.deleteChannel('general-id');
+    const result = await service.deleteChannel('general-id', 'admin-1');
 
     expect(result.deletedChannelId).toBe('general-id');
-    await expect(service.deleteChannel('general-id')).rejects.toMatchObject({
+    await expect(service.deleteChannel('general-id', 'admin-1')).rejects.toMatchObject({
       code: 'CHANNEL_NOT_FOUND',
     } satisfies Partial<AppError>);
   });
 
-  it('rejects deleting the global channel', async () => {
-    await expect(service.deleteChannel('global-id')).rejects.toMatchObject({
+  it('rejects deleting the last remaining public channel in a server', async () => {
+    await service.deleteChannel('general-id', 'admin-1');
+    await expect(service.deleteChannel('global-id', 'admin-1')).rejects.toMatchObject({
       code: 'CHANNEL_DELETE_FORBIDDEN',
     } satisfies Partial<AppError>);
   });
 
   it('rejects deleting direct channels', async () => {
-    await expect(service.deleteChannel('dm-id')).rejects.toMatchObject({
+    await expect(service.deleteChannel('dm-id', 'admin-1')).rejects.toMatchObject({
       code: 'CHANNEL_DELETE_FORBIDDEN',
     } satisfies Partial<AppError>);
   });
 
   it('allows deleting voice channels', async () => {
-    const result = await service.deleteChannel('voice-id');
+    const result = await service.deleteChannel('voice-id', 'admin-1');
     expect(result.deletedChannelId).toBe('voice-id');
   });
 
   it('updates voice bitrate on voice channels', async () => {
-    const result = await service.updateVoiceChannelBitrate('voice-id', 96);
+    const result = await service.updateVoiceChannelBitrate('voice-id', 'admin-1', 96);
     expect(result.voiceBitrateKbps).toBe(96);
   });
 
   it('updates stream bitrate on voice channels', async () => {
-    const result = await service.updateVoiceChannelSettings('voice-id', { streamBitrateKbps: 4200 });
+    const result = await service.updateVoiceChannelSettings('voice-id', 'admin-1', {
+      streamBitrateKbps: 4200,
+    });
     expect(result.streamBitrateKbps).toBe(4200);
   });
 
   it('rejects bitrate updates on non-voice channels', async () => {
-    await expect(service.updateVoiceChannelBitrate('general-id', 96)).rejects.toMatchObject({
+    await expect(service.updateVoiceChannelBitrate('general-id', 'admin-1', 96)).rejects.toMatchObject({
       code: 'INVALID_VOICE_CHANNEL',
     } satisfies Partial<AppError>);
   });

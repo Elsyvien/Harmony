@@ -16,12 +16,14 @@ import { wsPlugin } from './plugins/ws.plugin.js';
 import { PrismaChannelRepository } from './repositories/channel.repository.js';
 import { PrismaFriendshipRepository } from './repositories/friendship.repository.js';
 import { PrismaMessageRepository } from './repositories/message.repository.js';
+import { PrismaServerRepository } from './repositories/server.repository.js';
 import { PrismaUserRepository } from './repositories/user.repository.js';
 import { authRoutes } from './routes/auth.routes.js';
 import { channelRoutes } from './routes/channel.routes.js';
 import { friendRoutes } from './routes/friend.routes.js';
 import { adminRoutes } from './routes/admin.routes.js';
 import { rtcRoutes } from './routes/rtc.routes.js';
+import { serverRoutes } from './routes/server.routes.js';
 import { AdminService } from './services/admin.service.js';
 import { AdminSettingsService } from './services/admin-settings.service.js';
 import { AdminUserService } from './services/admin-user.service.js';
@@ -31,6 +33,7 @@ import { userRoutes } from './routes/user.routes.js';
 import { ChannelService } from './services/channel.service.js';
 import { MessageService } from './services/message.service.js';
 import { FriendService } from './services/friend.service.js';
+import { ServerService } from './services/server.service.js';
 import { CloudflareVoiceSfuService } from './services/cloudflare-voice-sfu.service.js';
 import { CloudflareRealtimeSfuApiClient } from './services/cloudflare-realtime-sfu-api.client.js';
 import type { VoiceSfuProvider } from './services/voice-sfu-provider.js';
@@ -109,10 +112,17 @@ export async function buildApp() {
   const channelRepo = new PrismaChannelRepository();
   const messageRepo = new PrismaMessageRepository();
   const friendshipRepo = new PrismaFriendshipRepository();
+  const serverRepo = new PrismaServerRepository();
   const adminSettingsService = new AdminSettingsService();
+  const serverService = new ServerService(serverRepo, channelRepo);
 
-  const authService = new AuthService(userRepo, env.BCRYPT_SALT_ROUNDS, adminSettingsService);
-  const channelService = new ChannelService(channelRepo, userRepo, friendshipRepo);
+  const authService = new AuthService(
+    userRepo,
+    env.BCRYPT_SALT_ROUNDS,
+    adminSettingsService,
+    serverService,
+  );
+  const channelService = new ChannelService(channelRepo, userRepo, friendshipRepo, serverService);
   const messageService = new MessageService(
     messageRepo,
     channelService,
@@ -243,6 +253,7 @@ export async function buildApp() {
   await app.register(wsPlugin, { channelService, messageService, voiceSfuService });
   await app.register(authRoutes, { authService, env });
   await app.register(channelRoutes, { channelService, messageService });
+  await app.register(serverRoutes, { channelService, serverService });
   await app.register(friendRoutes, { friendService });
   await app.register(userRoutes, { userService });
   await app.register(adminRoutes, { adminService, adminSettingsService, adminUserService });

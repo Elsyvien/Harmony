@@ -54,6 +54,7 @@ export const createChannelBodySchema = z.object({
     .min(2)
     .max(64)
     .regex(/^[a-zA-Z0-9_-]+$/, 'Channel name may only contain letters, numbers, - and _'),
+  serverId: z.string().uuid().optional(),
   type: z.enum(['TEXT', 'VOICE']).default('TEXT'),
 });
 
