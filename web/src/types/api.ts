@@ -121,6 +121,9 @@ export interface AdminSettings {
   readOnlyMode: boolean;
   slowModeSeconds: number;
   idleTimeoutMinutes: number;
+  voiceNoiseSuppressionDefault: boolean;
+  voiceEchoCancellationDefault: boolean;
+  voiceAutoGainControlDefault: boolean;
 }
 
 export interface AdminUserSummary {

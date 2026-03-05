@@ -119,7 +119,7 @@ function hasTurnRelayInIceConfig(config: RTCConfiguration) {
 
 export function ChatPage() {
   const auth = useAuth();
-  const { preferences, updatePreferences, resetPreferences } = useUserPreferences();
+  const { preferences, updatePreferences, resetPreferences, applyVoiceDefaults } = useUserPreferences();
 
   const [channels, setChannels] = useState<Channel[]>([]);
   const [activeChannelId, setActiveChannelId] = useState<string | null>(null);
@@ -509,6 +509,7 @@ export function ChatPage() {
     preferences,
     updatePreferences,
     setError,
+    setNotice,
     replaceAudioTrackAcrossPeers,
   });
 
@@ -1105,6 +1106,11 @@ export function ChatPage() {
         setVoiceIceConfig(normalizeVoiceIceConfig(response.rtc));
         setVoiceSfuEnabled(Boolean(response.sfu?.enabled));
         setVoiceSfuProvider(response.sfu?.provider === 'cloudflare' ? 'cloudflare' : 'mediasoup');
+        applyVoiceDefaults({
+          voiceNoiseSuppression: response.voiceDefaults?.noiseSuppression,
+          voiceEchoCancellation: response.voiceDefaults?.echoCancellation,
+          voiceAutoGainControl: response.voiceDefaults?.autoGainControl,
+        });
       } catch {
         if (!disposed) {
           setVoiceIceConfig(createDefaultVoiceIceConfig());
@@ -1117,7 +1123,7 @@ export function ChatPage() {
     return () => {
       disposed = true;
     };
-  }, []);
+  }, [applyVoiceDefaults]);
 
   useEffect(() => {
     if (auth.token) {

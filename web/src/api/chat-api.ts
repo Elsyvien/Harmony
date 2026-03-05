@@ -47,6 +47,11 @@ export const chatApi = {
         audioOnly?: boolean;
         preferTcp?: boolean;
       };
+      voiceDefaults?: {
+        noiseSuppression?: boolean;
+        echoCancellation?: boolean;
+        autoGainControl?: boolean;
+      };
     }>('/rtc/config');
   },
 
@@ -253,7 +258,16 @@ export const chatApi = {
   updateAdminSettings(
     token: string,
     input: Partial<
-      Pick<AdminSettings, 'allowRegistrations' | 'readOnlyMode' | 'slowModeSeconds' | 'idleTimeoutMinutes'>
+      Pick<
+        AdminSettings,
+        | 'allowRegistrations'
+        | 'readOnlyMode'
+        | 'slowModeSeconds'
+        | 'idleTimeoutMinutes'
+        | 'voiceNoiseSuppressionDefault'
+        | 'voiceEchoCancellationDefault'
+        | 'voiceAutoGainControlDefault'
+      >
     >,
   ) {
     return apiRequest<{ settings: AdminSettings }>(

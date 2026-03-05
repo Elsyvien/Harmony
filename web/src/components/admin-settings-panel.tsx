@@ -72,6 +72,9 @@ export function AdminSettingsPanel(props: AdminSettingsPanelProps) {
     readOnlyMode: false,
     slowModeSeconds: 0,
     idleTimeoutMinutes: 15,
+    voiceNoiseSuppressionDefault: true,
+    voiceEchoCancellationDefault: true,
+    voiceAutoGainControlDefault: true,
   });
   const [search, setSearch] = useState('');
   const [roleFilter, setRoleFilter] = useState<'ALL' | UserRole>('ALL');
@@ -227,6 +230,60 @@ export function AdminSettingsPanel(props: AdminSettingsPanelProps) {
             }
             disabled={props.settingsLoading || props.savingSettings}
           />
+        </label>
+
+        <label className="toggle-row">
+          <input
+            type="checkbox"
+            checked={draft.voiceNoiseSuppressionDefault}
+            onChange={(event) =>
+              setDraft((prev) => ({
+                ...prev,
+                voiceNoiseSuppressionDefault: event.target.checked,
+              }))
+            }
+            disabled={props.settingsLoading || props.savingSettings}
+          />
+          <span>
+            <strong>Default noise suppression</strong>
+            <small>Used for users who have not set a local voice preference yet.</small>
+          </span>
+        </label>
+
+        <label className="toggle-row">
+          <input
+            type="checkbox"
+            checked={draft.voiceEchoCancellationDefault}
+            onChange={(event) =>
+              setDraft((prev) => ({
+                ...prev,
+                voiceEchoCancellationDefault: event.target.checked,
+              }))
+            }
+            disabled={props.settingsLoading || props.savingSettings}
+          />
+          <span>
+            <strong>Default echo cancellation</strong>
+            <small>Used for users who have not set a local voice preference yet.</small>
+          </span>
+        </label>
+
+        <label className="toggle-row">
+          <input
+            type="checkbox"
+            checked={draft.voiceAutoGainControlDefault}
+            onChange={(event) =>
+              setDraft((prev) => ({
+                ...prev,
+                voiceAutoGainControlDefault: event.target.checked,
+              }))
+            }
+            disabled={props.settingsLoading || props.savingSettings}
+          />
+          <span>
+            <strong>Default auto gain control</strong>
+            <small>Used for users who have not set a local voice preference yet.</small>
+          </span>
         </label>
 
         <button

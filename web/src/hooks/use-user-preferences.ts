@@ -1,9 +1,43 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import type { UserPreferences } from '../types/preferences';
 import { DEFAULT_USER_PREFERENCES } from '../types/preferences';
 import { getStorageItem, setStorageItem } from '../utils/safe-storage';
 
 const PREFS_KEY = 'discordclone_user_preferences_v4';
+
+const VOICE_DEFAULT_KEYS = [
+  'voiceNoiseSuppression',
+  'voiceEchoCancellation',
+  'voiceAutoGainControl',
+] as const;
+
+type VoiceDefaultKey = (typeof VOICE_DEFAULT_KEYS)[number];
+
+export type VoicePreferenceDefaults = Pick<UserPreferences, VoiceDefaultKey>;
+
+function buildDefaultVoicePreferencePresence(): Record<VoiceDefaultKey, boolean> {
+  return {
+    voiceNoiseSuppression: false,
+    voiceEchoCancellation: false,
+    voiceAutoGainControl: false,
+  };
+}
+
+function parseVoicePreferencePresence(raw: string | null): Record<VoiceDefaultKey, boolean> {
+  if (!raw) {
+    return buildDefaultVoicePreferencePresence();
+  }
+  try {
+    const parsed = JSON.parse(raw) as Partial<UserPreferences>;
+    return {
+      voiceNoiseSuppression: typeof parsed.voiceNoiseSuppression === 'boolean',
+      voiceEchoCancellation: typeof parsed.voiceEchoCancellation === 'boolean',
+      voiceAutoGainControl: typeof parsed.voiceAutoGainControl === 'boolean',
+    };
+  } catch {
+    return buildDefaultVoicePreferencePresence();
+  }
+}
 
 function parsePreferences(raw: string | null): UserPreferences {
   if (!raw) {
@@ -30,7 +64,8 @@ function parsePreferences(raw: string | null): UserPreferences {
           : DEFAULT_USER_PREFERENCES.enterToSend,
       playMessageSound: Boolean(parsed.playMessageSound),
       voiceInputSensitivity:
-        typeof parsed.voiceInputSensitivity === 'number' && Number.isFinite(parsed.voiceInputSensitivity)
+        typeof parsed.voiceInputSensitivity === 'number' &&
+        Number.isFinite(parsed.voiceInputSensitivity)
           ? Math.min(0.12, Math.max(0.005, parsed.voiceInputSensitivity))
           : DEFAULT_USER_PREFERENCES.voiceInputSensitivity,
       voiceInputGain:
@@ -41,6 +76,18 @@ function parsePreferences(raw: string | null): UserPreferences {
         typeof parsed.voiceOutputVolume === 'number' && Number.isFinite(parsed.voiceOutputVolume)
           ? Math.min(100, Math.max(0, Math.round(parsed.voiceOutputVolume)))
           : DEFAULT_USER_PREFERENCES.voiceOutputVolume,
+      voiceNoiseSuppression:
+        typeof parsed.voiceNoiseSuppression === 'boolean'
+          ? parsed.voiceNoiseSuppression
+          : DEFAULT_USER_PREFERENCES.voiceNoiseSuppression,
+      voiceEchoCancellation:
+        typeof parsed.voiceEchoCancellation === 'boolean'
+          ? parsed.voiceEchoCancellation
+          : DEFAULT_USER_PREFERENCES.voiceEchoCancellation,
+      voiceAutoGainControl:
+        typeof parsed.voiceAutoGainControl === 'boolean'
+          ? parsed.voiceAutoGainControl
+          : DEFAULT_USER_PREFERENCES.voiceAutoGainControl,
       showVoiceActivity:
         typeof parsed.showVoiceActivity === 'boolean'
           ? parsed.showVoiceActivity
@@ -73,23 +120,88 @@ export function useUserPreferences() {
   const [preferences, setPreferences] = useState<UserPreferences>(() =>
     parsePreferences(getStorageItem(PREFS_KEY)),
   );
+  const [voicePreferencePresence, setVoicePreferencePresence] = useState<
+    Record<VoiceDefaultKey, boolean>
+  >(() => parseVoicePreferencePresence(getStorageItem(PREFS_KEY)));
+  const voicePreferencePresenceRef = useRef(voicePreferencePresence);
+
+  useEffect(() => {
+    voicePreferencePresenceRef.current = voicePreferencePresence;
+  }, [voicePreferencePresence]);
 
   useEffect(() => {
     setStorageItem(PREFS_KEY, JSON.stringify(preferences));
     applyBodyClasses(preferences);
   }, [preferences]);
 
-  const updatePreferences = (patch: Partial<UserPreferences>) => {
+  const updatePreferences = useCallback((patch: Partial<UserPreferences>) => {
     setPreferences((prev) => ({ ...prev, ...patch }));
-  };
+    if (
+      patch.voiceNoiseSuppression === undefined &&
+      patch.voiceEchoCancellation === undefined &&
+      patch.voiceAutoGainControl === undefined
+    ) {
+      return;
+    }
+    const nextPresence = {
+      voiceNoiseSuppression:
+        voicePreferencePresenceRef.current.voiceNoiseSuppression ||
+        typeof patch.voiceNoiseSuppression === 'boolean',
+      voiceEchoCancellation:
+        voicePreferencePresenceRef.current.voiceEchoCancellation ||
+        typeof patch.voiceEchoCancellation === 'boolean',
+      voiceAutoGainControl:
+        voicePreferencePresenceRef.current.voiceAutoGainControl ||
+        typeof patch.voiceAutoGainControl === 'boolean',
+    };
+    voicePreferencePresenceRef.current = nextPresence;
+    setVoicePreferencePresence(nextPresence);
+  }, []);
 
-  const resetPreferences = () => {
+  const applyVoiceDefaults = useCallback((defaults: Partial<VoicePreferenceDefaults>) => {
+    const normalizedDefaults: VoicePreferenceDefaults = {
+      voiceNoiseSuppression:
+        typeof defaults.voiceNoiseSuppression === 'boolean'
+          ? defaults.voiceNoiseSuppression
+          : DEFAULT_USER_PREFERENCES.voiceNoiseSuppression,
+      voiceEchoCancellation:
+        typeof defaults.voiceEchoCancellation === 'boolean'
+          ? defaults.voiceEchoCancellation
+          : DEFAULT_USER_PREFERENCES.voiceEchoCancellation,
+      voiceAutoGainControl:
+        typeof defaults.voiceAutoGainControl === 'boolean'
+          ? defaults.voiceAutoGainControl
+          : DEFAULT_USER_PREFERENCES.voiceAutoGainControl,
+    };
+    setPreferences((prev) => {
+      let changed = false;
+      const next = { ...prev };
+      const presence = voicePreferencePresenceRef.current;
+      for (const key of VOICE_DEFAULT_KEYS) {
+        if (presence[key]) {
+          continue;
+        }
+        const nextValue = normalizedDefaults[key];
+        if (next[key] !== nextValue) {
+          next[key] = nextValue;
+          changed = true;
+        }
+      }
+      return changed ? next : prev;
+    });
+  }, []);
+
+  const resetPreferences = useCallback(() => {
     setPreferences(DEFAULT_USER_PREFERENCES);
-  };
+    const nextPresence = buildDefaultVoicePreferencePresence();
+    voicePreferencePresenceRef.current = nextPresence;
+    setVoicePreferencePresence(nextPresence);
+  }, []);
 
   return {
     preferences,
     updatePreferences,
     resetPreferences,
+    applyVoiceDefaults,
   };
 }

@@ -19,12 +19,18 @@ function makeSettings(overrides?: Partial<{
   readOnlyMode: boolean;
   slowModeSeconds: number;
   idleTimeoutMinutes: number;
+  voiceNoiseSuppressionDefault: boolean;
+  voiceEchoCancellationDefault: boolean;
+  voiceAutoGainControlDefault: boolean;
 }>) {
   return {
     allowRegistrations: true,
     readOnlyMode: false,
     slowModeSeconds: 0,
     idleTimeoutMinutes: 15,
+    voiceNoiseSuppressionDefault: true,
+    voiceEchoCancellationDefault: true,
+    voiceAutoGainControlDefault: true,
     ...(overrides ?? {}),
   };
 }
@@ -116,7 +122,11 @@ describe('adminRoutes /admin/settings', () => {
 
   it('updates settings and broadcasts the update payload', async () => {
     const { putSettingsRoute, updateSettingsMock, broadcastSystem } = await registerRoutes();
-    const updated = makeSettings({ idleTimeoutMinutes: 30, readOnlyMode: true });
+    const updated = makeSettings({
+      idleTimeoutMinutes: 30,
+      readOnlyMode: true,
+      voiceNoiseSuppressionDefault: false,
+    });
     updateSettingsMock.mockResolvedValue(updated);
 
     const response = await putSettingsRoute.handler(
@@ -124,6 +134,7 @@ describe('adminRoutes /admin/settings', () => {
         body: {
           readOnlyMode: true,
           idleTimeoutMinutes: 30,
+          voiceNoiseSuppressionDefault: false,
         },
       },
       {},
@@ -132,6 +143,7 @@ describe('adminRoutes /admin/settings', () => {
     expect(updateSettingsMock).toHaveBeenCalledWith({
       readOnlyMode: true,
       idleTimeoutMinutes: 30,
+      voiceNoiseSuppressionDefault: false,
     });
     expect(broadcastSystem).toHaveBeenCalledWith('admin:settings:updated', { settings: updated });
     expect(response).toEqual({ settings: updated });

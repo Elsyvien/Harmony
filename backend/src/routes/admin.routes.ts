@@ -33,13 +33,19 @@ const updateAdminSettingsSchema = z
     readOnlyMode: z.boolean().optional(),
     slowModeSeconds: z.coerce.number().int().min(0).max(60).optional(),
     idleTimeoutMinutes: z.coerce.number().int().min(1).max(120).optional(),
+    voiceNoiseSuppressionDefault: z.boolean().optional(),
+    voiceEchoCancellationDefault: z.boolean().optional(),
+    voiceAutoGainControlDefault: z.boolean().optional(),
   })
   .refine(
     (value) =>
       value.allowRegistrations !== undefined ||
       value.readOnlyMode !== undefined ||
       value.slowModeSeconds !== undefined ||
-      value.idleTimeoutMinutes !== undefined,
+      value.idleTimeoutMinutes !== undefined ||
+      value.voiceNoiseSuppressionDefault !== undefined ||
+      value.voiceEchoCancellationDefault !== undefined ||
+      value.voiceAutoGainControlDefault !== undefined,
     { message: 'At least one setting must be provided' },
   );
 
