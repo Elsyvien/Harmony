@@ -6,6 +6,7 @@ import type {
   ModerationActionWithRelations,
   ServerInviteWithRelations,
   ServerAnalyticsSnapshot,
+  ServerMemberWithUser,
   ServerRepository,
   ServerWithMembers,
 } from '../repositories/server.repository.js';
@@ -15,6 +16,8 @@ import { isPrivilegedRole } from '../utils/roles.js';
 const DEFAULT_SERVER_SLUG = 'harmony-default';
 const DEFAULT_SERVER_NAME = 'Harmony';
 const DEFAULT_GLOBAL_CHANNEL = 'global';
+const DEFAULT_NEW_SERVER_TEXT_CHANNEL = 'general';
+const DEFAULT_NEW_SERVER_VOICE_CHANNEL = 'voice';
 
 export interface ServerSummary {
   id: string;
@@ -85,6 +88,19 @@ export interface ModerationActionSummary {
 
 export interface ServerAnalyticsSummary extends ServerAnalyticsSnapshot {}
 
+export interface ServerMemberSummary {
+  id: string;
+  userId: string;
+  role: UserRole;
+  createdAt: Date;
+  updatedAt: Date;
+  user: {
+    id: string;
+    username: string;
+    avatarUrl: string | null;
+  };
+}
+
 export class ServerService {
   constructor(
     private readonly serverRepo: ServerRepository,
@@ -154,6 +170,21 @@ export class ServerService {
       createdAt: action.createdAt,
       actor: action.actor,
       targetUser: action.targetUser,
+    };
+  }
+
+  private toMemberSummary(member: ServerMemberWithUser): ServerMemberSummary {
+    return {
+      id: member.id,
+      userId: member.userId,
+      role: member.role,
+      createdAt: member.createdAt,
+      updatedAt: member.updatedAt,
+      user: {
+        id: member.user.id,
+        username: member.user.username,
+        avatarUrl: member.user.avatarUrl,
+      },
     };
   }
 
@@ -278,7 +309,29 @@ export class ServerService {
       action: 'server.create',
       metadata: input.metadata,
     });
+
+    await this.channelRepo.ensurePublicByName({
+      name: DEFAULT_NEW_SERVER_TEXT_CHANNEL,
+      serverId: created.id,
+    });
+    const existingVoiceChannel = await this.channelRepo.findByNameInServer({
+      serverId: created.id,
+      name: DEFAULT_NEW_SERVER_VOICE_CHANNEL,
+    });
+    if (!existingVoiceChannel) {
+      await this.channelRepo.createVoice({
+        name: DEFAULT_NEW_SERVER_VOICE_CHANNEL,
+        serverId: created.id,
+      });
+    }
+
     return this.toSummary(created, userId);
+  }
+
+  async listMembers(userId: string, serverId: string): Promise<ServerMemberSummary[]> {
+    await this.assertCanManageServer(serverId, userId);
+    const members = await this.serverRepo.listMembers(serverId);
+    return members.map((member) => this.toMemberSummary(member));
   }
 
   async createInvite(

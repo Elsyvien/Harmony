@@ -3,7 +3,7 @@ import type { Dispatch, RefObject, SetStateAction } from 'react';
 import type { Message } from '../../../types/api';
 import type { ReplyTarget } from './use-message-lifecycle-feature';
 
-type MainView = 'chat' | 'friends' | 'settings' | 'admin';
+type MainView = 'chat' | 'friends' | 'settings' | 'admin' | 'server';
 type MobilePane = 'none' | 'channels' | 'users';
 
 type UseChatPageEffectsOptions = {

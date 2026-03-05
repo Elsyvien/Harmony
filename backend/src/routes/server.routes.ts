@@ -76,6 +76,19 @@ export const serverRoutes: FastifyPluginAsync<ServerRoutesOptions> = async (fast
   );
 
   fastify.get(
+    '/servers/:serverId/members',
+    {
+      preHandler: [authPreHandler],
+      config: { rateLimit: { max: 120, timeWindow: 60_000 } },
+    },
+    async (request) => {
+      const { serverId } = serverIdParamsSchema.parse(request.params);
+      const members = await options.serverService.listMembers(request.user.userId, serverId);
+      return { members };
+    },
+  );
+
+  fastify.get(
     '/servers/:serverId/analytics',
     {
       preHandler: [authPreHandler],

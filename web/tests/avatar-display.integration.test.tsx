@@ -28,10 +28,15 @@ describe('avatar display integration', () => {
         unreadChannelCounts={{}}
         activeView="chat"
         onChangeView={vi.fn()}
+        scope="home"
+        scopeLabel="Home"
         onLogout={async () => {}}
         userId="user-1"
         username="max"
         isAdmin={false}
+        canManageScope={false}
+        canOpenServerView={false}
+        onOpenServerView={vi.fn()}
         onCreateChannel={async () => {}}
         onDeleteChannel={async () => {}}
         deletingChannelId={null}
@@ -50,6 +55,7 @@ describe('avatar display integration', () => {
         incomingFriendRequests={0}
         avatarUrl="/uploads/avatars/max.png"
         ping={42}
+        state="online"
       />,
     );
 

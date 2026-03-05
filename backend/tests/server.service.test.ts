@@ -50,6 +50,7 @@ function buildServerRepo(overrides: Partial<ServerRepository>): ServerRepository
     upsertDefault: overrides.upsertDefault ?? notImplemented,
     ensureAllUsersAreMembers: overrides.ensureAllUsersAreMembers ?? (async () => 0),
     findMember: overrides.findMember ?? (async () => null),
+    listMembers: overrides.listMembers ?? (async () => []),
     ensureMember: overrides.ensureMember ?? notImplemented,
     createInvite: overrides.createInvite ?? notImplemented,
     listInvites: overrides.listInvites ?? (async () => []),
@@ -134,6 +135,9 @@ describe('ServerService', () => {
 
   it('deduplicates slugs when creating servers', async () => {
     const created = buildServer({ id: 'server-2', slug: 'my-server-2', name: 'My Server' });
+    const ensurePublicByName = vi.fn().mockResolvedValue({});
+    const findByNameInServer = vi.fn().mockResolvedValue(null);
+    const createVoice = vi.fn().mockResolvedValue({});
     const service = new ServerService(
       buildServerRepo({
         findBySlug: vi
@@ -142,11 +146,27 @@ describe('ServerService', () => {
           .mockResolvedValueOnce(null),
         create: vi.fn().mockResolvedValue(created),
       }),
-      buildChannelRepo({}),
+      buildChannelRepo({
+        ensurePublicByName,
+        findByNameInServer,
+        createVoice,
+      }),
     );
 
     const server = await service.createServer('owner-1', { name: 'My Server' });
     expect(server.slug).toBe('my-server-2');
+    expect(ensurePublicByName).toHaveBeenCalledWith({
+      name: 'general',
+      serverId: 'server-2',
+    });
+    expect(findByNameInServer).toHaveBeenCalledWith({
+      serverId: 'server-2',
+      name: 'voice',
+    });
+    expect(createVoice).toHaveBeenCalledWith({
+      name: 'voice',
+      serverId: 'server-2',
+    });
   });
 
   it('rejects expired invites', async () => {

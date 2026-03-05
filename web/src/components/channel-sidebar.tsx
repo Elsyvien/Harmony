@@ -9,12 +9,17 @@ interface ChannelSidebarProps {
   activeChannelId: string | null;
   onSelect: (channelId: string) => void;
   unreadChannelCounts: Record<string, number>;
-  activeView: 'chat' | 'friends' | 'settings' | 'admin';
-  onChangeView: (view: 'chat' | 'friends' | 'settings' | 'admin') => void;
+  activeView: 'chat' | 'friends' | 'settings' | 'admin' | 'server';
+  onChangeView: (view: 'chat' | 'friends' | 'settings' | 'admin' | 'server') => void;
+  scope: 'home' | 'server';
+  scopeLabel: string;
   onLogout: () => Promise<void>;
   userId: string;
   username: string;
   isAdmin: boolean;
+  canManageScope: boolean;
+  canOpenServerView: boolean;
+  onOpenServerView: () => void;
   onCreateChannel: (name: string, type: 'TEXT' | 'VOICE') => Promise<void>;
   onDeleteChannel: (channelId: string) => Promise<void>;
   deletingChannelId: string | null;
@@ -143,9 +148,9 @@ export function ChannelSidebar(props: ChannelSidebarProps) {
         <div className="channel-header-row">
           <div className="channel-brand">
             <img className="channel-brand-logo" src={harmonyLogo} alt="Harmony logo" />
-            <h2>Harmony</h2>
+            <h2>{props.scopeLabel}</h2>
           </div>
-          {props.isAdmin ? (
+          {props.canManageScope ? (
             <button
               className={showCreateChannel ? 'channel-add-btn active' : 'channel-add-btn'}
               aria-label="Create channel"
@@ -164,7 +169,7 @@ export function ChannelSidebar(props: ChannelSidebarProps) {
       </header>
 
       <nav>
-        {props.isAdmin && showCreateChannel ? (
+        {props.canManageScope && showCreateChannel ? (
           <form
             className="channel-create-form"
             onSubmit={async (event) => {
@@ -265,7 +270,7 @@ export function ChannelSidebar(props: ChannelSidebarProps) {
         {textChannels.length > 0 ? <p className="channel-group-label">Text Channels</p> : null}
         {textChannels.map((channel) => {
           const isDeleting = props.deletingChannelId === channel.id;
-          const canDelete = props.isAdmin && channel.name !== 'global';
+          const canDelete = props.canManageScope && channel.name !== 'global';
           return (
             <div key={channel.id} className="channel-row">
               <button
@@ -306,7 +311,7 @@ export function ChannelSidebar(props: ChannelSidebarProps) {
         {voiceChannels.length > 0 ? <p className="channel-group-label">Voice Channels</p> : null}
         {voiceChannels.map((channel) => {
           const isDeleting = props.deletingChannelId === channel.id;
-          const canDelete = props.isAdmin;
+          const canDelete = props.canManageScope;
           const isJoined = props.activeVoiceChannelId === channel.id;
           const channelParticipants = props.voiceParticipantsByChannel[channel.id] ?? [];
           const streamingSet = new Set(props.voiceStreamingUserIdsByChannel[channel.id] ?? []);
@@ -463,7 +468,10 @@ export function ChannelSidebar(props: ChannelSidebarProps) {
             </div>
           );
         })}
-        {filteredChannels.length === 0 ? <p className="muted">No channels match.</p> : null}
+        {props.scope === 'home' && filteredChannels.length === 0 && !query ? (
+          <p className="muted">No direct messages yet.</p>
+        ) : null}
+        {filteredChannels.length === 0 && query ? <p className="muted">No channels match.</p> : null}
       </nav>
 
       <footer>
@@ -517,6 +525,16 @@ export function ChannelSidebar(props: ChannelSidebarProps) {
                 onClick={() => props.onChangeView('admin')}
               >
                 <svg width="20" height="20" viewBox="0 0 24 24"><path fill="currentColor" d="M12 1 3 5v6c0 5.55 3.84 10.74 9 12 5.16-1.26 9-6.45 9-12V5l-9-4Zm0 4.18 5 2.22V11c0 3.87-2.47 7.63-5 8.87-2.53-1.24-5-5-5-8.87V7.4l5-2.22Z"></path></svg>
+              </button>
+            ) : null}
+            {props.canOpenServerView ? (
+              <button
+                className={props.activeView === 'server' ? 'control-btn active' : 'control-btn'}
+                aria-label="Server settings"
+                title="Server Management"
+                onClick={props.onOpenServerView}
+              >
+                <svg width="20" height="20" viewBox="0 0 24 24"><path fill="currentColor" d="M17 11V7a5 5 0 0 0-10 0v4H4v10h16V11h-3Zm-8 0V7a3 3 0 0 1 6 0v4H9Zm3 8a2 2 0 1 1 0-4 2 2 0 0 1 0 4Z"></path></svg>
               </button>
             ) : null}
             <button
