@@ -19,6 +19,7 @@ export interface Channel {
   id: string;
   name: string;
   createdAt: string;
+  serverId?: string | null;
   isDirect: boolean;
   isVoice: boolean;
   voiceBitrateKbps: number | null;
@@ -27,6 +28,83 @@ export interface Channel {
     id: string;
     username: string;
   } | null;
+}
+
+export interface ServerSummary {
+  id: string;
+  slug: string;
+  name: string;
+  description: string | null;
+  iconUrl: string | null;
+  visibility: 'INVITE_ONLY' | 'PUBLIC';
+  createdAt: string;
+  owner: {
+    id: string;
+    username: string;
+    avatarUrl?: string | null;
+  };
+  memberRole: UserRole | null;
+  memberCount: number;
+}
+
+export interface ServerInviteSummary {
+  id: string;
+  code: string;
+  createdAt: string;
+  expiresAt: string | null;
+  maxUses: number | null;
+  usesCount: number;
+  revokedAt: string | null;
+  server: {
+    id: string;
+    slug: string;
+    name: string;
+  };
+  createdBy: {
+    id: string;
+    username: string;
+  };
+}
+
+export interface ServerAnalytics {
+  memberCount: number;
+  channelCount: number;
+  messageCount24h: number;
+  messageCount7d: number;
+  activeMembers24h: number;
+  moderationActions30d: number;
+  inviteJoins30d: number;
+}
+
+export interface ServerAuditLog {
+  id: string;
+  action: string;
+  metadata: unknown;
+  createdAt: string;
+  actor: {
+    id: string;
+    username: string;
+  } | null;
+  targetUser: {
+    id: string;
+    username: string;
+  } | null;
+}
+
+export interface ModerationActionSummary {
+  id: string;
+  type: 'WARN' | 'TIMEOUT' | 'KICK' | 'BAN' | 'UNBAN';
+  reason: string | null;
+  expiresAt: string | null;
+  createdAt: string;
+  actor: {
+    id: string;
+    username: string;
+  };
+  targetUser: {
+    id: string;
+    username: string;
+  };
 }
 
 export interface Message {

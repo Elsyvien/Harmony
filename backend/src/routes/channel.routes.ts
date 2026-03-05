@@ -40,8 +40,6 @@ export const channelRoutes: FastifyPluginAsync<ChannelRoutesOptions> = async (fa
   };
 
   const authPreHandler = createAuthGuard();
-  const adminAuthPreHandler = createAuthGuard({ requiredRole: 'ADMIN' });
-  const privilegedAuthPreHandler = createAuthGuard({ requiredRole: 'PRIVILEGED' });
 
   fastify.get(
     '/channels',
@@ -122,14 +120,19 @@ export const channelRoutes: FastifyPluginAsync<ChannelRoutesOptions> = async (fa
   fastify.post(
     '/channels',
     {
-      preHandler: [adminAuthPreHandler],
+      preHandler: [authPreHandler],
       config: {
         rateLimit: { max: 10, timeWindow: 60_000 },
       },
     },
     async (request, reply) => {
       const body = createChannelBodySchema.parse(request.body);
-      const channel = await options.channelService.createChannel(body.name, body.type);
+      const channel = await options.channelService.createChannel({
+        name: body.name,
+        type: body.type,
+        serverId: body.serverId,
+        actorUserId: request.user.userId,
+      });
       reply.code(201).send({ channel });
     },
   );
@@ -137,14 +140,14 @@ export const channelRoutes: FastifyPluginAsync<ChannelRoutesOptions> = async (fa
   fastify.delete(
     '/channels/:id',
     {
-      preHandler: [adminAuthPreHandler],
+      preHandler: [authPreHandler],
       config: {
         rateLimit: { max: 20, timeWindow: 60_000 },
       },
     },
     async (request) => {
       const { id: channelId } = channelIdParamsSchema.parse(request.params);
-      const result = await options.channelService.deleteChannel(channelId);
+      const result = await options.channelService.deleteChannel(channelId, request.user.userId);
       return result;
     },
   );
@@ -152,7 +155,7 @@ export const channelRoutes: FastifyPluginAsync<ChannelRoutesOptions> = async (fa
   fastify.patch(
     '/channels/:id/voice-settings',
     {
-      preHandler: [privilegedAuthPreHandler],
+      preHandler: [authPreHandler],
       config: {
         rateLimit: { max: 30, timeWindow: 60_000 },
       },
@@ -160,7 +163,7 @@ export const channelRoutes: FastifyPluginAsync<ChannelRoutesOptions> = async (fa
     async (request) => {
       const { id: channelId } = channelIdParamsSchema.parse(request.params);
       const body = updateVoiceSettingsBodySchema.parse(request.body);
-      const channel = await options.channelService.updateVoiceChannelSettings(channelId, {
+      const channel = await options.channelService.updateVoiceChannelSettings(channelId, request.user.userId, {
         voiceBitrateKbps: body.voiceBitrateKbps,
         streamBitrateKbps: body.streamBitrateKbps,
       });

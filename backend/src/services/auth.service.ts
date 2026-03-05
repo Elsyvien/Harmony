@@ -3,6 +3,7 @@ import type { UserRole } from '@prisma/client';
 import type { UserRepository } from '../repositories/user.repository.js';
 import type { AuthUser } from '../types/api.js';
 import type { AdminSettingsService } from './admin-settings.service.js';
+import type { ServerService } from './server.service.js';
 import { AppError } from '../utils/app-error.js';
 import { isAdminRole } from '../utils/roles.js';
 import { isSuspensionActive } from '../utils/suspension.js';
@@ -35,6 +36,7 @@ export class AuthService {
     private readonly userRepo: UserRepository,
     private readonly saltRounds: number,
     private readonly adminSettingsService?: AdminSettingsService,
+    private readonly serverService?: ServerService,
   ) {}
 
   async register(input: RegisterInput): Promise<AuthUser> {
@@ -65,6 +67,7 @@ export class AuthService {
       role,
       isAdmin: isAdminRole(role),
     });
+    await this.serverService?.ensureDefaultServerForUser(user.id);
 
     return this.toAuthUser(user);
   }
@@ -84,6 +87,7 @@ export class AuthService {
     if (isSuspensionActive(Boolean(user.isSuspended), user.suspendedUntil ?? null)) {
       throw new AppError('ACCOUNT_SUSPENDED', 403, 'Your account is currently suspended');
     }
+    await this.serverService?.ensureDefaultServerForUser(user.id);
 
     return this.toAuthUser(user);
   }
@@ -93,6 +97,7 @@ export class AuthService {
     if (!user) {
       throw new AppError('USER_NOT_FOUND', 404, 'User not found');
     }
+    await this.serverService?.ensureDefaultServerForUser(user.id);
     return this.toAuthUser(user);
   }
 

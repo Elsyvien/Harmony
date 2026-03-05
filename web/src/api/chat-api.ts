@@ -13,6 +13,11 @@ import type {
   FriendSummary,
   Message,
   MessageAttachment,
+  ModerationActionSummary,
+  ServerAnalytics,
+  ServerAuditLog,
+  ServerInviteSummary,
+  ServerSummary,
   User,
   UserRole,
 } from '../types/api';
@@ -148,12 +153,114 @@ export const chatApi = {
     return apiRequest<{ channels: Channel[] }>('/channels', {}, token);
   },
 
-  createChannel(token: string, name: string, type: 'TEXT' | 'VOICE' = 'TEXT') {
+  createChannel(
+    token: string,
+    name: string,
+    type: 'TEXT' | 'VOICE' = 'TEXT',
+    serverId?: string,
+  ) {
     return apiRequest<{ channel: Channel }>(
       '/channels',
       {
         method: 'POST',
-        body: JSON.stringify({ name, type }),
+        body: JSON.stringify({ name, type, ...(serverId ? { serverId } : {}) }),
+      },
+      token,
+    );
+  },
+
+  servers(token: string) {
+    return apiRequest<{ servers: ServerSummary[] }>('/servers', {}, token);
+  },
+
+  createServer(
+    token: string,
+    input: { name: string; description?: string; iconUrl?: string },
+  ) {
+    return apiRequest<{ server: ServerSummary }>(
+      '/servers',
+      {
+        method: 'POST',
+        body: JSON.stringify(input),
+      },
+      token,
+    );
+  },
+
+  server(token: string, serverId: string) {
+    return apiRequest<{ server: ServerSummary }>(`/servers/${serverId}`, {}, token);
+  },
+
+  serverChannels(token: string, serverId: string) {
+    return apiRequest<{ channels: Channel[] }>(`/servers/${serverId}/channels`, {}, token);
+  },
+
+  serverAnalytics(token: string, serverId: string) {
+    return apiRequest<{ analytics: ServerAnalytics }>(`/servers/${serverId}/analytics`, {}, token);
+  },
+
+  serverAuditLogs(token: string, serverId: string, limit = 50) {
+    return apiRequest<{ logs: ServerAuditLog[] }>(
+      `/servers/${serverId}/audit-logs?limit=${encodeURIComponent(String(limit))}`,
+      {},
+      token,
+    );
+  },
+
+  serverInvites(token: string, serverId: string) {
+    return apiRequest<{ invites: ServerInviteSummary[] }>(`/servers/${serverId}/invites`, {}, token);
+  },
+
+  createServerInvite(
+    token: string,
+    serverId: string,
+    input?: { maxUses?: number; expiresInHours?: number },
+  ) {
+    return apiRequest<{ invite: ServerInviteSummary }>(
+      `/servers/${serverId}/invites`,
+      {
+        method: 'POST',
+        body: JSON.stringify(input ?? {}),
+      },
+      token,
+    );
+  },
+
+  revokeServerInvite(token: string, serverId: string, inviteId: string) {
+    return apiRequest<void>(
+      `/servers/${serverId}/invites/${inviteId}`,
+      {
+        method: 'DELETE',
+      },
+      token,
+    );
+  },
+
+  joinServerByInvite(token: string, code: string) {
+    return apiRequest<{ server: ServerSummary }>(
+      `/servers/invites/${encodeURIComponent(code)}/join`,
+      {
+        method: 'POST',
+      },
+      token,
+    );
+  },
+
+  moderateServerUser(
+    token: string,
+    serverId: string,
+    input: {
+      targetUserId: string;
+      type: 'WARN' | 'TIMEOUT' | 'KICK' | 'BAN' | 'UNBAN';
+      reason?: string;
+      durationHours?: number;
+    },
+  ) {
+    return apiRequest<{ action: ModerationActionSummary }>(
+      `/servers/${serverId}/moderation/actions`,
+      {
+        method: 'POST',
+        body: JSON.stringify(input),
       },
       token,
     );
