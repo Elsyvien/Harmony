@@ -36,10 +36,10 @@
 
 ## Phase 5: Architecture Expansion
 **Goal:** Transform from a "Team Chat" to a multi-server, guild-based "Platform" (Discord-like).
-- [ ] **Multi-Server Support (Guilds):**
+- [x] **Multi-Server Support (Guilds):**
     - Create `Server` model.
     - Scoping channels and roles to specific servers.
-    - Invite system.
+    - [ ] Invite system.
 - [ ] **Advanced Permissions:** Granular channel-level permissions.
 
 ## Phase 6: Real-Time Media
