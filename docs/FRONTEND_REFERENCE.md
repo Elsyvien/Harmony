@@ -70,12 +70,16 @@ Public API:
 
 Complete typed REST method surface:
 
+- Analytics: `analyticsIngest`
+- RTC/media: `rtcConfig`, `cloudflareSfuCreateSession`, `cloudflareSfuGetSession`, `cloudflareSfuAddTracks`, `cloudflareSfuRenegotiate`, `cloudflareSfuCloseTracks`
 - Auth: `register`, `login`, `logout`, `me`
+- Users: `uploadAvatar`
+- Servers: `servers`, `createServer`, `server`, `serverChannels`, `serverMembers`, `serverAnalytics`, `serverAuditLogs`, `serverInvites`, `createServerInvite`, `revokeServerInvite`, `joinServerByInvite`, `moderateServerUser`
 - Channels: `channels`, `createChannel`, `deleteChannel`, `updateVoiceChannelSettings`, `createDirectChannel`
 - Uploads: `uploadAttachment`
-- Admin: `adminStats`, `adminSettings`, `updateAdminSettings`, `adminUsers`, `updateAdminUser`, `deleteAdminUser`
+- Admin: `adminStats`, `adminSettings`, `adminAnalyticsOverview`, `adminAnalyticsTimeseries`, `updateAdminSettings`, `adminUsers`, `updateAdminUser`, `deleteAdminUser`, `clearAdminUsersExceptSelf`
 - Friends: `friends`, `friendRequests`, `sendFriendRequest`, `acceptFriendRequest`, `declineFriendRequest`, `cancelFriendRequest`, `removeFriend`
-- Messages: `messages`, `sendMessage`, `updateMessage`, `deleteMessage`, `toggleMessageReaction`
+- Messages: `messages`, `markChannelRead`, `sendMessage`, `updateMessage`, `deleteMessage`, `toggleMessageReaction`
 
 ## WebSocket Transport Hook
 
@@ -90,12 +94,15 @@ File: `web/src/hooks/use-chat-socket.ts`
 - `onMessageUpdated`
 - `onMessageDeleted`
 - `onMessageReaction`
+- `onMessageDelivered`
+- `onMessageRead`
 - `onFriendEvent`
 - `onDmEvent`
 - `onChannelUpdated`
 - `onPresenceUpdate`
 - `onVoiceState`
 - `onVoiceSignal`
+- `onVoiceSfuEvent`
 - `onError`
 
 ### Internal behavior
@@ -105,18 +112,24 @@ File: `web/src/hooks/use-chat-socket.ts`
 - sends `auth` event
 - joins all subscribed channels
 
-- Handles server events and forwards parsed payloads via callbacks.
+- Handles server events for messages, receipts, friends, DMs, presence, voice ack/state/signal/SFU, and forwards parsed payloads via callbacks.
 - Forwards server `error` events to `onError` so realtime failures can be surfaced in UI.
 - Reconnects after 2 seconds on close.
 - Maintains join/leave diffs when `subscribedChannelIds` changes.
+- Sends periodic `ping` events and tracks socket RTT from `pong`.
 
 ### Returned API
 
 - `connected`
 - `sendMessage(channelId, content)`
 - `joinVoice(channelId)`
+- `joinVoiceWithAck(channelId, options?)`
 - `leaveVoice(channelId?)`
 - `sendVoiceSignal(channelId, targetUserId, data)`
+- `sendVoiceSelfState(channelId, muted, deafened)`
+- `requestVoiceSfu(channelId, action, data?, timeoutMs?)`
+- `sendPresence(state)`
+- `ping`
 
 ## User Preferences Hook
 
@@ -159,7 +172,7 @@ Responsibilities:
 ### High-level responsibilities
 
 - Wire auth/session state to page-level features.
-- Coordinate channel/message/friend/admin/voice state.
+- Coordinate server/channel/message/friend/admin/voice state.
 - Own voice signaling/transport lifecycle and socket event integration.
 - Keep polling fallback active when WebSocket is offline.
 
@@ -177,6 +190,9 @@ Responsibilities:
 - `web/src/pages/chat/hooks/use-chat-page-effects.ts`:
 - cross-cutting page effects (view resets, polling intervals, keyboard shortcut, notices).
 
+- `web/src/pages/chat/hooks/use-voice-channel.ts`:
+- voice transport orchestration, reconnect intent, screen/camera share, remote media routing, and connection stats.
+
 - `web/src/pages/chat/components/chat-page-shell.tsx`:
 - presentational shell for sidebar/panel layout and major view rendering.
 
@@ -185,12 +201,16 @@ Responsibilities:
 - Uses `useChatSocket` for live events.
 - Polls active channel messages on a non-overlapping ~5s loop (with small jitter) when socket is disconnected.
 - Admin and friends views use non-overlapping refresh loops while active.
+- Marks channel read progress explicitly and merges delivered/read receipt events into in-memory message state.
+- Loads server management data on demand for the selected server scope.
 
 ### Voice workflow summary
 
 - WebSocket voice state events drive membership and signaling.
-- Per-peer WebRTC connections are maintained in `ChatPage`.
+- Per-peer WebRTC connections are maintained when mesh transport is active.
+- Optional SFU clients are created when server/runtime config enables them.
 - SDP/ICE signaling is relayed through `sendVoiceSignal`.
+- Screen and camera sharing are managed inside the voice feature hook.
 - Transport teardown happens on disconnect/leave/not-present transitions.
 - Voice reconnect intent is preserved across transient websocket drops and auto-rejoin is attempted when the socket reconnects.
 - ICE config normalization keeps all configured TURN/STUN URLs per server entry (instead of truncating to one URL).
@@ -213,6 +233,14 @@ File: `web/src/components/channel-sidebar.tsx`
 - Admin controls for channel create/delete.
 - Voice join/leave controls and self mute/deafen controls.
 - Navigation switches between chat/friends/settings/admin views.
+
+### `ServerRail`
+
+File: `web/src/components/server-rail.tsx`
+
+- Displays home scope and joined servers.
+- Supports server switching, create-server flow, and join-by-invite flow.
+- Renders server icons or initials when no icon URL is present.
 
 ### `ChatView`
 
@@ -246,6 +274,7 @@ File: `web/src/components/settings-panel.tsx`
 
 - Multi-section user preferences UI.
 - Theme, layout, timestamp, sound, voice, and notification settings.
+- Avatar upload and presence preference controls.
 - Mic permission request and device selection.
 - Logout action.
 
@@ -257,6 +286,22 @@ File: `web/src/components/admin-settings-panel.tsx`
 - User management table with role changes and guarded delete flow.
 - Stats dashboard cards (server/system/node/database).
 
+### `AdminAnalyticsPanel`
+
+File: `web/src/components/admin-analytics-panel.tsx`
+
+- Loads overview and timeseries analytics for selected windows/categories.
+- Renders reliability, usage, moderation, and operations summaries.
+- Visualizes top events/failures and basic volume trends.
+
+### `ServerManagementPanel`
+
+File: `web/src/components/server-management-panel.tsx`
+
+- Server invite creation and revocation.
+- Server analytics summary and audit log review.
+- Moderator action submission and member targeting workflow.
+
 ### `VoiceChannelPanel`
 
 File: `web/src/components/voice-channel-panel.tsx`
@@ -264,6 +309,8 @@ File: `web/src/components/voice-channel-panel.tsx`
 - Voice join/leave and mute controls.
 - Quality (bitrate) selection.
 - Participant list with speaking indicators and local audio status.
+- Screen-share and remote video presentation.
+- Optional detailed connection statistics view.
 - Participant context menu hook for per-user local volume/mute controls.
 
 ### `UserSidebar`
@@ -303,9 +350,11 @@ Defines frontend contract types for:
 
 - API errors
 - users/roles
+- servers, invites, members, analytics, moderation, and audit logs
 - channels
 - messages and attachments
 - admin stats/settings/users
+- admin analytics payloads
 - friend summaries and friend requests
 
 ### `web/src/types/preferences.ts`

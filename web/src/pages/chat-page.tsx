@@ -1510,6 +1510,60 @@ export function ChatPage() {
     clearPendingSignature,
   });
 
+  const knownUsersById = useMemo(() => {
+    const map: Record<
+      string,
+      {
+        id: string;
+        username: string;
+        avatarUrl?: string | null;
+      }
+    > = {};
+    const upsert = (user: { id?: string; username?: string; avatarUrl?: string | null } | null | undefined) => {
+      if (!user?.id || !user.username) {
+        return;
+      }
+      map[user.id] = {
+        id: user.id,
+        username: user.username,
+        avatarUrl: user.avatarUrl,
+      };
+    };
+
+    upsert(auth.user);
+    for (const user of onlineUsers) {
+      upsert(user);
+    }
+    for (const message of messages) {
+      upsert(message.user);
+      for (const readUser of message.readUsers ?? []) {
+        upsert(readUser);
+      }
+    }
+    for (const friend of friends) {
+      upsert(friend.user);
+    }
+    for (const request of incomingRequests) {
+      upsert(request.from);
+      upsert(request.to);
+    }
+    for (const request of outgoingRequests) {
+      upsert(request.from);
+      upsert(request.to);
+    }
+    for (const participants of Object.values(voiceParticipantsByChannel)) {
+      for (const participant of participants) {
+        upsert({
+          id: participant.userId,
+          username: participant.username,
+          avatarUrl: participant.avatarUrl,
+        });
+      }
+    }
+
+    return map;
+  }, [auth.user, onlineUsers, messages, friends, incomingRequests, outgoingRequests, voiceParticipantsByChannel]);
+
   if (!auth.token || !auth.user) {
     if (auth.token && auth.hydrating) {
       return (
@@ -1592,59 +1646,6 @@ export function ChatPage() {
     }
     ws.sendPresence(normalizedState);
   };
-  const knownUsersById = useMemo(() => {
-    const map: Record<
-      string,
-      {
-        id: string;
-        username: string;
-        avatarUrl?: string | null;
-      }
-    > = {};
-    const upsert = (user: { id?: string; username?: string; avatarUrl?: string | null } | null | undefined) => {
-      if (!user?.id || !user.username) {
-        return;
-      }
-      map[user.id] = {
-        id: user.id,
-        username: user.username,
-        avatarUrl: user.avatarUrl,
-      };
-    };
-
-    upsert(auth.user);
-    for (const user of onlineUsers) {
-      upsert(user);
-    }
-    for (const message of messages) {
-      upsert(message.user);
-      for (const readUser of message.readUsers ?? []) {
-        upsert(readUser);
-      }
-    }
-    for (const friend of friends) {
-      upsert(friend.user);
-    }
-    for (const request of incomingRequests) {
-      upsert(request.from);
-      upsert(request.to);
-    }
-    for (const request of outgoingRequests) {
-      upsert(request.from);
-      upsert(request.to);
-    }
-    for (const participants of Object.values(voiceParticipantsByChannel)) {
-      for (const participant of participants) {
-        upsert({
-          id: participant.userId,
-          username: participant.username,
-          avatarUrl: participant.avatarUrl,
-        });
-      }
-    }
-
-    return map;
-  }, [auth.user, onlineUsers, messages, friends, incomingRequests, outgoingRequests, voiceParticipantsByChannel]);
 
   return (
     <ChatPageShell
@@ -1698,18 +1699,9 @@ export function ChatPage() {
         voiceParticipantCounts,
         voiceParticipantsByChannel,
         voiceStreamingUserIdsByChannel,
-        remoteScreenShares,
-        localScreenShareStream,
-        localStreamSource,
         speakingUserIds,
         onJoinVoice: joinVoiceChannel,
         onLeaveVoice: leaveVoiceChannel,
-        onRetryLiveStreamConnect: async (channelId, userId) => {
-          if (activeVoiceChannelId !== channelId) {
-            return;
-          }
-          sendRequestOffer(userId, channelId);
-        },
         isSelfMuted,
         isSelfDeafened,
         onToggleMute: toggleSelfMute,
@@ -1722,7 +1714,6 @@ export function ChatPage() {
       }}
       activeView={activeView}
       activeChannelIsVoice={Boolean(activeChannel?.isVoice)}
-      setMobilePane={setMobilePane}
       panelTitle={panelTitle}
       error={error}
       notice={notice}
@@ -2031,6 +2022,15 @@ export function ChatPage() {
 
       <nav className="mobile-bottom-nav" aria-label="Mobile navigation">
         <button
+          className={mobilePane === 'channels' ? 'active' : ''}
+          onClick={() => {
+            setActiveView('chat');
+            setMobilePane((current) => (current === 'channels' ? 'none' : 'channels'));
+          }}
+        >
+          Browse
+        </button>
+        <button
           className={activeView === 'chat' && mobilePane === 'none' ? 'active' : ''}
           onClick={() => {
             setActiveView('chat');
@@ -2038,24 +2038,6 @@ export function ChatPage() {
           }}
         >
           Chat
-        </button>
-        <button
-          className={mobilePane === 'channels' ? 'active' : ''}
-          onClick={() => {
-            setActiveView('chat');
-            setMobilePane((current) => (current === 'channels' ? 'none' : 'channels'));
-          }}
-        >
-          Channels
-        </button>
-        <button
-          className={mobilePane === 'users' ? 'active' : ''}
-          onClick={() => {
-            setActiveView('chat');
-            setMobilePane((current) => (current === 'users' ? 'none' : 'users'));
-          }}
-        >
-          Users
         </button>
         <button
           className={activeView === 'friends' ? 'active' : ''}
@@ -2067,17 +2049,14 @@ export function ChatPage() {
           Friends
         </button>
         <button
-          className={activeView === 'server' ? 'active' : ''}
-          disabled={railScope.kind !== 'server'}
+          className={mobilePane === 'users' ? 'active' : ''}
+          disabled={activeView !== 'chat' || Boolean(activeChannel?.isVoice)}
           onClick={() => {
-            if (railScope.kind !== 'server') {
-              return;
-            }
-            setActiveView('server');
-            setMobilePane('none');
+            setActiveView('chat');
+            setMobilePane((current) => (current === 'users' ? 'none' : 'users'));
           }}
         >
-          Server
+          People
         </button>
         <button
           className={activeView === 'settings' ? 'active' : ''}

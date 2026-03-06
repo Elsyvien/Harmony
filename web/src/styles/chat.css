@@ -88,8 +88,13 @@ input,
   object-fit: cover;
 }
 
+.server-rail-item svg {
+  width: 20px;
+  height: 20px;
+}
+
 .server-rail-item.action {
-  font-size: 19px;
+  font-size: 0;
 }
 
 /* Channel Sidebar */
@@ -352,6 +357,14 @@ input,
   cursor: not-allowed;
 }
 
+.voice-channel-summary {
+  margin: 0 8px 10px 12px;
+  padding-left: 18px;
+  color: var(--text-muted);
+  font-size: 11px;
+  line-height: 1.45;
+}
+
 .channel-connected-users {
   display: grid;
   gap: 3px;
@@ -593,57 +606,63 @@ input,
 }
 
 .panel-header {
-  height: 48px;
-  padding: 0 16px;
-  display: flex;
-  align-items: center;
+  display: grid;
+  gap: 12px;
+  padding: 16px;
   border-bottom: 1px solid var(--panel-border);
   box-shadow: 0 1px 2px rgba(0, 0, 0, 0.1);
   flex-shrink: 0;
   z-index: 10;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.02), rgba(255, 255, 255, 0)),
+    var(--bg-dark);
 }
 
-.panel-header-main {
-  min-width: 0;
+.panel-header-top {
   display: flex;
-  align-items: center;
-  gap: 8px;
+  align-items: end;
+  justify-content: space-between;
+  gap: 16px;
 }
 
-.mobile-pane-toggle {
-  display: none;
-  border: 1px solid var(--panel-border);
-  background-color: rgba(255, 255, 255, 0.03);
-  color: var(--text-normal);
-  border-radius: 999px;
-  padding: 5px 10px;
+.panel-header-copy {
+  min-width: 0;
+  display: grid;
+  gap: 4px;
+}
+
+.panel-kicker {
+  margin: 0;
+  color: var(--text-muted);
   font-size: 11px;
-  font-weight: 700;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
 }
 
 .panel-header h1 {
-  font-size: 15px;
+  font-size: 22px;
   font-weight: 700;
   color: var(--text-header);
   margin: 0;
 }
 
 .panel-tools {
-  margin-left: auto;
   display: flex;
   align-items: center;
   gap: 8px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
 }
 
 .panel-search-input {
-  width: 240px;
-  max-width: 36vw;
+  width: min(320px, 44vw);
   background-color: var(--bg-darkest);
   border: 1px solid var(--panel-border);
   color: var(--text-header);
-  border-radius: var(--radius-sharp);
-  padding: 6px 9px;
-  font-size: 12px;
+  border-radius: 999px;
+  padding: 9px 14px;
+  font-size: 13px;
 }
 
 .panel-search-hint {
@@ -655,6 +674,17 @@ input,
   border: 1px solid var(--panel-border);
   border-radius: 999px;
   background: rgba(255, 255, 255, 0.03);
+}
+
+.panel-status-stack {
+  display: grid;
+  gap: 10px;
+}
+
+.panel-status-stack .error-banner,
+.panel-status-stack .info-banner {
+  margin: 0;
+  text-align: left;
 }
 
 body.theme-light .channel-search-box {
@@ -764,6 +794,14 @@ body.theme-light .profile-body {
   position: relative;
   transition: background-color 0.05s linear;
   /* Instant transition */
+}
+
+.message-item.selected {
+  background: linear-gradient(90deg, rgba(88, 101, 242, 0.12), rgba(88, 101, 242, 0.03));
+}
+
+.message-item.editing {
+  background: linear-gradient(90deg, rgba(88, 101, 242, 0.16), rgba(88, 101, 242, 0.05));
 }
 
 /* Grouping Logic: Subsequent messages from same user */
@@ -882,6 +920,14 @@ body.compact-chat .message-content p {
   margin: 0;
   white-space: pre-wrap;
   word-wrap: break-word;
+}
+
+.message-inline-time {
+  display: inline-block;
+  margin: 0 0 6px;
+  color: var(--text-muted);
+  font-size: 11px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
 }
 
 .message-item.mention-hit {
@@ -1036,6 +1082,27 @@ body.compact-chat .message-content p {
 .message-edit-actions {
   display: flex;
   gap: 8px;
+}
+
+.message-delete-confirm {
+  margin-top: 10px;
+  padding: 10px 12px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  border: 1px solid rgba(242, 63, 67, 0.28);
+  border-radius: 12px;
+  background: rgba(242, 63, 67, 0.08);
+  color: var(--text-header);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.message-delete-confirm-actions {
+  display: flex;
+  gap: 8px;
+  flex-shrink: 0;
 }
 
 .message-attachment {
@@ -1603,6 +1670,8 @@ body.theme-light .select-option:hover {
 }
 
 .message-item:hover .message-actions-toolbar,
+.message-item.selected .message-actions-toolbar,
+.message-item:focus-within .message-actions-toolbar,
 .message-actions-toolbar:hover {
   opacity: 1;
   transform: translateY(0);
@@ -1619,6 +1688,7 @@ body.theme-light .select-option:hover {
 .toolbar-actions {
   display: flex;
   gap: 2px;
+  flex-wrap: wrap;
 }
 
 .message-reaction-picker {
@@ -1658,6 +1728,15 @@ body.theme-light .select-option:hover {
 .toolbar-btn:hover {
   background-color: var(--bg-hover);
   color: var(--text-normal);
+}
+
+.toolbar-btn.danger {
+  color: #ff9a9b;
+}
+
+.toolbar-btn.danger:hover {
+  background-color: rgba(242, 63, 67, 0.14);
+  color: #ffd6d6;
 }
 
 .toolbar-btn.emoji {

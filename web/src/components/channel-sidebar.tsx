@@ -1,5 +1,5 @@
 import type { Channel } from '../types/api';
-import { memo, useEffect, useRef, useState } from 'react';
+import { useState } from 'react';
 import harmonyLogo from '../../ressources/logos/logo.png';
 import { resolveMediaUrl } from '../utils/media-url';
 import type { VoiceParticipant } from '../hooks/use-chat-socket';
@@ -27,13 +27,9 @@ interface ChannelSidebarProps {
   voiceParticipantCounts: Record<string, number>;
   voiceParticipantsByChannel: Record<string, VoiceParticipant[]>;
   voiceStreamingUserIdsByChannel: Record<string, string[]>;
-  remoteScreenShares: Record<string, MediaStream>;
-  localScreenShareStream: MediaStream | null;
-  localStreamSource: 'screen' | 'camera' | null;
   speakingUserIds: string[];
   onJoinVoice: (channelId: string) => Promise<void> | void;
   onLeaveVoice: () => Promise<void> | void;
-  onRetryLiveStreamConnect?: (channelId: string, userId: string) => Promise<void> | void;
   isSelfMuted: boolean;
   isSelfDeafened: boolean;
   onToggleMute: () => void;
@@ -44,65 +40,6 @@ interface ChannelSidebarProps {
   ping: number | null;
   state: string; // Add this
 }
-
-const StreamPreviewCard = memo(function StreamPreviewCard({
-  title,
-  stream,
-  onWatch,
-}: {
-  title: string;
-  stream: MediaStream;
-  onWatch: () => void;
-}) {
-  const videoRef = useRef<HTMLVideoElement | null>(null);
-
-  useEffect(() => {
-    const video = videoRef.current;
-    if (!video) {
-      return;
-    }
-    if (video.srcObject !== stream) {
-      video.srcObject = stream;
-    }
-    void video.play().catch(() => {
-      // Best effort; some browsers require gesture first.
-    });
-  }, [stream]);
-
-  return (
-    <article
-      className="channel-stream-preview"
-      onClick={onWatch}
-      role="button"
-      tabIndex={0}
-      title="Zum Stream wechseln und Wiedergabe starten"
-      onKeyDown={(event) => {
-        if (event.key !== 'Enter' && event.key !== ' ') return;
-        event.preventDefault();
-        onWatch();
-      }}
-    >
-      <video ref={videoRef} autoPlay playsInline muted />
-      <div className="channel-stream-preview-overlay">
-        <div className="channel-stream-preview-header">
-          <div className="channel-stream-preview-live">LIVE</div>
-          <div className="channel-stream-preview-hint">Zum Starten anklicken</div>
-        </div>
-        <strong>{title}</strong>
-        <p className="channel-stream-preview-caption">Klicke die Vorschau, um den Stream im Channel zu öffnen.</p>
-        <button
-          className="channel-stream-preview-btn"
-          onClick={(event) => {
-            event.stopPropagation();
-            onWatch();
-          }}
-        >
-          Stream öffnen
-        </button>
-      </div>
-    </article>
-  );
-});
 
 function stringToColor(str: string) {
   let hash = 0;
@@ -139,8 +76,6 @@ export function ChannelSidebar(props: ChannelSidebarProps) {
   const isChatView = props.activeView === 'chat';
   const avatarUrl = resolveMediaUrl(props.avatarUrl);
   const speakingSet = new Set(props.speakingUserIds);
-  const hasLiveVideoTrack = (stream: MediaStream | null | undefined) =>
-    Boolean(stream?.getVideoTracks().some((track) => track.readyState === 'live'));
 
   return (
     <aside className="channel-sidebar">
@@ -315,37 +250,28 @@ export function ChannelSidebar(props: ChannelSidebarProps) {
           const isJoined = props.activeVoiceChannelId === channel.id;
           const channelParticipants = props.voiceParticipantsByChannel[channel.id] ?? [];
           const streamingSet = new Set(props.voiceStreamingUserIdsByChannel[channel.id] ?? []);
-          const streamPreviewItems: Array<{ key: string; title: string; stream: MediaStream }> = [];
-          if (
-            isJoined &&
-            props.localScreenShareStream &&
-            props.localStreamSource !== null &&
-            hasLiveVideoTrack(props.localScreenShareStream) &&
-            props.userId
-          ) {
-            streamPreviewItems.push({
-              key: `local-${props.userId}`,
-              title: props.localStreamSource === 'camera' ? `${props.username} (Kamera)` : `${props.username} (Bildschirm)`,
-              stream: props.localScreenShareStream,
-            });
-          }
-          if (isJoined) {
-            for (const participant of channelParticipants) {
-              const stream = props.remoteScreenShares[participant.userId];
-              if (!hasLiveVideoTrack(stream)) {
-                continue;
-              }
-              streamPreviewItems.push({
-                key: `remote-${participant.userId}`,
-                title: participant.username,
-                stream,
-              });
-            }
-          }
           const participants = props.voiceParticipantCounts[channel.id] ?? 0;
           const isTransitioning = props.joiningVoiceChannelId === channel.id;
           const isOtherTransition =
             Boolean(props.joiningVoiceChannelId) && props.joiningVoiceChannelId !== channel.id;
+          const speakingParticipants = channelParticipants
+            .filter((participant) => speakingSet.has(participant.userId))
+            .map((participant) => participant.username);
+          const summaryParts: string[] = [];
+          if (isJoined) {
+            summaryParts.push('You are connected');
+          }
+          if (participants > 0) {
+            summaryParts.push(participants === 1 ? '1 person in voice' : `${participants} people in voice`);
+          }
+          if (speakingParticipants.length > 0) {
+            const previewNames = speakingParticipants.slice(0, 2).join(', ');
+            const extraCount = speakingParticipants.length > 2 ? ` +${speakingParticipants.length - 2}` : '';
+            summaryParts.push(`${previewNames}${extraCount} speaking`);
+          }
+          if (streamingSet.size > 0) {
+            summaryParts.push(streamingSet.size === 1 ? '1 live stream' : `${streamingSet.size} live streams`);
+          }
           return (
             <div key={channel.id} className="voice-channel-block">
               <div className="channel-row">
@@ -391,79 +317,8 @@ export function ChannelSidebar(props: ChannelSidebarProps) {
                   </button>
                 ) : null}
               </div>
-              {channelParticipants.length > 0 ? (
-                <div className="channel-connected-users">
-                  {channelParticipants.map((participant) => {
-                    const isLive = streamingSet.has(participant.userId);
-                    const isSpeaking = speakingSet.has(participant.userId);
-                    const participantAvatarUrl = resolveMediaUrl(participant.avatarUrl);
-                    const voiceStatusLabel = participant.deafened
-                      ? 'DEAF'
-                      : participant.muted
-                        ? 'MUTED'
-                        : null;
-                    return (
-                      <div
-                        key={participant.userId}
-                        className={`channel-connected-user ${isSpeaking ? 'speaking' : ''}`}
-                      >
-                        <div
-                          className="channel-connected-avatar"
-                          style={{ backgroundColor: participantAvatarUrl ? 'transparent' : stringToColor(participant.username) }}
-                          aria-hidden="true"
-                        >
-                          {participantAvatarUrl ? (
-                            <img
-                              src={participantAvatarUrl}
-                              alt={participant.username}
-                              style={{ width: '100%', height: '100%', borderRadius: '50%', objectFit: 'cover' }}
-                            />
-                          ) : (
-                            participant.username.slice(0, 1).toUpperCase()
-                          )}
-                        </div>
-                        <span className="channel-connected-name">{participant.username}</span>
-                        {isLive ? (
-                          <button
-                            type="button"
-                            className="channel-connected-live is-action"
-                            title={`Retry stream connection for ${participant.username}`}
-                            onClick={async (event) => {
-                              event.stopPropagation();
-                              props.onSelect(channel.id);
-                              if (!isJoined && !isTransitioning && !isOtherTransition) {
-                                await props.onJoinVoice(channel.id);
-                              }
-                              await props.onRetryLiveStreamConnect?.(channel.id, participant.userId);
-                            }}
-                          >
-                            LIVE
-                          </button>
-                        ) : null}
-                        {voiceStatusLabel ? (
-                          <span
-                            className={`channel-connected-status ${voiceStatusLabel === 'DEAF' ? 'deaf' : 'muted'}`}
-                            title={`${participant.username} is ${voiceStatusLabel.toLowerCase()}`}
-                          >
-                            {voiceStatusLabel}
-                          </span>
-                        ) : null}
-                      </div>
-                    );
-                  })}
-                </div>
-              ) : null}
-              {streamPreviewItems.length > 0 ? (
-                <div className="channel-stream-preview-list">
-                  {streamPreviewItems.map((item) => (
-                    <StreamPreviewCard
-                      key={item.key}
-                      title={item.title}
-                      stream={item.stream}
-                      onWatch={() => props.onSelect(channel.id)}
-                    />
-                  ))}
-                </div>
+              {summaryParts.length > 0 ? (
+                <p className="voice-channel-summary">{summaryParts.join(' • ')}</p>
               ) : null}
             </div>
           );

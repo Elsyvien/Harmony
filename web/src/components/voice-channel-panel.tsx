@@ -354,7 +354,7 @@ const ScreenShareItem = memo(function ScreenShareItem({
       />
       {!hasStartedPlayback && (
         <div className="voice-screen-share-persistent-hint" aria-hidden="true">
-          Klick, falls der Stream nicht startet
+          Click if the stream does not start
         </div>
       )}
       {isStalled && (
@@ -377,11 +377,11 @@ const ScreenShareItem = memo(function ScreenShareItem({
       <div className="voice-screen-share-overlay">
         <div className="voice-screen-share-top">
           <span className="voice-live-badge">Live</span>
-          <span className="voice-screen-share-tap-hint">Zum Starten klicken</span>
+          <span className="voice-screen-share-tap-hint">Click to start playback</span>
         </div>
         {isAutoplayBlocked && (
           <div className="voice-screen-share-click-hint" role="status" aria-live="polite">
-            Wiedergabe blockiert. Klicke auf den Stream, um ihn zu starten.
+            Playback was blocked. Click the stream tile to start it.
           </div>
         )}
         <div className="voice-screen-share-bottom">
@@ -420,19 +420,20 @@ const ScreenShareItem = memo(function ScreenShareItem({
 });
 
 export function VoiceChannelPanel(props: VoiceChannelPanelProps) {
+  const { joined, onToggleDetailedStats, showDetailedStats, speakingUserIds } = props;
   const [maximizedStreamId, setMaximizedStreamId] = useState<string | null>(null);
   const [isCinemaMode, setIsCinemaMode] = useState(false);
   const [activeTab, setActiveTab] = useState<'settings' | 'stats'>('settings');
   const [isDrawerOpen, setIsDrawerOpen] = useState(false);
 
   useEffect(() => {
-    const shouldShowDetailedStats = props.joined && isDrawerOpen && activeTab === 'stats';
-    if (props.showDetailedStats !== shouldShowDetailedStats) {
-      props.onToggleDetailedStats();
+    const shouldShowDetailedStats = joined && isDrawerOpen && activeTab === 'stats';
+    if (showDetailedStats !== shouldShowDetailedStats) {
+      onToggleDetailedStats();
     }
-  }, [activeTab, isDrawerOpen, props.joined, props.showDetailedStats, props.onToggleDetailedStats]);
+  }, [activeTab, isDrawerOpen, joined, onToggleDetailedStats, showDetailedStats]);
 
-  const speakingSet = new Set(props.speakingUserIds);
+  const speakingSet = new Set(speakingUserIds);
 
   const hasLiveVideoTrack = (stream: MediaStream | null | undefined) =>
     Boolean(stream && stream.getVideoTracks().length > 0);
@@ -493,7 +494,7 @@ export function VoiceChannelPanel(props: VoiceChannelPanelProps) {
             <>
               {!isCinemaMode && (
                 <div className="voice-stream-watch-hint" role="note">
-                  Live-Streams starten bei manchen Browsern erst nach einem Klick auf die Stream-Kachel.
+                  Some browsers require one click on a stream tile before playback begins.
                 </div>
               )}
               <div className={`voice-screen-shares ${isCinemaMode ? 'cinema-mode' : maximizedStreamId ? 'has-maximized' : 'grid-layout'}`}>

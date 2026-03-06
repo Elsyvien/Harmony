@@ -1,4 +1,4 @@
-import type { ComponentProps, Dispatch, ReactNode, RefObject, SetStateAction } from 'react';
+import type { ComponentProps, ReactNode, RefObject } from 'react';
 import { AdminSettingsPanel } from '../../../components/admin-settings-panel';
 import { ChannelSidebar } from '../../../components/channel-sidebar';
 import { ChatView } from '../../../components/chat-view';
@@ -11,8 +11,6 @@ import { UserSidebar } from '../../../components/user-sidebar';
 import { VoiceChannelPanel } from '../../../components/voice-channel-panel';
 
 type MainView = 'chat' | 'friends' | 'settings' | 'admin' | 'server';
-type MobilePane = 'none' | 'channels' | 'users';
-
 type StreamStatusBanner = {
   type: 'error' | 'info';
   message: string;
@@ -35,7 +33,6 @@ type ChatPageShellProps = {
   sidebarProps: ComponentProps<typeof ChannelSidebar>;
   activeView: MainView;
   activeChannelIsVoice: boolean;
-  setMobilePane: Dispatch<SetStateAction<MobilePane>>;
   panelTitle: string;
   error: string | null;
   notice: string | null;
@@ -62,7 +59,6 @@ export function ChatPageShell({
   sidebarProps,
   activeView,
   activeChannelIsVoice,
-  setMobilePane,
   panelTitle,
   error,
   notice,
@@ -82,6 +78,20 @@ export function ChatPageShell({
   userSidebarProps,
   children,
 }: ChatPageShellProps) {
+  const panelKicker =
+    activeView === 'chat'
+      ? activeChannelIsVoice
+        ? 'Voice Room'
+        : 'Conversation'
+      : activeView === 'friends'
+        ? 'Connections'
+        : activeView === 'settings'
+          ? 'Preferences'
+          : activeView === 'server'
+            ? 'Server Management'
+            : 'Administration';
+  const hasStatusContent = Boolean(error || notice || streamStatusBanner || activeVoiceSession);
+
   return (
     <main className={chatLayoutClassName}>
       <ServerRail {...serverRailProps} />
@@ -89,74 +99,63 @@ export function ChatPageShell({
 
       <section className="chat-panel">
         <header className="panel-header">
-          <div className="panel-header-main">
-            {activeView === 'chat' ? (
-              <button
-                className="mobile-pane-toggle"
-                onClick={() =>
-                  setMobilePane((current) => (current === 'channels' ? 'none' : 'channels'))
-                }
-              >
-                Channels
-              </button>
-            ) : null}
-            <h1>{panelTitle}</h1>
-            {activeView === 'chat' ? (
-              <button
-                className="mobile-pane-toggle"
-                onClick={() => setMobilePane((current) => (current === 'users' ? 'none' : 'users'))}
-              >
-                Online
-              </button>
-            ) : null}
-            {error ? <p className="error-banner">{error}</p> : null}
-            {!error && notice ? <p className="info-banner">{notice}</p> : null}
-            {streamStatusBanner ? (
-              <p className={streamStatusBanner.type === 'error' ? 'error-banner' : 'info-banner'}>
-                {streamStatusBanner.message}
-              </p>
+          <div className="panel-header-top">
+            <div className="panel-header-copy">
+              <p className="panel-kicker">{panelKicker}</p>
+              <h1>{panelTitle}</h1>
+            </div>
+            {activeView === 'chat' && !activeChannelIsVoice ? (
+              <div className="panel-tools">
+                <input
+                  ref={messageSearchInputRef}
+                  className="panel-search-input"
+                  value={messageQuery}
+                  onChange={(event) => onMessageQueryChange(event.target.value)}
+                  placeholder="Search messages"
+                  aria-label="Search messages"
+                />
+                <span className="panel-search-hint">Message filter</span>
+                {messageQuery ? (
+                  <button className="ghost-btn small" onClick={onClearMessageQuery}>
+                    Clear
+                  </button>
+                ) : null}
+              </div>
             ) : null}
           </div>
-          {activeView === 'chat' && !activeChannelIsVoice ? (
-            <div className="panel-tools">
-              <input
-                ref={messageSearchInputRef}
-                className="panel-search-input"
-                value={messageQuery}
-                onChange={(event) => onMessageQueryChange(event.target.value)}
-                placeholder="Search messages"
-                aria-label="Search messages"
-              />
-              <span className="panel-search-hint">Ctrl/Cmd+K</span>
-              {messageQuery ? (
-                <button className="ghost-btn small" onClick={onClearMessageQuery}>
-                  Clear
-                </button>
+
+          {hasStatusContent ? (
+            <div className="panel-status-stack">
+              {error ? <p className="error-banner">{error}</p> : null}
+              {!error && notice ? <p className="info-banner">{notice}</p> : null}
+              {streamStatusBanner ? (
+                <p className={streamStatusBanner.type === 'error' ? 'error-banner' : 'info-banner'}>
+                  {streamStatusBanner.message}
+                </p>
+              ) : null}
+              {activeVoiceSession && !activeVoiceSession.isViewingJoinedVoiceChannel ? (
+                <div className="voice-session-bar" role="status" aria-live="polite">
+                  <div className="voice-session-main">
+                    <strong>Voice: ~{activeVoiceSession.channelName}</strong>
+                    <span className={`voice-session-state ${activeVoiceSession.isDisconnecting ? 'danger' : ''}`}>
+                      {activeVoiceSession.status}
+                    </span>
+                    <small>
+                      Voice {activeVoiceSession.voiceBitrateKbps} kbps • Stream {activeVoiceSession.streamBitrateKbps} kbps • {activeVoiceSession.remoteStreamCount} remote stream(s)
+                    </small>
+                  </div>
+                  <button
+                    className="ghost-btn danger small"
+                    disabled={activeVoiceSession.isDisconnecting}
+                    onClick={activeVoiceSession.onDisconnect}
+                  >
+                    {activeVoiceSession.isDisconnecting ? 'Disconnecting...' : 'Disconnect'}
+                  </button>
+                </div>
               ) : null}
             </div>
           ) : null}
         </header>
-
-        {activeVoiceSession && !activeVoiceSession.isViewingJoinedVoiceChannel ? (
-          <div className="voice-session-bar" role="status" aria-live="polite">
-            <div className="voice-session-main">
-              <strong>Voice: ~{activeVoiceSession.channelName}</strong>
-              <span className={`voice-session-state ${activeVoiceSession.isDisconnecting ? 'danger' : ''}`}>
-                {activeVoiceSession.status}
-              </span>
-              <small>
-                Voice {activeVoiceSession.voiceBitrateKbps} kbps • Stream {activeVoiceSession.streamBitrateKbps} kbps • {activeVoiceSession.remoteStreamCount} remote stream(s)
-              </small>
-            </div>
-            <button
-              className="ghost-btn danger small"
-              disabled={activeVoiceSession.isDisconnecting}
-              onClick={activeVoiceSession.onDisconnect}
-            >
-              {activeVoiceSession.isDisconnecting ? 'Disconnecting...' : 'Disconnect'}
-            </button>
-          </div>
-        ) : null}
 
         {activeView === 'chat' ? (
           <>

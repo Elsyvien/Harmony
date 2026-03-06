@@ -72,7 +72,7 @@ Frontend responsibilities are split as:
 
 3. App composes repositories and services.
 4. Owner bootstrap updates are applied for username `max`/`Max`.
-5. Default `global` public channel is ensured.
+5. Default server bootstrap/backfill runs and ensures the default `global` channel exists.
 6. Routes and WebSocket plugin are registered.
 7. Error handler normalizes known exceptions into `{ code, message }` payloads.
 
@@ -92,18 +92,27 @@ Frontend responsibilities are split as:
 - Unauthorized HTTP calls return 401 and frontend clears auth state.
 - Unauthorized socket events receive `error` events.
 
+## Server And Membership Model
+
+- Harmony now uses a server-scoped model for public text and voice channels.
+- App startup bootstraps a default server and backfills legacy users/channels into it.
+- Each new server is created with default `general` and `voice` channels.
+- Server membership gates access to server channels, invites, moderation tools, analytics, and audit logs.
+- Invite join flow is handled over REST and records audit activity when a new member joins.
+
 ## Channel Access Model
 
 Channel types:
 
-- `PUBLIC`: globally visible.
-- `VOICE`: globally visible voice channels.
+- `PUBLIC`: server-scoped text channels.
+- `VOICE`: server-scoped voice/media channels.
 - `DIRECT`: 1:1 channels created only for accepted friends.
 
 Access checks:
 
 - REST message/channel actions call `ChannelService.ensureChannelAccess(...)`.
 - WS `channel:join` and `voice:join` enforce same access via service calls.
+- Server-scoped channel creation, deletion, and moderation operations require privileged server membership.
 
 ## Messaging Lifecycle
 
@@ -122,6 +131,11 @@ Access checks:
 5. Route broadcasts `message:new` to channel subscribers.
 6. API returns `{ message }`.
 
+Receipt side effects:
+
+- `GET /channels/:id/messages` marks delivered progress for the visible window.
+- `POST /channels/:id/read` marks read progress and broadcasts `message:read`.
+
 ### WebSocket Path
 
 1. Client sends `message:send` with `{ channelId, content }`.
@@ -138,26 +152,29 @@ Access checks:
 - WS ack or REST response replaces optimistic entry.
 - Fallback verification fetch resolves ambiguous failures.
 - Failed sends are marked with `failed: true`.
+- Realtime receipt events update delivered/read state without reloading the whole timeline.
 
 ## Voice Lifecycle
 
 Voice control plane and media plane are separated.
 
 1. Control plane (WebSocket):
-- `voice:join`, `voice:leave`, `voice:signal`
-- server broadcasts `voice:state`
+- `voice:join`, `voice:leave`, `voice:self-state`, `voice:sfu:request`, `voice:signal`
+- server broadcasts `voice:join:ack`, `voice:state`, `voice:sfu:event`, and `voice:sfu:response`
 
-2. Media plane (WebRTC mesh):
-- `ChatPage` creates `RTCPeerConnection` per peer.
-- SDP and ICE are relayed through `voice:signal` events.
-- Local mic stream is captured with `getUserMedia`.
+2. Media plane:
+- Mesh mode creates `RTCPeerConnection` per peer and relays SDP/ICE through `voice:signal`.
+- SFU mode uses negotiated transports and producer/consumer events over WS/REST support surfaces.
+- Local media includes mic capture plus optional screen/camera publishing.
 
 3. QoS:
-- Voice bitrate is configured per channel (`voiceBitrateKbps`).
+- Voice bitrate and stream bitrate are configured per channel.
 - Admin users can update bitrate through REST.
+- `GET /rtc/config` delivers STUN/TURN config and voice default processing flags.
 
 4. UX resilience:
-- If WS disconnects, active voice session is torn down.
+- Backend keeps a short reconnect grace period for active voice membership.
+- Frontend stores reconnect intent and auto-rejoins after socket recovery.
 - If mic access fails during join, client leaves voice channel.
 
 ## Friends And DM Lifecycle
@@ -189,6 +206,7 @@ Presence is derived from active authenticated WebSocket subscribers:
 - Authenticated socket adds user to `userSubscribers` map.
 - Disconnect removes subscriber.
 - Presence list is broadcast via `presence:update`.
+- Presence state can be set explicitly to `online`, `idle`, or `dnd`.
 
 Channel message fanout is scoped by `channelSubscribers` map.
 
@@ -198,12 +216,12 @@ Friend/admin system notifications use targeted `notifyUsers` or broadcast method
 
 ### Persistent State
 
-- Database: users, channels, memberships, messages, reactions, friendships, app settings.
+- Database: users, servers, server memberships, server invites, channels, channel memberships, messages, message receipts, reactions, friendships, moderation actions, audit logs, app settings, analytics events.
 - Browser localStorage: token, user object, user preferences, per-user audio settings.
 
 ### In-Memory Ephemeral State
 
-- WS subscriber maps and voice participant maps.
+- WS subscriber maps and voice participant/reconnect state.
 - Slow mode last-message timestamps (`AdminSettingsService`).
 - Frontend runtime UI state in `ChatPage`.
 
@@ -212,12 +230,13 @@ Friend/admin system notifications use targeted `notifyUsers` or broadcast method
 - WS disconnect -> frontend keeps chat usable with periodic REST polling.
 - REST 401 with token -> frontend clears auth and redirects to login.
 - Optimistic send mismatch -> client verifies recent history and reconciles.
-- Voice transport failures are handled as best-effort and retried on next voice-state updates.
+- Voice transport failures are handled as best-effort and retried on the next reconnect or voice-state sync path.
 
 ## Security Boundaries
 
 - JWT auth required for all protected routes.
 - Role checks gate admin routes and channel mutation.
+- Server membership and privileged server roles gate invite, moderation, analytics, and audit surfaces.
 - Ownership checks gate message edit/delete.
 - Friendship checks gate DM creation.
 - Suspension checks run across route groups and WS auth.
@@ -226,4 +245,5 @@ Friend/admin system notifications use targeted `notifyUsers` or broadcast method
 
 - `/health` for basic health checks.
 - `/admin/stats` exposes node/system/db metrics.
+- `/admin/analytics/*` exposes aggregated analytics views.
 - Fastify logger enabled with sensitive field redaction in `buildApp()`.
