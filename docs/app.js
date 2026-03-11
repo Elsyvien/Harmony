@@ -357,152 +357,130 @@ function renderHome() {
   const filteredDocs = getFilteredDocs();
   const featuredDocs = FEATURED_DOC_IDS.map((id) => DOCS_BY_ID.get(id)).filter(Boolean);
   const quickDocs = QUICK_LINK_DOC_IDS.map((id) => DOCS_BY_ID.get(id)).filter(Boolean);
+  const groupedDocs = Array.from(groupDocs(filteredDocs).entries());
 
   els.topbar.innerHTML = `
     <div>
       <p class="topbar__eyebrow">Documentation</p>
-      <h1 class="topbar__title">Harmony Documentation</h1>
+      <h1 class="topbar__title">Harmony Docs</h1>
       <p class="topbar__summary">
-        Canonical project documentation for architecture, runtime contracts, operations, and contributor workflows.
+        Technical documentation for the Harmony stack: setup, architecture, runtime contracts, operations, and contributor guides.
       </p>
     </div>
     <div class="topbar__meta">
       <div class="meta-pill-row">
         <span class="meta-pill">Docs <strong>${DOCS.length}</strong></span>
-        <span class="meta-pill">Categories <strong>3</strong></span>
-        <span class="meta-pill">Viewer <strong>Markdown + HTML</strong></span>
+        <span class="meta-pill">Sections <strong>3</strong></span>
       </div>
       <div class="topbar__actions">
-        <a class="primary-button" href="${createRoute("setup")}">Quick Start</a>
-        <a class="ghost-button" href="${createRoute("architecture")}">Architecture</a>
+        <a class="primary-button" href="${createRoute("setup")}">Get Started</a>
+        <a class="ghost-button" href="${createRoute("architecture")}">System Overview</a>
       </div>
     </div>
   `;
 
   els.content.innerHTML = `
-    <div class="hero-stage">
-      <section class="hero-panel">
-        <div class="hero-panel__eyebrow">Overview</div>
-        <h2 class="hero-panel__title">Clean project documentation, in one place.</h2>
-        <p class="hero-panel__summary">
-          Harmony has detailed documentation for setup, architecture, API contracts, realtime behavior,
-          voice transport, data modeling, and contributor workflows. This viewer keeps those markdown
-          files as the source of truth while presenting them in a proper documentation layout.
+    <div class="home-shell">
+      <section class="home-intro">
+        <p class="home-intro__eyebrow">Start here</p>
+        <h2 class="home-intro__title">Read the system from setup to runtime.</h2>
+        <p class="home-intro__summary">
+          The markdown files in <code>docs/</code> remain the source of truth. This site is the reading layer:
+          searchable, linkable, and structured for long technical pages instead of raw repository browsing.
         </p>
-        <div class="hero-panel__actions">
-          <a class="primary-button" href="${createRoute("setup")}">Get started</a>
-          <a class="ghost-button" href="${createRoute("operations")}">Operations</a>
-          <a class="ghost-button" href="${createRoute("file-map")}">Repo Map</a>
+        <div class="home-intro__actions">
+          <a class="primary-button" href="${createRoute("setup")}">Open setup guide</a>
+          <a class="ghost-button" href="${createRoute("operations")}">Open operations</a>
+          <a class="ghost-button" href="${createRoute("api")}">Open API reference</a>
         </div>
+        <pre class="home-intro__snippet"><code>npm install
+npm --workspace backend exec prisma db push
+npm --workspace backend run prisma:seed
+npm run dev</code></pre>
       </section>
 
-      <section class="stats-grid">
-        <article class="stat-card">
-          <span class="stat-card__value">${DOCS.length}</span>
-          <div class="stat-card__label">Docs In Scope</div>
-          <div class="stat-card__hint">Canonical markdown sources rendered inside the docs viewer.</div>
-        </article>
-        <article class="stat-card">
-          <span class="stat-card__value">REST + WS</span>
-          <div class="stat-card__label">Runtime Coverage</div>
-          <div class="stat-card__hint">HTTP, WebSocket, voice transport, analytics, and operations.</div>
-        </article>
-        <article class="stat-card">
-          <span class="stat-card__value">3</span>
-          <div class="stat-card__label">Sections</div>
-          <div class="stat-card__hint">Foundations, runtime references, and contributor guidance.</div>
-        </article>
-        <article class="stat-card">
-          <span class="stat-card__value">${filteredDocs.length}</span>
-          <div class="stat-card__label">${state.query ? "Search Hits" : "Visible Docs"}</div>
-          <div class="stat-card__hint">${state.query ? `Filtered by "${escapeHtml(state.query)}".` : "Search and deep-linking are available across the docs set."}</div>
-        </article>
-      </section>
-
-      <section class="section-shell">
+      <section class="home-section">
         <div class="section-heading">
           <div>
-            <h2>Key references</h2>
-            <p>Start with the docs that define runtime behavior, transport flow, and integration boundaries.</p>
+            <h2>Recommended reading path</h2>
+            <p>Follow this order if you are new to the codebase or bringing a local environment up from scratch.</p>
           </div>
         </div>
-        <div class="feature-grid">
-          ${featuredDocs.map((doc) => `
-            <article class="feature-card">
-              <span class="feature-card__label">${escapeHtml(doc.category)}</span>
-              <h3>${escapeHtml(doc.title)}</h3>
-              <p>${escapeHtml(doc.summary)}</p>
-              <div class="hero-panel__actions">
-                <a class="ghost-button" href="${createRoute(doc.id)}">Open</a>
+        <div class="reading-list">
+          ${quickDocs.map((doc, index) => `
+            <article class="reading-card">
+              <div class="reading-card__step">0${index + 1}</div>
+              <div class="reading-card__body">
+                <div class="reading-card__meta">
+                  <span>${escapeHtml(doc.category)}</span>
+                  <span>${escapeHtml(doc.file)}</span>
+                </div>
+                <h3>${escapeHtml(doc.title)}</h3>
+                <p>${escapeHtml(doc.summary)}</p>
               </div>
+              <a class="reading-card__link" href="${createRoute(doc.id)}">Open</a>
             </article>
           `).join("")}
         </div>
       </section>
 
-      <section class="section-shell">
+      <section class="home-section">
         <div class="section-heading">
           <div>
-            <h2>Quick start</h2>
-            <p>Get a local stack running, then move into the runtime and troubleshooting references.</p>
+            <h2>High-signal references</h2>
+            <p>These pages define the runtime behavior, transport flow, and integration boundaries of the system.</p>
           </div>
         </div>
-        <div class="launch-grid">
-          <article class="launch-card launch-card--code">
-            <h3>Local Bootstrap</h3>
-            <p>Shortest path from clone to a running frontend, backend, and seeded database.</p>
-            <pre class="launch-card__pre"><code>npm install
-npm --workspace backend exec prisma db push
-npm --workspace backend run prisma:seed
-npm run dev</code></pre>
-          </article>
-          <article class="launch-card">
-            <h3>What to verify first</h3>
-            <p>Use the operational docs as a checklist once the stack is up.</p>
-            <ul class="check-list">
-              <li><span><strong>Health:</strong> confirm <code>GET /health</code> returns <code>{ "ok": true }</code>.</span></li>
-              <li><span><strong>Auth:</strong> register or login, then verify <code>/me</code>.</span></li>
-              <li><span><strong>Realtime:</strong> join a channel and confirm message fanout.</span></li>
-              <li><span><strong>Voice:</strong> inspect <code>/rtc/config</code> before debugging browser media.</span></li>
-            </ul>
-          </article>
+        <div class="reference-grid">
+          ${featuredDocs.map((doc) => `
+            <article class="reference-card">
+              <div class="reference-card__meta">
+                <span>${escapeHtml(doc.category)}</span>
+                <span>${escapeHtml(doc.file)}</span>
+              </div>
+              <h3>${escapeHtml(doc.title)}</h3>
+              <p>${escapeHtml(doc.summary)}</p>
+              <a class="reference-card__link" href="${createRoute(doc.id)}">Read document</a>
+            </article>
+          `).join("")}
         </div>
       </section>
 
-      <section class="section-shell">
+      <section class="home-section">
         <div class="section-heading">
           <div>
-            <h2>Browse the docs</h2>
-            <p>Each entry opens the canonical markdown source inside the docs viewer.</p>
+            <h2>${state.query ? `Search results for "${escapeHtml(state.query)}"` : "Browse all documents"}</h2>
+            <p>${state.query ? `${filteredDocs.length} documents matched the current filter.` : "Browse the full set by category. Each link opens the canonical markdown file in the reader."}</p>
           </div>
         </div>
-        <div class="doc-card-grid">
-          ${filteredDocs.map((doc) => renderDocCard(doc)).join("")}
-        </div>
-      </section>
-
-      <section class="section-shell">
-        <div class="section-heading">
-          <div>
-            <h2>Documentation notes</h2>
-            <p>The markdown remains source-of-truth. This site is the reading layer.</p>
-          </div>
-        </div>
-        <div class="footer-grid">
-          <article class="footer-card">
-            <h3>Canonical Source</h3>
-            <p>The docs live in <code>docs/*.md</code>. The viewer fetches and renders them, then rewrites internal links so readers stay inside the site.</p>
-          </article>
-          <article class="footer-card">
-            <h3>Quick Access</h3>
-            <div class="footer-card__list">
-              ${quickDocs.map((doc) => `<a href="${createRoute(doc.id)}"><span>${escapeHtml(doc.title)}</span><span>↗</span></a>`).join("")}
+        <div class="doc-groups">
+          ${groupedDocs.length ? groupedDocs.map(([category, docs]) => `
+            <section class="doc-group">
+              <div class="doc-group__header">
+                <h3>${escapeHtml(category)}</h3>
+                <span>${docs.length} docs</span>
+              </div>
+              <div class="doc-group__items">
+                ${docs.map((doc) => `
+                  <a class="doc-list-item" href="${createRoute(doc.id)}">
+                    <div class="doc-list-item__body">
+                      <div class="doc-list-item__title-row">
+                        <strong>${escapeHtml(doc.title)}</strong>
+                        <code>${escapeHtml(doc.file)}</code>
+                      </div>
+                      <p>${escapeHtml(doc.summary)}</p>
+                    </div>
+                    <span class="doc-list-item__arrow">→</span>
+                  </a>
+                `).join("")}
+              </div>
+            </section>
+          `).join("") : `
+            <div class="empty-state">
+              <h3>No docs matched</h3>
+              <p>Try a broader term such as <code>voice</code>, <code>api</code>, or <code>schema</code>.</p>
             </div>
-          </article>
-          <article class="footer-card">
-            <h3>Compatibility</h3>
-            <p>Older alias URLs redirect into this viewer so existing links do not drop users back into a fragmented docs experience.</p>
-          </article>
+          `}
         </div>
       </section>
     </div>
@@ -511,31 +489,12 @@ npm run dev</code></pre>
   renderHomeOutline();
 }
 
-function renderDocCard(doc) {
-  return `
-    <article class="doc-card">
-      <div class="doc-card__top">
-        <span class="doc-card__tag">${escapeHtml(doc.category)}</span>
-        <span class="doc-card__source">${escapeHtml(doc.file)}</span>
-      </div>
-      <div>
-        <h3>${escapeHtml(doc.title)}</h3>
-        <p>${escapeHtml(doc.summary)}</p>
-      </div>
-      <div class="doc-card__bottom">
-        <span class="doc-card__metrics">${(doc.tags ?? []).slice(0, 3).map(escapeHtml).join(" · ")}</span>
-        <a class="doc-card__link" href="${createRoute(doc.id)}">Open <span>→</span></a>
-      </div>
-    </article>
-  `;
-}
-
 function renderHomeOutline() {
   els.outline.innerHTML = `
     <div class="outline__block">
       <p class="outline__label">Overview</p>
-      <h2 class="outline__title">Start with setup, then move into the references you need.</h2>
-      <p class="outline__text">Use setup and operations to get running, then jump into architecture, API, or repo orientation docs.</p>
+      <h2 class="outline__title">Start with setup, then work inward.</h2>
+      <p class="outline__text">Use setup and operations first, then move into architecture, API, and module-level references.</p>
     </div>
     <div class="outline__block">
       <p class="outline__label">Recommended</p>
@@ -567,26 +526,27 @@ async function renderDoc(doc, anchor) {
     const markdown = await loadDocMarkdown(doc);
     const readingTime = estimateReadingTime(markdown);
     const html = renderMarkdown(markdown);
+    const topics = (doc.tags ?? []).slice(0, 3).join(", ") || "General";
 
     els.content.innerHTML = `
       <section class="doc-shell">
-        <div class="doc-metrics">
-          <article class="metric-card">
-            <h3>Category</h3>
-            <p>${escapeHtml(doc.category)}</p>
-          </article>
-          <article class="metric-card">
-            <h3>Source</h3>
-            <p><code>${escapeHtml(doc.file)}</code></p>
-          </article>
-          <article class="metric-card">
-            <h3>Read Time</h3>
-            <p>${readingTime} min</p>
-          </article>
-          <article class="metric-card">
-            <h3>Topics</h3>
-            <p>${escapeHtml((doc.tags ?? []).slice(0, 3).join(", "))}</p>
-          </article>
+        <div class="doc-meta">
+          <div class="doc-meta__item">
+            <span>Category</span>
+            <strong>${escapeHtml(doc.category)}</strong>
+          </div>
+          <div class="doc-meta__item">
+            <span>Source</span>
+            <strong><code>${escapeHtml(doc.file)}</code></strong>
+          </div>
+          <div class="doc-meta__item">
+            <span>Read time</span>
+            <strong>${readingTime} min</strong>
+          </div>
+          <div class="doc-meta__item">
+            <span>Topics</span>
+            <strong>${escapeHtml(topics)}</strong>
+          </div>
         </div>
 
         <article class="doc-shell__article">
@@ -630,7 +590,7 @@ function renderDocTopbar(doc) {
   const sourceLink = `./${doc.file}`;
   els.topbar.innerHTML = `
     <div>
-      <p class="topbar__eyebrow">${escapeHtml(doc.category)}</p>
+      <p class="topbar__eyebrow">${escapeHtml(doc.category)} documentation</p>
       <h1 class="topbar__title">${escapeHtml(doc.title)}</h1>
       <p class="topbar__summary">${escapeHtml(doc.summary)}</p>
     </div>
@@ -640,7 +600,7 @@ function renderDocTopbar(doc) {
         <span class="meta-pill">Route <strong>${escapeHtml(doc.id)}</strong></span>
       </div>
       <div class="topbar__actions">
-        <a class="ghost-button" href="#home">Overview</a>
+        <a class="ghost-button" href="#home">All docs</a>
         <a class="primary-button" href="${sourceLink}" target="_blank" rel="noreferrer">Raw Markdown</a>
       </div>
     </div>
