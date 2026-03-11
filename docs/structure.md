@@ -38,6 +38,7 @@ Canonical detailed map: `docs/FILE_MAP.md`
 ## Related Docs
 
 - `docs/ARCHITECTURE.md`
+- `docs/INTEGRATION_EXAMPLES.md`
 - `docs/BACKEND_REFERENCE.md`
 - `docs/FRONTEND_REFERENCE.md`
 - `docs/DATA_MODEL.md`

@@ -188,6 +188,7 @@ Scope:
 - `docs/DOCUMENTATION_GUIDE.md` - documentation authoring/maintenance guide, including docs UI codebase ownership and update matrix.
 - `docs/AI_AGENT_GUIDE.md` - AI-agent-focused invariants and safe change workflows.
 - `docs/ARCHITECTURE.md` - end-to-end architecture reference.
+- `docs/INTEGRATION_EXAMPLES.md` - copy-paste technical workflows for REST, WebSocket, uploads, voice, and analytics.
 - `docs/BACKEND_REFERENCE.md` - backend contracts and behavior.
 - `docs/FRONTEND_REFERENCE.md` - frontend contracts and behavior.
 - `docs/DATA_MODEL.md` - schema and data invariant reference.

@@ -19,6 +19,7 @@ If docs and code disagree, code is the source of truth. Update docs in the same 
 - `docs/README.md` - documentation hub, reading order, and cross-doc update policy.
 - `docs/AI_AGENT_GUIDE.md` - high-risk files, invariants, and safe change playbooks for autonomous/semi-autonomous contributors.
 - `docs/ARCHITECTURE.md` - end-to-end runtime architecture and lifecycle behavior.
+- `docs/INTEGRATION_EXAMPLES.md` - copy-paste request/response, WebSocket, voice, and analytics workflow examples.
 - `docs/BACKEND_REFERENCE.md` - backend route contracts, WebSocket behavior, services, repositories, and error behavior.
 - `docs/FRONTEND_REFERENCE.md` - frontend state flow, transport behavior, orchestration, and UI module contracts.
 - `docs/DATA_MODEL.md` - Prisma schema semantics, constraints, and domain invariants.
@@ -49,6 +50,7 @@ Required updates:
 - `docs/API.md`
 
 Usually review/update:
+- `docs/INTEGRATION_EXAMPLES.md` (if a copy-paste example or workflow changed)
 - `docs/ARCHITECTURE.md` (if flow or lifecycle changes)
 - `docs/FRONTEND_REFERENCE.md` (if frontend call/handling changes)
 - `docs/AI_AGENT_GUIDE.md` (if safe playbook/high-risk guidance changes)
@@ -74,6 +76,7 @@ Required updates:
 - `docs/API.md`
 
 Usually review/update:
+- `docs/INTEGRATION_EXAMPLES.md`
 - `docs/ARCHITECTURE.md`
 - `docs/AI_AGENT_GUIDE.md`
 
@@ -166,6 +169,7 @@ Required updates:
 - `docs/SETUP.md` (if quick-start commands changed)
 
 Usually review/update:
+- `docs/INTEGRATION_EXAMPLES.md` (if setup or verification snippets changed)
 - `docs/README.md` (Quick Start or consistency notes)
 - `docs/index.html` (Quick Start table or overview)
 
@@ -331,6 +335,7 @@ Authoring notes:
 - Include affected paths when documenting invariants, risks, or workflows.
 - Call out exceptions and fallback behavior explicitly.
 - Keep quick-reference docs (`docs/API.md`, `docs/SETUP.md`) concise, but ensure they match detailed references.
+- Keep `docs/INTEGRATION_EXAMPLES.md` runnable. Prefer complete snippets over pseudo-code when documenting common flows.
 - When a source is known stale, say so directly and point to the authoritative path.
 
 ## Documentation Update Workflow (Recommended)

@@ -84,6 +84,30 @@ Frontend responsibilities are split as:
 4. If token exists without valid user object, provider hydrates via `GET /me`.
 5. `App.tsx` routes user to login/register/chat screens.
 
+## Transport Selection Summary
+
+Harmony uses one application-level realtime control plane and chooses the media path separately.
+
+### HTTP vs WebSocket
+
+- HTTP owns bootstrap, durable fetches, uploads, and mutation fallback.
+- WebSocket owns live fanout, presence, receipts, voice control, and optimistic reconciliation.
+- Frontend keeps the chat usable when the WebSocket drops by falling back to timed REST refreshes.
+
+### Voice Transport Decision
+
+1. Frontend fetches `GET /rtc/config`.
+2. Backend returns normalized ICE servers, relay policy, SFU enablement, and default audio-processing flags.
+3. Frontend decides:
+- `sfu.enabled=false`: mesh WebRTC with `voice:signal`
+- `sfu.enabled=true`: request SFU capabilities and transports through `voice:sfu:request`
+4. Voice presence and room membership still flow through WebSocket in both modes.
+
+Practical consequence:
+
+- Mesh and SFU share the same authentication and channel-membership control plane.
+- Only the media path changes.
+
 ## Authentication Model
 
 - JWT token is minted on register/login.
@@ -131,6 +155,21 @@ Access checks:
 5. Route broadcasts `message:new` to channel subscribers.
 6. API returns `{ message }`.
 
+Concrete request body:
+
+```json
+{
+  "content": "Latest build is ready for QA",
+  "replyToMessageId": "7a7626a4-c1d4-45d3-8b4b-bdc186846a86",
+  "attachment": {
+    "url": "/uploads/1741689322500-example.png",
+    "name": "release-notes.png",
+    "type": "image/png",
+    "size": 183204
+  }
+}
+```
+
 Receipt side effects:
 
 - `GET /channels/:id/messages` marks delivered progress for the visible window.
@@ -142,6 +181,14 @@ Receipt side effects:
 2. Plugin validates auth and payload.
 3. Same service path creates message.
 4. Plugin broadcasts `message:new`.
+
+Concrete envelopes:
+
+```json
+{ "type": "auth", "payload": { "token": "<jwt>" } }
+{ "type": "channel:join", "payload": { "channelId": "<channel-id>" } }
+{ "type": "message:send", "payload": { "channelId": "<channel-id>", "content": "hello" } }
+```
 
 ### Frontend Reconciliation
 
@@ -167,6 +214,15 @@ Voice control plane and media plane are separated.
 - SFU mode uses negotiated transports and producer/consumer events over WS/REST support surfaces.
 - Local media includes mic capture plus optional screen/camera publishing.
 
+Representative control-plane exchange:
+
+```json
+{ "type": "voice:join", "payload": { "requestId": "join-1", "channelId": "<voice-channel-id>" } }
+{ "type": "voice:join:ack", "payload": { "requestId": "join-1", "channelId": "<voice-channel-id>" } }
+{ "type": "voice:sfu:request", "payload": { "requestId": "caps-1", "channelId": "<voice-channel-id>", "action": "get-rtp-capabilities" } }
+{ "type": "voice:sfu:response", "payload": { "requestId": "caps-1", "ok": true, "data": { "rtpCapabilities": {}, "audioOnly": true } } }
+```
+
 3. QoS:
 - Voice bitrate and stream bitrate are configured per channel.
 - Admin users can update bitrate through REST.
@@ -176,6 +232,11 @@ Voice control plane and media plane are separated.
 - Backend keeps a short reconnect grace period for active voice membership.
 - Frontend stores reconnect intent and auto-rejoins after socket recovery.
 - If mic access fails during join, client leaves voice channel.
+
+Reconnect detail:
+
+- Voice disconnect grace period is `15_000 ms` in `backend/src/handlers/voice-ws.handler.ts`.
+- Re-authenticating before the timer expires restores the active voice channel instead of tearing it down immediately.
 
 ## Friends And DM Lifecycle
 
@@ -247,3 +308,15 @@ Friend/admin system notifications use targeted `notifyUsers` or broadcast method
 - `/admin/stats` exposes node/system/db metrics.
 - `/admin/analytics/*` exposes aggregated analytics views.
 - Fastify logger enabled with sensitive field redaction in `buildApp()`.
+
+## Analytics And Telemetry Flow
+
+1. Frontend normalizes telemetry in `web/src/utils/telemetry.ts`.
+2. Allowed client event names and context keys are defined in `web/src/utils/analytics-catalog.ts`.
+3. Batched events are posted to `POST /analytics/events`.
+4. Backend allowlists and normalizes events in `backend/src/services/analytics.service.ts`.
+5. Server-side request, websocket, and voice reliability events are also recorded through the same analytics service.
+
+Result:
+
+- Admin analytics views combine browser-originated telemetry with server-originated operational events.
