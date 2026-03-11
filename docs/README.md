@@ -81,6 +81,11 @@ Test note:
 - Static documentation UI codebase: `docs/index.html`, `docs/styles.css`, `docs/app.js`
 - Workspace scripts: `package.json`
 
+Browser entrypoint:
+
+- Open `docs/index.html` for the documentation website experience.
+- The site renders canonical markdown docs inside the viewer; raw `.md` files remain source-of-truth.
+
 ## Documentation Design And Docs UI
 
 - Use `docs/DOCUMENTATION_GUIDE.md` when changing docs content organization, docs update policy, or the static docs UI.

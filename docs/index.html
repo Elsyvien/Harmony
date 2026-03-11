@@ -4,271 +4,92 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Harmony Docs</title>
+    <meta
+      name="description"
+      content="Technical documentation for Harmony: architecture, API contracts, data model, operations, and contributor workflows."
+    />
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link
-      href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600&family=Outfit:wght@500;700&family=Space+Grotesk:wght@400;500;700&display=swap"
+      href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=Sora:wght@600;700;800&display=swap"
       rel="stylesheet"
+    />
+    <link
+      rel="stylesheet"
+      href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.11.1/styles/github-dark.min.css"
     />
     <link rel="stylesheet" href="./styles.css" />
   </head>
   <body>
-    <div class="layout">
-      <aside class="sidebar">
-        <h1 class="brand">Harmony</h1>
-        <p class="tagline">Documentation</p>
-        <input id="doc-search" class="search" aria-label="Filter documentation sections" placeholder="Filter sections..." />
-
-        <div class="nav-group">
-          <p class="nav-title">Getting Started</p>
-          <a class="nav-link" href="#overview">Overview</a>
-          <a class="nav-link" href="#quickstart">Quick Start</a>
-        </div>
-
-        <div class="nav-group">
-          <p class="nav-title">Reference</p>
-          <a class="nav-link" href="#reading-order">Reading Order</a>
-          <a class="nav-link" href="#docs-map">All Documents</a>
-        </div>
-
-        <div class="nav-group">
-          <p class="nav-title">Notes</p>
-          <a class="nav-link" href="#consistency">Consistency</a>
-        </div>
-      </aside>
-
-      <main class="main">
-        <section class="hero">
-          <h1>Harmony Documentation</h1>
-          <p>
-            Entrypoint for the full documentation set. Detailed references live in
-            the markdown files below and are intended for both human contributors
-            and AI agents.
-          </p>
-          <div class="quick-links">
-            <a class="chip" href="./README.md">Docs Hub</a>
-            <a class="chip" href="./AI_AGENT_GUIDE.md">AI Agent Guide</a>
-            <a class="chip" href="./BACKEND_REFERENCE.md">Backend</a>
-            <a class="chip" href="./FRONTEND_REFERENCE.md">Frontend</a>
-            <a class="chip" href="./INTEGRATION_EXAMPLES.md">Examples</a>
-            <a class="chip" href="./DATA_MODEL.md">Data Model</a>
-            <a class="chip" href="./OPERATIONS.md">Operations</a>
-          </div>
-        </section>
-
-        <section id="overview" class="section">
-          <h2>Overview</h2>
-          <div class="grid cols-2">
-            <article class="card">
-              <h3>What is Harmony?</h3>
-              <p>
-                Authenticated real-time chat with public channels, friend-gated
-                direct channels, voice signaling, and admin runtime controls.
-              </p>
-            </article>
-            <article class="card">
-              <h3>Entry Files</h3>
-              <p>
-                Backend: <code>backend/src/server.ts</code> &amp;
-                <code>backend/src/app.ts</code><br />
-                Frontend: <code>web/src/main.tsx</code> &amp;
-                <code>web/src/App.tsx</code>
-              </p>
-            </article>
-          </div>
-        </section>
-
-        <section id="quickstart" class="section">
-          <h2>Quick Start</h2>
-          <table>
-            <thead>
-              <tr>
-                <th>Action</th>
-                <th>Command</th>
-              </tr>
-            </thead>
-            <tbody>
-              <tr>
-                <td>Install dependencies</td>
-                <td><code>npm install</code></td>
-              </tr>
-              <tr>
-                <td>Apply schema</td>
-                <td><code>npm --workspace backend exec prisma db push</code></td>
-              </tr>
-              <tr>
-                <td>Seed data</td>
-                <td><code>npm --workspace backend run prisma:seed</code></td>
-              </tr>
-              <tr>
-                <td>Start full stack</td>
-                <td><code>npm run dev</code></td>
-              </tr>
-              <tr>
-                <td>Run tests</td>
-                <td><code>npm test</code> (backend)</td>
-              </tr>
-              <tr>
-                <td>Run frontend tests</td>
-                <td><code>npm --workspace web run test</code></td>
-              </tr>
-              <tr>
-                <td>Run lint</td>
-                <td><code>npm run lint</code></td>
-              </tr>
-            </tbody>
-          </table>
-        </section>
-
-        <section id="reading-order" class="section">
-          <h2>Recommended Reading Order</h2>
-          <table>
-            <thead>
-              <tr>
-                <th>#</th>
-                <th>Document</th>
-                <th>Purpose</th>
-              </tr>
-            </thead>
-            <tbody>
-              <tr>
-                <td>1</td>
-                <td><a href="./ai-agent-guide.html">AI Agent Guide</a></td>
-                <td>Invariants, high-risk files, safe change workflows</td>
-              </tr>
-              <tr>
-                <td>2</td>
-                <td><a href="./DOCUMENTATION_GUIDE.md">Documentation Guide</a></td>
-                <td>Docs update matrix, docs UI codebase, and authoring rules</td>
-              </tr>
-              <tr>
-                <td>3</td>
-                <td><a href="./ARCHITECTURE.md">Architecture</a></td>
-                <td>System topology and runtime lifecycle</td>
-              </tr>
-              <tr>
-                <td>4</td>
-                <td><a href="./INTEGRATION_EXAMPLES.md">Integration Examples</a></td>
-                <td>Copy-paste REST, WebSocket, voice, and analytics workflows</td>
-              </tr>
-              <tr>
-                <td>5</td>
-                <td><a href="./BACKEND_REFERENCE.md">Backend Reference</a></td>
-                <td>Routes, services, repositories, error contracts</td>
-              </tr>
-              <tr>
-                <td>6</td>
-                <td><a href="./FRONTEND_REFERENCE.md">Frontend Reference</a></td>
-                <td>State orchestration, UI modules, realtime fallback</td>
-              </tr>
-              <tr>
-                <td>7</td>
-                <td><a href="./DATA_MODEL.md">Data Model</a></td>
-                <td>Schema constraints and domain invariants</td>
-              </tr>
-              <tr>
-                <td>8</td>
-                <td><a href="./OPERATIONS.md">Operations</a></td>
-                <td>Runbooks, setup, troubleshooting, deploy checks</td>
-              </tr>
-              <tr>
-                <td>9</td>
-                <td><a href="./file-map.html">File Map</a></td>
-                <td>File-by-file ownership and responsibilities</td>
-              </tr>
-            </tbody>
-          </table>
-        </section>
-
-        <section id="docs-map" class="section">
-          <h2>All Documents</h2>
-          <table>
-            <thead>
-              <tr>
-                <th>Document</th>
-                <th>Purpose</th>
-              </tr>
-            </thead>
-            <tbody>
-              <tr>
-                <td><a href="./README.md">README</a></td>
-                <td>Primary documentation hub and update policy</td>
-              </tr>
-              <tr>
-                <td><a href="./ai-agent-guide.html">AI Agent Guide</a></td>
-                <td>AI-focused invariants and playbooks</td>
-              </tr>
-              <tr>
-                <td><a href="./DOCUMENTATION_GUIDE.md">Documentation Guide</a></td>
-                <td>Authoring/maintenance rules, docs UI codebase map, and design guidance usage notes</td>
-              </tr>
-              <tr>
-                <td><a href="./ARCHITECTURE.md">Architecture</a></td>
-                <td>System architecture and lifecycle behavior</td>
-              </tr>
-              <tr>
-                <td><a href="./INTEGRATION_EXAMPLES.md">Integration Examples</a></td>
-                <td>Runnable examples for auth, messaging, uploads, voice, and analytics</td>
-              </tr>
-              <tr>
-                <td><a href="./BACKEND_REFERENCE.md">Backend Reference</a></td>
-                <td>Routes, WS protocol, services, repositories, errors</td>
-              </tr>
-              <tr>
-                <td><a href="./FRONTEND_REFERENCE.md">Frontend Reference</a></td>
-                <td>State, transport, and component contracts</td>
-              </tr>
-              <tr>
-                <td><a href="./DATA_MODEL.md">Data Model</a></td>
-                <td>Prisma schema and data constraints</td>
-              </tr>
-              <tr>
-                <td><a href="./OPERATIONS.md">Operations</a></td>
-                <td>Setup, commands, deploy checks, troubleshooting</td>
-              </tr>
-              <tr>
-                <td><a href="./file-map.html">File Map</a></td>
-                <td>Tracked-file map with responsibilities</td>
-              </tr>
-              <tr>
-                <td><a href="./API.md">API</a></td>
-                <td>Condensed API and event quick reference</td>
-              </tr>
-              <tr>
-                <td><a href="./SETUP.md">Setup</a></td>
-                <td>Condensed setup quick reference</td>
-              </tr>
-              <tr>
-                <td><a href="./structure.md">Structure</a></td>
-                <td>Concise project structure overview</td>
-              </tr>
-              <tr>
-                <td><a href="./ROADMAP.md">Roadmap</a></td>
-                <td>Current product and engineering roadmap</td>
-              </tr>
-            </tbody>
-          </table>
-        </section>
-
-        <section id="consistency" class="section">
-          <h2>Consistency Notes</h2>
-          <div class="callout">
-            Current Prisma schema uses <code>provider = "postgresql"</code>, while
-            <code>backend/.env.example</code> uses PostgreSQL DSN format.
-            Set local <code>DATABASE_URL</code> host and credentials for your environment.
-          </div>
-          <p class="muted">
-            If any document conflicts with source code, update the docs &mdash;
-            code is authoritative.
-          </p>
-        </section>
-
-        <p class="footer">
-          Harmony &middot; Documentation source: <code>docs/</code>
-        </p>
-      </main>
+    <div class="site-bg" aria-hidden="true">
+      <div class="site-bg__orb site-bg__orb--amber"></div>
+      <div class="site-bg__orb site-bg__orb--cyan"></div>
+      <div class="site-bg__grid"></div>
     </div>
 
+    <div class="mobile-bar">
+      <button id="nav-toggle" class="mobile-bar__button" type="button" aria-label="Open navigation">
+        <span></span>
+        <span></span>
+      </button>
+      <a class="mobile-bar__brand" href="#home">
+        <span class="mobile-bar__brand-mark">H</span>
+        <span>Harmony Docs</span>
+      </a>
+      <button id="outline-toggle" class="mobile-bar__button" type="button" aria-label="Open outline">
+        <span class="mobile-bar__dot"></span>
+      </button>
+    </div>
+
+    <div class="site-shell">
+      <aside id="nav-panel" class="panel panel--nav">
+        <div class="brand-lockup">
+          <a class="brand-lockup__badge" href="#home">Technical Atlas</a>
+          <h1 class="brand-lockup__title">Harmony</h1>
+          <p class="brand-lockup__subtitle">
+            Engineering documentation rendered as a proper site instead of raw markdown pages.
+          </p>
+        </div>
+
+        <div class="panel-search">
+          <label class="panel-search__label" for="doc-search">Jump To</label>
+          <input
+            id="doc-search"
+            class="panel-search__input"
+            type="search"
+            placeholder="Search docs, topics, flows..."
+            autocomplete="off"
+          />
+        </div>
+
+        <div class="panel-actions">
+          <a class="panel-action" href="#home">Overview</a>
+          <a class="panel-action" href="#doc/setup">Quick Start</a>
+          <a class="panel-action" href="#doc/architecture">Architecture</a>
+        </div>
+
+        <nav id="doc-nav" class="doc-nav" aria-label="Documentation navigation"></nav>
+      </aside>
+
+      <main class="panel panel--content">
+        <header id="topbar" class="topbar"></header>
+        <div id="content" class="content-area"></div>
+      </main>
+
+      <aside id="outline-panel" class="panel panel--outline">
+        <div id="outline" class="outline"></div>
+      </aside>
+    </div>
+
+    <noscript>
+      <div class="noscript-banner">
+        This documentation site needs JavaScript to render the markdown docs shell. Open the raw
+        files in <code>docs/</code> if JavaScript is unavailable.
+      </div>
+    </noscript>
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/marked/15.0.7/marked.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.11.1/highlight.min.js"></script>
     <script src="./app.js"></script>
   </body>
 </html>

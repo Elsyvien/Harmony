@@ -197,11 +197,11 @@ Scope:
 - `docs/SETUP.md` - compact setup quick reference.
 - `docs/structure.md` - concise project structure map.
 - `docs/ROADMAP.md` - product and engineering roadmap.
-- `docs/index.html` - static docs landing page and navigation shell.
-- `docs/ai-agent-guide.html` - HTML companion page for `docs/AI_AGENT_GUIDE.md`.
-- `docs/file-map.html` - HTML companion page for `docs/FILE_MAP.md`.
-- `docs/styles.css` - shared styles for static docs HTML pages.
-- `docs/app.js` - shared static docs page search/navigation behavior (`docs/index.html`).
+- `docs/index.html` - route-based docs website entrypoint and viewer shell.
+- `docs/ai-agent-guide.html` - compatibility redirect into the docs viewer route for `AI_AGENT_GUIDE.md`.
+- `docs/file-map.html` - compatibility redirect into the docs viewer route for `FILE_MAP.md`.
+- `docs/styles.css` - shared styles for the docs viewer shell and rendered markdown content.
+- `docs/app.js` - docs manifest, routing, markdown rendering, search, and outline behavior.
 
 ## Generated Or Local-Only Artifacts To Be Aware Of
 

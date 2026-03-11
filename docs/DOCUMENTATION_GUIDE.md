@@ -10,7 +10,7 @@ If docs and code disagree, code is the source of truth. Update docs in the same 
 
 - Canonical docs content lives in `docs/*.md`.
 - The static docs UI is implemented in `docs/index.html`, `docs/styles.css`, and `docs/app.js`.
-- Hand-maintained HTML companion pages currently include `docs/ai-agent-guide.html` (for `docs/AI_AGENT_GUIDE.md`) and `docs/file-map.html` (for `docs/FILE_MAP.md`).
+- `docs/ai-agent-guide.html` and `docs/file-map.html` are compatibility redirect entrypoints into the main docs viewer.
 - Keep documentation maintainer-focused: exact behavior, invariants, constraints, paths, and operational impact.
 - Prefer concrete file paths over general statements (for example `backend/src/plugins/ws.plugin.ts` instead of "websocket code").
 
@@ -29,9 +29,9 @@ If docs and code disagree, code is the source of truth. Update docs in the same 
 - `docs/FILE_MAP.md` - tracked-file map with responsibilities, including docs files.
 - `docs/structure.md` - compact repository structure summary.
 - `docs/ROADMAP.md` - current roadmap notes (product/engineering direction, not runtime truth).
-- `docs/index.html` - static docs landing page and navigation shell linking into markdown docs and HTML companion pages.
-- `docs/styles.css` - shared visual system/layout/styles for the static docs HTML pages.
-- `docs/app.js` - shared client-side behavior for docs pages that opt in (search/filter + scroll spy in `docs/index.html`).
+- `docs/index.html` - route-based documentation website shell that renders canonical markdown docs inside the browser.
+- `docs/styles.css` - shared visual system/layout/styles for the docs viewer shell and rendered markdown content.
+- `docs/app.js` - docs manifest, route handling, markdown loading/rendering, link rewriting, search, and outline behavior.
 
 ## Change-To-Docs Update Matrix
 
@@ -195,13 +195,13 @@ Usually review/update:
 - `docs/README.md` (index/navigation if a major doc is added)
 - `docs/AI_AGENT_GUIDE.md` (orientation map/high-risk references if paths changed)
 - `docs/index.html`
-- `docs/file-map.html` (if `docs/FILE_MAP.md` changed and HTML companion should remain aligned)
+- compatibility redirect files if an alias route changed
 
 Checklist:
 - [ ] Add/move/remove entries in `docs/FILE_MAP.md` with accurate descriptions.
 - [ ] Update `docs/structure.md` if top-level or major module structure changed.
 - [ ] Update path references in other docs that mention moved files.
-- [ ] If `docs/FILE_MAP.md` changed materially, update `docs/file-map.html` companion page.
+- [ ] If a docs alias route changed, update any redirect entrypoints that depend on it.
 
 ### 8. New Invariants / High-Risk Areas / AI Contributor Workflow Changes
 
@@ -216,13 +216,13 @@ Required updates:
 
 Usually review/update:
 - `docs/README.md` (if reading order or "Read This First" changes)
-- `docs/ai-agent-guide.html` (companion page should mirror `docs/AI_AGENT_GUIDE.md`)
+- redirect entrypoints if the route slug changed
 
 Checklist:
 - [ ] Update invariant statements with exact file paths and behavior.
 - [ ] Update playbook steps when workflow changed.
 - [ ] Update testing expectations if required commands/checks changed.
-- [ ] Sync `docs/ai-agent-guide.html` if the markdown source changed.
+- [ ] Verify the docs viewer still routes to `AI_AGENT_GUIDE.md` correctly.
 
 ### 9. Documentation UI / Presentation Changes (`docs/*.html`, `docs/styles.css`, `docs/app.js`)
 
@@ -230,7 +230,7 @@ Examples:
 - Landing page content changes in `docs/index.html`
 - Visual theme/layout changes in `docs/styles.css`
 - Search/scroll behavior changes in `docs/app.js`
-- New HTML companion page
+- New redirect entrypoint or viewer route
 
 Required updates:
 - The changed UI file(s): `docs/index.html`, `docs/styles.css`, `docs/app.js`
@@ -241,10 +241,10 @@ Usually review/update:
 - `docs/DOCUMENTATION_GUIDE.md` (this file, if maintenance rules changed)
 
 Checklist:
-- [ ] Keep labels/links in `docs/index.html` consistent with actual markdown docs and companion pages.
-- [ ] Ensure section IDs and sidebar links in `docs/index.html` still match (required for `docs/app.js` scroll spy).
+- [ ] Keep labels/routes in `docs/index.html` consistent with the canonical markdown docs set.
+- [ ] Ensure rendered doc routes, search, and outline behavior still match `docs/app.js`.
 - [ ] If adding new shared UI classes/components, document intent with clear naming in `docs/styles.css`.
-- [ ] Verify `docs/app.js` selectors still match HTML (`#doc-search`, `.nav-link`, section IDs).
+- [ ] Verify `docs/app.js` selectors still match HTML (`#doc-search`, `#content`, `#outline`, and mobile toggle controls).
 - [ ] Smoke test the docs pages in a browser (search, navigation, responsive layout, link targets).
 
 ## `DesignerSkill.md` (Design Guidance Artifact) Status And Usage
@@ -259,7 +259,7 @@ Important clarification:
 What it is useful for:
 - Visual direction and aesthetic constraints when editing `docs/index.html`.
 - Shared presentation decisions when extending `docs/styles.css`.
-- UI polish decisions for companion pages such as `docs/ai-agent-guide.html` and `docs/file-map.html`.
+- UI polish decisions for the route-based docs viewer shell.
 
 What it does not replace:
 - It does not define Harmony runtime behavior.
@@ -276,57 +276,58 @@ Practical usage checklist:
 ### Canonical Content Model
 
 - `docs/*.md` files are the canonical documentation source.
-- `docs/index.html` is a static navigation/summary UI that links to canonical markdown docs and selected companion HTML pages.
-- `docs/ai-agent-guide.html` and `docs/file-map.html` are hand-maintained HTML companions derived from `docs/AI_AGENT_GUIDE.md` and `docs/FILE_MAP.md`.
-- These companion pages include explicit source references in their footers (for example `Source: docs/AI_AGENT_GUIDE.md`).
+- `docs/index.html` is the browser entrypoint for the documentation website.
+- `docs/app.js` loads markdown docs on demand, renders them in the site shell, rewrites internal markdown links to viewer routes, and builds the right-rail outline.
+- `docs/ai-agent-guide.html` and `docs/file-map.html` are redirect aliases into the main viewer for compatibility with older links.
 
 Maintenance implication:
-- When `docs/AI_AGENT_GUIDE.md` changes, check and update `docs/ai-agent-guide.html`.
-- When `docs/FILE_MAP.md` changes, check and update `docs/file-map.html`.
-- There is no tracked repository generator script for these HTML companion pages at the time of writing; treat synchronization as manual work.
+- When markdown doc filenames or route slugs change, update `docs/app.js`.
+- When alias routes change, update the redirect files that point into the viewer.
 
 ### Static Docs UI File Responsibilities
 
 #### `docs/index.html`
 
 Responsibilities:
-- Documentation landing page ("Documentation Hub") for browser-based navigation.
-- Curated summaries of the docs set (overview, quick start, reading order, all documents, consistency notes).
-- Link routing to markdown docs (`.md`) and HTML companions (`.html`).
-- Provides sidebar anchors (`.nav-link`) and section IDs used by `docs/app.js`.
+- Browser entrypoint for the documentation website.
+- Hosts the shell layout for left navigation, central content, and right-rail outline.
+- Loads the viewer assets and external rendering dependencies used by `docs/app.js`.
 
 Authoring notes:
-- If you add a new sidebar entry, create a matching `<section id="...">`.
-- If you rename a link target, update both the href and the destination file.
-- Keep quick-start commands consistent with `docs/README.md`, `docs/SETUP.md`, and `docs/OPERATIONS.md`.
+- Keep structural container IDs used by `docs/app.js` stable.
+- Keep typography/CDN asset choices intentional and compatible with the viewer.
+- Keep the site framing aligned with `docs/README.md`, `docs/SETUP.md`, and `docs/OPERATIONS.md`.
 
 #### `docs/styles.css`
 
 Responsibilities:
 - Shared visual tokens (colors, fonts, radii, shadows) and core layout.
-- Shared components/styles for sidebar, sections, cards, tables, chips, and responsive behavior.
-- Shared styling used by `docs/index.html` and other docs HTML pages that import it.
+- Shared components/styles for the viewer shell, markdown article content, cards, tables, TOC, and responsive behavior.
+- Shared styling used by `docs/index.html` and redirect pages.
 
 Authoring notes:
 - Prefer extending existing variables/classes before adding page-specific duplication.
 - Preserve readability and contrast for code-heavy, maintainer-focused content.
-- Re-test `docs/index.html`, `docs/ai-agent-guide.html`, and `docs/file-map.html` after shared style changes.
+- Re-test the main viewer and the redirect entrypoints after shared style changes.
 
 #### `docs/app.js`
 
 Responsibilities:
-- Search/filter behavior for `docs/index.html` via `#doc-search`.
-- Section visibility filtering based on text content and section IDs.
-- Sidebar scroll-spy highlighting for `.nav-link` anchors tied to in-page sections.
+- Docs manifest and route definitions.
+- Markdown fetch/render pipeline for canonical docs.
+- Internal-link rewriting so markdown references stay inside the viewer.
+- Search/filter behavior for the doc list.
+- Right-rail outline generation and active-section tracking.
+- Mobile navigation and outline panel toggles.
 
 Current usage:
 - `docs/index.html` loads `docs/app.js`.
-- `docs/ai-agent-guide.html` and `docs/file-map.html` currently use their own inline scripts for page-specific behavior.
+- Redirect files forward into viewer routes instead of carrying their own docs UI.
 
 Authoring notes:
-- Keep selectors in sync with HTML (`#doc-search`, `.nav-link`, section IDs).
-- If you generalize behavior for reuse, document which pages now depend on `docs/app.js`.
-- Avoid breaking pages that have non-anchor sidebar links (the shared script expects in-page hash links for observed sections).
+- Keep selectors in sync with HTML (`#doc-search`, `#doc-nav`, `#content`, `#outline`, mobile toggles).
+- Keep route IDs, markdown filenames, and compatibility aliases aligned.
+- Avoid linking directly to raw `.md` files from the viewer unless the intent is explicitly "Open Raw Source".
 
 ## Authoring Standards (Tone And Content)
 
@@ -343,7 +344,7 @@ Authoring notes:
 1. Identify the code change category (contract, schema, frontend flow, ops, file map, docs UI).
 2. Apply the matching checklist from this guide.
 3. Update canonical markdown docs first (`docs/*.md`).
-4. Update static docs UI pages (`docs/index.html`, companion HTML pages) if navigation/summaries/presentations are affected.
+4. Update static docs UI pages (`docs/index.html`, redirect aliases, shared styles/scripts) if navigation/summaries/presentations are affected.
 5. Re-read changed docs for path accuracy and consistency with code.
 6. Smoke test docs UI pages in a browser if any `docs/*.html`, `docs/styles.css`, or `docs/app.js` changed.
 
@@ -352,13 +353,12 @@ Authoring notes:
 Use this after changing `docs/index.html`, `docs/styles.css`, `docs/app.js`, `docs/ai-agent-guide.html`, or `docs/file-map.html`.
 
 - [ ] Open `docs/index.html` in a browser.
-- [ ] Verify sidebar anchor navigation scrolls to the correct sections.
-- [ ] Verify active sidebar link highlight updates while scrolling.
-- [ ] Verify docs search/filter (`#doc-search`) hides/shows sections correctly.
-- [ ] Verify links to markdown docs (`.md`) and companion pages (`.html`) resolve.
+- [ ] Verify docs search/filter (`#doc-search`) narrows the doc navigation correctly.
+- [ ] Verify opening multiple docs updates the main article, top bar, and right-rail outline.
+- [ ] Verify internal markdown links route into the viewer instead of opening raw `.md` pages.
+- [ ] Verify right-rail active section highlighting updates while scrolling a rendered doc.
 - [ ] Verify layout remains readable on narrow viewport widths.
-- [ ] Open `docs/ai-agent-guide.html` and `docs/file-map.html` if shared CSS changed.
-- [ ] Confirm companion page source footer still points to the correct markdown source file.
+- [ ] Open `docs/ai-agent-guide.html` and `docs/file-map.html` and confirm they redirect into the correct viewer routes.
 
 ## When To Update This Guide
 
