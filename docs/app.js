@@ -360,22 +360,21 @@ function renderHome() {
 
   els.topbar.innerHTML = `
     <div>
-      <p class="topbar__eyebrow">Documentation Website</p>
-      <h1 class="topbar__title">Technical Atlas</h1>
+      <p class="topbar__eyebrow">Documentation</p>
+      <h1 class="topbar__title">Harmony Documentation</h1>
       <p class="topbar__summary">
-        Canonical markdown docs, rendered inside a real documentation interface with routing, search,
-        outline navigation, and a cleaner reading surface.
+        Canonical project documentation for architecture, runtime contracts, operations, and contributor workflows.
       </p>
     </div>
     <div class="topbar__meta">
       <div class="meta-pill-row">
         <span class="meta-pill">Docs <strong>${DOCS.length}</strong></span>
         <span class="meta-pill">Categories <strong>3</strong></span>
-        <span class="meta-pill">Format <strong>Static HTML + JS</strong></span>
+        <span class="meta-pill">Viewer <strong>Markdown + HTML</strong></span>
       </div>
       <div class="topbar__actions">
-        <a class="primary-button" href="${createRoute("architecture")}">Open Architecture</a>
-        <a class="ghost-button" href="${createRoute("setup")}">Local Quick Start</a>
+        <a class="primary-button" href="${createRoute("setup")}">Quick Start</a>
+        <a class="ghost-button" href="${createRoute("architecture")}">Architecture</a>
       </div>
     </div>
   `;
@@ -383,16 +382,16 @@ function renderHome() {
   els.content.innerHTML = `
     <div class="hero-stage">
       <section class="hero-panel">
-        <div class="hero-panel__eyebrow">Engineering Docs, Properly Framed</div>
-        <h2 class="hero-panel__title">Readable. Navigable. Shareable.</h2>
+        <div class="hero-panel__eyebrow">Overview</div>
+        <h2 class="hero-panel__title">Clean project documentation, in one place.</h2>
         <p class="hero-panel__summary">
-          Harmony ships a lot of operational and architectural detail: REST contracts, realtime flows,
-          voice transport decisions, Prisma invariants, contributor playbooks, and analytics rules.
-          This site keeps the markdown canonical but stops treating the browser like a text dump.
+          Harmony has detailed documentation for setup, architecture, API contracts, realtime behavior,
+          voice transport, data modeling, and contributor workflows. This viewer keeps those markdown
+          files as the source of truth while presenting them in a proper documentation layout.
         </p>
         <div class="hero-panel__actions">
-          <a class="primary-button" href="${createRoute("operations")}">Runbook First</a>
-          <a class="ghost-button" href="${createRoute("api")}">API Reference</a>
+          <a class="primary-button" href="${createRoute("setup")}">Get started</a>
+          <a class="ghost-button" href="${createRoute("operations")}">Operations</a>
           <a class="ghost-button" href="${createRoute("file-map")}">Repo Map</a>
         </div>
       </section>
@@ -401,30 +400,30 @@ function renderHome() {
         <article class="stat-card">
           <span class="stat-card__value">${DOCS.length}</span>
           <div class="stat-card__label">Docs In Scope</div>
-          <div class="stat-card__hint">Canonical markdown sources rendered inside the site shell.</div>
+          <div class="stat-card__hint">Canonical markdown sources rendered inside the docs viewer.</div>
         </article>
         <article class="stat-card">
           <span class="stat-card__value">REST + WS</span>
-          <div class="stat-card__label">Transport Coverage</div>
-          <div class="stat-card__hint">HTTP, WebSocket, mesh voice, SFU, analytics, and fallbacks.</div>
+          <div class="stat-card__label">Runtime Coverage</div>
+          <div class="stat-card__hint">HTTP, WebSocket, voice transport, analytics, and operations.</div>
         </article>
         <article class="stat-card">
           <span class="stat-card__value">3</span>
-          <div class="stat-card__label">Doc Lanes</div>
-          <div class="stat-card__hint">Foundations, runtime references, and contributor operations.</div>
+          <div class="stat-card__label">Sections</div>
+          <div class="stat-card__hint">Foundations, runtime references, and contributor guidance.</div>
         </article>
         <article class="stat-card">
           <span class="stat-card__value">${filteredDocs.length}</span>
           <div class="stat-card__label">${state.query ? "Search Hits" : "Visible Docs"}</div>
-          <div class="stat-card__hint">${state.query ? `Filtered by "${escapeHtml(state.query)}".` : "Ready for direct deep-linking."}</div>
+          <div class="stat-card__hint">${state.query ? `Filtered by "${escapeHtml(state.query)}".` : "Search and deep-linking are available across the docs set."}</div>
         </article>
       </section>
 
       <section class="section-shell">
         <div class="section-heading">
           <div>
-            <h2>Featured Paths</h2>
-            <p>Start with the docs that define system behavior, transport flow, and integration risk.</p>
+            <h2>Key references</h2>
+            <p>Start with the docs that define runtime behavior, transport flow, and integration boundaries.</p>
           </div>
         </div>
         <div class="feature-grid">
@@ -444,8 +443,8 @@ function renderHome() {
       <section class="section-shell">
         <div class="section-heading">
           <div>
-            <h2>Launch Pad</h2>
-            <p>Get a local stack running, then move directly into the contracts and troubleshooting docs.</p>
+            <h2>Quick start</h2>
+            <p>Get a local stack running, then move into the runtime and troubleshooting references.</p>
           </div>
         </div>
         <div class="launch-grid">
@@ -458,8 +457,8 @@ npm --workspace backend run prisma:seed
 npm run dev</code></pre>
           </article>
           <article class="launch-card">
-            <h3>What To Verify First</h3>
-            <p>Once the stack is up, use the runtime docs as a functional checklist rather than reading them passively.</p>
+            <h3>What to verify first</h3>
+            <p>Use the operational docs as a checklist once the stack is up.</p>
             <ul class="check-list">
               <li><span><strong>Health:</strong> confirm <code>GET /health</code> returns <code>{ "ok": true }</code>.</span></li>
               <li><span><strong>Auth:</strong> register or login, then verify <code>/me</code>.</span></li>
@@ -473,8 +472,8 @@ npm run dev</code></pre>
       <section class="section-shell">
         <div class="section-heading">
           <div>
-            <h2>Browse The Canonical Docs</h2>
-            <p>Each card routes into the markdown source inside this shell, so readers stay inside the website.</p>
+            <h2>Browse the docs</h2>
+            <p>Each entry opens the canonical markdown source inside the docs viewer.</p>
           </div>
         </div>
         <div class="doc-card-grid">
@@ -485,14 +484,14 @@ npm run dev</code></pre>
       <section class="section-shell">
         <div class="section-heading">
           <div>
-            <h2>Site Notes</h2>
-            <p>The markdown remains source-of-truth. The website is the reading layer.</p>
+            <h2>Documentation notes</h2>
+            <p>The markdown remains source-of-truth. This site is the reading layer.</p>
           </div>
         </div>
         <div class="footer-grid">
           <article class="footer-card">
             <h3>Canonical Source</h3>
-            <p>The docs still live in <code>docs/*.md</code>. This UI fetches and renders them, then rewrites internal links so readers never drop back into raw markdown pages.</p>
+            <p>The docs live in <code>docs/*.md</code>. The viewer fetches and renders them, then rewrites internal links so readers stay inside the site.</p>
           </article>
           <article class="footer-card">
             <h3>Quick Access</h3>
@@ -502,7 +501,7 @@ npm run dev</code></pre>
           </article>
           <article class="footer-card">
             <h3>Compatibility</h3>
-            <p>Legacy companion URLs can redirect into this shell, so existing references do not force readers into a fragmented docs experience.</p>
+            <p>Older alias URLs redirect into this viewer so existing links do not drop users back into a fragmented docs experience.</p>
           </article>
         </div>
       </section>
@@ -534,12 +533,12 @@ function renderDocCard(doc) {
 function renderHomeOutline() {
   els.outline.innerHTML = `
     <div class="outline__block">
-      <p class="outline__label">Atlas</p>
-      <h2 class="outline__title">Pick a lane, then drill in.</h2>
-      <p class="outline__text">Start with setup and operations if you need to run the app, or jump straight into runtime docs for contract work.</p>
+      <p class="outline__label">Overview</p>
+      <h2 class="outline__title">Start with setup, then move into the references you need.</h2>
+      <p class="outline__text">Use setup and operations to get running, then jump into architecture, API, or repo orientation docs.</p>
     </div>
     <div class="outline__block">
-      <p class="outline__label">Recommended Entry</p>
+      <p class="outline__label">Recommended</p>
       <div class="outline__quick-list">
         <a href="${createRoute("setup")}"><span>Setup</span><span>→</span></a>
         <a href="${createRoute("operations")}"><span>Operations</span><span>→</span></a>
@@ -641,8 +640,8 @@ function renderDocTopbar(doc) {
         <span class="meta-pill">Route <strong>${escapeHtml(doc.id)}</strong></span>
       </div>
       <div class="topbar__actions">
-        <a class="ghost-button" href="#home">Back To Atlas</a>
-        <a class="primary-button" href="${sourceLink}" target="_blank" rel="noreferrer">Open Raw Source</a>
+        <a class="ghost-button" href="#home">Overview</a>
+        <a class="primary-button" href="${sourceLink}" target="_blank" rel="noreferrer">Raw Markdown</a>
       </div>
     </div>
   `;
