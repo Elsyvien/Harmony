@@ -1,6 +1,7 @@
 # Harmony
+<p align="center">
 <img width="384" height="256" alt="logo" src="https://github.com/user-attachments/assets/589403ea-58bd-42ea-b4e8-f8eaa66142fa" />
-
+</p>
 Harmony chat app with:
 - JWT auth (register/login/logout/session restore)
 - Multi-server chat with default server bootstrap, server creation, and invite-based join
